@@ -220,7 +220,7 @@ public class EntityGenerator {
     }
 
     private String generateGetter(PropertyModel prop, SchemaModel schema) {
-        String javaType = resolvePropertyJavaType(prop, schema, false);
+        String javaType = resolvePropertyJavaType(prop, schema, prop.nullable());
         String fn = Names.toJavaFieldName(prop.name());
 
         if (Names.isCollectionType(prop.edmType())) {

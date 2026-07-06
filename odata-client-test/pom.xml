@@ -57,6 +57,20 @@
                             </schemaPackages>
                         </configuration>
                     </execution>
+                    <execution>
+                        <id>generate-northwind</id>
+                        <phase>generate-sources</phase>
+                        <goals>
+                            <goal>generate</goal>
+                        </goals>
+                        <configuration>
+                            <metadataFile>${project.basedir}/src/test/resources/northwind-metadata.xml</metadataFile>
+                            <schemaPackages>
+                                <NorthwindModel>com.example.northwind</NorthwindModel>
+                                <ODataWebV4.Northwind.Model>com.example.northwind</ODataWebV4.Northwind.Model>
+                            </schemaPackages>
+                        </configuration>
+                    </execution>
                 </executions>
                 <dependencies>
                     <dependency>
