@@ -208,6 +208,24 @@ CollectionPage<Person> people = client.people()
 - Composite: `OrderDetails(OrderId=1,ProductId=5)` — key names required
 - Real services (TripPin) return 500 if key name is included for single keys
 
+### 12. Batch Requests Use Absolute URIs
+
+**Decision:** Batch operations resolve relative URLs to absolute URLs before sending.
+
+**Reason:** The OData v4 spec says batch operations can use relative or absolute URIs, but real services (TripPin) require absolute URIs. The error "a base URI was not specified for the batch writer or batch reader" occurs when relative paths are used. We resolve `People('scott')` to `https://service/V4/TripPinService/People('scott')` before encoding.
+
+### 13. Batch Uses Multipart/Mixed Format
+
+**Decision:** Use `multipart/mixed` format for batch requests (not JSON batch).
+
+**Reason:** `multipart/mixed` is the original OData v4 batch format supported by all services. JSON batch (`application/json`) is a newer alternative with limited adoption. Multipart is simpler to implement and more widely compatible.
+
+### 14. Batch Response Parsing Separates Request/Response Roles
+
+**Decision:** The encoder creates HTTP request lines (`GET /path HTTP/1.1`) while the decoder parses HTTP response lines (`HTTP/1.1 200 OK`).
+
+**Reason:** Batch is a request-response protocol. The encoder builds the outgoing requests; the decoder parses the incoming responses. These are different formats — request lines start with the method, response lines start with `HTTP/x.x`. The decoder should not be tested with encoded requests (they have different formats).
+
 ---
 
 ## Architecture
@@ -224,7 +242,8 @@ modern-odata-client/
 │   ├── http/                 # HttpTransport, HttpRequest, HttpResponse
 │   ├── auth/                 # AuthProvider
 │   ├── serialization/        # Serializer interface
-│   └── paging/               # CollectionPage
+│   ├── paging/               # CollectionPage
+│   └── batch/                # BatchOperation, BatchRequest, BatchResponse
 ├── odata-client-maven-plugin/ # Maven plugin wrapper
 └── odata-client-test/        # Integration tests
 ```
@@ -237,9 +256,10 @@ modern-odata-client/
 - **Generator integration tests:** Generate TripPin client, verify file structure and code content (1 test)
 - **Generator compilation tests:** Generate + compile TripPin client against runtime JARs (1 test)
 - **Runtime tests:** Verify OData collection response parsing, Context URL construction, key formatting (6 tests)
-- **Integration tests:** Live TripPin service: collection queries, entity get, navigation, filtering, ordering, select, count, airlines, airports (9 tests)
-- **Total: 44 tests passing**
-- **Future:** Batch support tests, write operations against TripPin service
+- **Batch tests:** Multipart encode/decode, batch request construction, ContextPath relative URLs (16 tests)
+- **Integration tests:** Live TripPin service: collection queries, entity get, navigation, filtering, ordering, select, count, airlines, airports, batch requests (14 tests)
+- **Total: 65 tests passing**
+- **Future:** Cancellable streaming, write operations against TripPin service
 
 ---
 

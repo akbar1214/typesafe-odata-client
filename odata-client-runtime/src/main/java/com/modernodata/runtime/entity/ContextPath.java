@@ -60,9 +60,20 @@ public record ContextPath(
 
     public String toUrl() {
         StringBuilder sb = new StringBuilder(basePath);
+        appendSegments(sb);
+        return sb.toString();
+    }
+
+    public String toRelativeUrl() {
+        StringBuilder sb = new StringBuilder();
+        appendSegments(sb);
+        return sb.toString();
+    }
+
+    private void appendSegments(StringBuilder sb) {
         for (Segment segment : segments) {
             if (!segment.name().isEmpty()) {
-                if (!sb.toString().endsWith("/")) sb.append("/");
+                if (sb.length() > 0 && !sb.toString().endsWith("/")) sb.append("/");
                 sb.append(segment.name());
 
                 if (!segment.keys().isEmpty()) {
@@ -91,7 +102,6 @@ public record ContextPath(
                 }
             }
         }
-        return sb.toString();
     }
 
     private static String encodeQueryParam(String value) {

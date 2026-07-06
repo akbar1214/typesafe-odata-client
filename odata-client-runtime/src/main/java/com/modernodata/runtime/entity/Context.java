@@ -46,4 +46,8 @@ public record Context(
     public ContextPath basePath() {
         return new ContextPath(baseUrl);
     }
+
+    public com.modernodata.runtime.batch.BatchRequest batch() {
+        return new com.modernodata.runtime.batch.BatchRequest(this);
+    }
 }

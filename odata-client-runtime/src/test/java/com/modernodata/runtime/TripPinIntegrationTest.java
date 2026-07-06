@@ -1,5 +1,9 @@
 package com.modernodata.runtime;
 
+import com.modernodata.runtime.batch.BatchOperation;
+import com.modernodata.runtime.batch.BatchRequest;
+import com.modernodata.runtime.batch.BatchResponse;
+import com.modernodata.runtime.batch.BatchResult;
 import com.modernodata.runtime.entity.Context;
 import com.modernodata.runtime.entity.ContextPath;
 import com.modernodata.runtime.http.HttpResponse;
@@ -228,5 +232,84 @@ class TripPinIntegrationTest {
         JsonNode airport = root.get("value").get(0);
         assertTrue(airport.has("IataCode"), "Airport should have IataCode");
         assertTrue(airport.has("Name"), "Airport should have Name");
+    }
+
+    @Test
+    void batchGetMultipleEntities() {
+        BatchResponse response = tripPinContext.batch()
+                .add(BatchOperation.get("People('scottketchum')"))
+                .add(BatchOperation.get("People('scottketchum')?$select=UserName,FirstName"))
+                .execute();
+
+        assertEquals(2, response.size());
+
+        BatchResult<?> scottResult = response.get(0);
+        assertTrue(scottResult.isSuccessful(), "Scott GET should succeed: " + scottResult.statusCode());
+        assertNotNull(scottResult.body());
+
+        BatchResult<?> scottSelectResult = response.get(1);
+        assertTrue(scottSelectResult.isSuccessful(), "Scott SELECT should succeed: " + scottSelectResult.statusCode());
+        assertNotNull(scottSelectResult.body());
+    }
+
+    @Test
+    void batchGetEntityAndCollection() {
+        BatchResponse response = tripPinContext.batch()
+                .add(BatchOperation.get("People('scottketchum')"))
+                .add(BatchOperation.get("People('scottketchum')/Trips?$top=2"))
+                .execute();
+
+        assertEquals(2, response.size());
+
+        BatchResult<?> personResult = response.get(0);
+        assertTrue(personResult.isSuccessful());
+
+        BatchResult<?> tripsResult = response.get(1);
+        assertTrue(tripsResult.isSuccessful());
+        assertNotNull(tripsResult.body());
+
+        String body = new String(tripsResult.body());
+        assertTrue(body.contains("value"), "Collection response should have 'value'");
+    }
+
+    @Test
+    void batchGetAirlinesAndAirports() {
+        BatchResponse response = tripPinContext.batch()
+                .add(BatchOperation.get("Airlines"))
+                .add(BatchOperation.get("Airports?$top=2"))
+                .execute();
+
+        assertEquals(2, response.size());
+        assertTrue(response.get(0).isSuccessful());
+        assertTrue(response.get(1).isSuccessful());
+    }
+
+    @Test
+    void batchWithSelect() {
+        BatchResponse response = tripPinContext.batch()
+                .add(BatchOperation.get("People('scottketchum')?$select=UserName,FirstName"))
+                .execute();
+
+        assertEquals(1, response.size());
+        BatchResult<?> result = response.get(0);
+        assertTrue(result.isSuccessful());
+
+        String body = result.getText();
+        assertTrue(body.contains("UserName"));
+        assertTrue(body.contains("FirstName"));
+    }
+
+    @Test
+    void batchWithFilter() {
+        BatchResponse response = tripPinContext.batch()
+                .add(BatchOperation.get("People?$filter=FirstName eq 'Scott'&$top=1"))
+                .execute();
+
+        assertEquals(1, response.size());
+        BatchResult<?> result = response.get(0);
+        assertTrue(result.isSuccessful());
+
+        String body = result.getText();
+        assertTrue(body.contains("value"));
     }
 }

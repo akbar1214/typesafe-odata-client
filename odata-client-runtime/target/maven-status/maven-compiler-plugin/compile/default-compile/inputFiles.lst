@@ -2,6 +2,10 @@
 /Users/akbarhusain/projects/modern-odata-client/odata-client-runtime/src/main/java/com/modernodata/runtime/auth/AuthProvider.java
 /Users/akbarhusain/projects/modern-odata-client/odata-client-runtime/src/main/java/com/modernodata/runtime/auth/BasicAuthProvider.java
 /Users/akbarhusain/projects/modern-odata-client/odata-client-runtime/src/main/java/com/modernodata/runtime/auth/BearerAuthProvider.java
+/Users/akbarhusain/projects/modern-odata-client/odata-client-runtime/src/main/java/com/modernodata/runtime/batch/BatchOperation.java
+/Users/akbarhusain/projects/modern-odata-client/odata-client-runtime/src/main/java/com/modernodata/runtime/batch/BatchRequest.java
+/Users/akbarhusain/projects/modern-odata-client/odata-client-runtime/src/main/java/com/modernodata/runtime/batch/BatchResponse.java
+/Users/akbarhusain/projects/modern-odata-client/odata-client-runtime/src/main/java/com/modernodata/runtime/batch/BatchResult.java
 /Users/akbarhusain/projects/modern-odata-client/odata-client-runtime/src/main/java/com/modernodata/runtime/entity/Context.java
 /Users/akbarhusain/projects/modern-odata-client/odata-client-runtime/src/main/java/com/modernodata/runtime/entity/ContextPath.java
 /Users/akbarhusain/projects/modern-odata-client/odata-client-runtime/src/main/java/com/modernodata/runtime/entity/EntityUtil.java
@@ -23,6 +27,7 @@
 /Users/akbarhusain/projects/modern-odata-client/odata-client-runtime/src/main/java/com/modernodata/runtime/http/HttpResponse.java
 /Users/akbarhusain/projects/modern-odata-client/odata-client-runtime/src/main/java/com/modernodata/runtime/http/HttpTransport.java
 /Users/akbarhusain/projects/modern-odata-client/odata-client-runtime/src/main/java/com/modernodata/runtime/http/JdkHttpTransport.java
+/Users/akbarhusain/projects/modern-odata-client/odata-client-runtime/src/main/java/com/modernodata/runtime/internal/MultipartHelper.java
 /Users/akbarhusain/projects/modern-odata-client/odata-client-runtime/src/main/java/com/modernodata/runtime/internal/RequestHelper.java
 /Users/akbarhusain/projects/modern-odata-client/odata-client-runtime/src/main/java/com/modernodata/runtime/paging/CollectionPage.java
 /Users/akbarhusain/projects/modern-odata-client/odata-client-runtime/src/main/java/com/modernodata/runtime/query/BooleanProperty.java

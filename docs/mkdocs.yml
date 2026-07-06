@@ -24,6 +24,7 @@ nav:
     - Add Authentication: how-to/auth.md
     - Use Custom HTTP Transport: how-to/custom-transport.md
     - Handle Errors Gracefully: how-to/error-handling.md
+    - Batch Requests: how-to/batch.md
   - Concepts:
     - How Code Generation Works: concepts/code-generation.md
     - The Context Pattern: concepts/context.md
@@ -38,6 +39,7 @@ nav:
     - Serialization: reference/serialization.md
     - Error Handling: reference/error-handling.md
     - OData URL Patterns: reference/odata-urls.md
+    - Batch API: reference/batch-api.md
     - Package Structure: reference/packages.md
   - Contributing: contributing.md
   - Release Notes: release-notes.md

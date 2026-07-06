@@ -26,6 +26,7 @@ public class RequestGenerator {
         imports.add("com.modernodata.runtime.entity.ContextPath");
         imports.add("com.modernodata.runtime.internal.RequestHelper");
         imports.add("com.modernodata.runtime.query.*");
+        imports.add("com.modernodata.runtime.batch.BatchOperation");
         imports.add(basePackage + Names.packageNameSuffixEntity() + "." + entityClassName);
 
         for (NavigationPropertyModel nav : entityType.navigationProperties()) {
@@ -86,6 +87,20 @@ public class RequestGenerator {
 
         sb.append("    public void delete() {\n");
         sb.append("        RequestHelper.executeDelete(context, contextPath);\n");
+        sb.append("    }\n\n");
+
+        // Batch methods
+        sb.append("    public BatchOperation toBatchOperation() {\n");
+        sb.append("        return BatchOperation.get(contextPath.toRelativeUrl());\n");
+        sb.append("    }\n\n");
+
+        sb.append("    public BatchOperation patchToBatchOperation(").append(entityClassName).append(" entity) {\n");
+        sb.append("        byte[] body = context.serializer().serialize(entity, ").append(entityClassName).append(".class);\n");
+        sb.append("        return BatchOperation.patch(contextPath.toRelativeUrl(), body);\n");
+        sb.append("    }\n\n");
+
+        sb.append("    public BatchOperation deleteToBatchOperation() {\n");
+        sb.append("        return BatchOperation.delete(contextPath.toRelativeUrl());\n");
         sb.append("    }\n");
 
         sb.append("}\n");
@@ -108,6 +123,7 @@ public class RequestGenerator {
         imports.add("com.modernodata.runtime.internal.RequestHelper");
         imports.add("com.modernodata.runtime.query.*");
         imports.add("com.modernodata.runtime.paging.CollectionPage");
+        imports.add("com.modernodata.runtime.batch.BatchOperation");
         imports.add(basePackage + Names.packageNameSuffixEntity() + "." + entityClassName);
 
         for (String imp : imports) {
@@ -225,6 +241,10 @@ public class RequestGenerator {
 
         sb.append("    public List<").append(entityClassName).append("> toList() {\n");
         sb.append("        return get().toList();\n");
+        sb.append("    }\n\n");
+
+        sb.append("    public BatchOperation toBatchOperation() {\n");
+        sb.append("        return BatchOperation.get(buildContext().toRelativeUrl());\n");
         sb.append("    }\n\n");
 
         // copy()
