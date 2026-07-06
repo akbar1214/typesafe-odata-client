@@ -36,6 +36,7 @@ com/modernodata/runtime/entity/ContextPath$Segment.class
 com/modernodata/runtime/paging/CollectionPage.class
 com/modernodata/runtime/http/HttpMethod.class
 com/modernodata/runtime/entity/ContextPath$KeyValuePair.class
+com/modernodata/runtime/http/JdkHttpTransport$1.class
 com/modernodata/runtime/query/NavProperty.class
 com/modernodata/runtime/http/HttpTransport.class
 com/modernodata/runtime/auth/ApiKeyAuthProvider.class

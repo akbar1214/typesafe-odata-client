@@ -257,9 +257,10 @@ modern-odata-client/
 - **Generator compilation tests:** Generate + compile TripPin client against runtime JARs (1 test)
 - **Runtime tests:** Verify OData collection response parsing, Context URL construction, key formatting (6 tests)
 - **Batch tests:** Multipart encode/decode, batch request construction, ContextPath relative URLs (16 tests)
-- **Integration tests:** Live TripPin service: collection queries, entity get, navigation, filtering, ordering, select, count, airlines, airports, batch requests (14 tests)
-- **Total: 65 tests passing**
-- **Future:** Cancellable streaming, write operations against TripPin service
+- **Integration tests:** Live TripPin service: collection queries, entity get, navigation, filtering, ordering, select, count, airlines, airports, batch requests, CRUD operations (POST/PATCH/DELETE with ETag), $ref link/unlink (18 tests)
+- **Northwind integration tests:** Live Northwind V4 service: categories, products, customers, orders, employees, suppliers, filtering, ordering, select, count, expand (16 tests)
+- **Total: 85 tests passing**
+- **Future:** Cancellable streaming
 
 ---
 
@@ -300,3 +301,17 @@ modern-odata-client/
 17. **OData `$expand` doesn't nest inside `$filter`.** You can't filter on expanded navigation properties using dot notation in `$filter` — use `$expand` with nested `$filter` instead.
 
 18. **OData v4 requires `OData-MaxVersion: 4.0` and `OData-Version: 4.0` headers.** Without these, some services return 406 or 500. TripPin requires them.
+
+19. **Java's `HttpURLConnection` doesn't support PATCH.** The legacy `java.net.HttpURLConnection.setRequestMethod()` throws `ProtocolException` for PATCH. Use `java.net.http.HttpClient` (Java 11+) which supports PATCH natively via `builder.method("PATCH", ...)`. The `X-HTTP-Method-Override` workaround is not universally supported — TripPin rejects it with a 500 error.
+
+20. **TripPin requires ETag (If-Match) for PATCH and DELETE.** Both PATCH and DELETE return HTTP 428 (Precondition Required) if no `If-Match` header is sent. You must GET the entity first to obtain the `ETag` or `odata.etag` response header, then include it as `If-Match` in the mutation request.
+
+21. **TripPin `$ref` POST returns 500 for some entity types.** Adding a friend via `POST People('scott')/Friends/$ref` with `{"@odata.id": "People('keith')"}` returns 500. The `$ref` DELETE with `$id` query parameter works correctly: `DELETE People('scott')/Friends/$ref?$id=People('keith')`.
+
+22. **TripPin returns 204 (No Content) for GET on deleted entities.** After DELETE succeeds, a subsequent GET returns 204 instead of the expected 404. This is a TripPin-specific behavior — the entity is gone, but the service returns 204 rather than 404.
+
+23. **`java.net.http.HttpClient` normalizes response header keys.** The `HttpHeaders.map()` method returns a case-insensitive `TreeMap`. When looking up headers, use case-insensitive comparison (`equalsIgnoreCase`) rather than exact string matching. This applies to `Content-Type`, `ETag`, and any other header lookups.
+
+24. **Multipart batch responses need case-insensitive header lookup.** The `BatchRequest.parseResponse()` method was using `headers.getOrDefault("Content-Type", ...)` which fails when the HTTP client returns lowercase header keys. Fixed to use `equalsIgnoreCase` iteration over all headers.
+
+25. **`ContextPath.addKey()` value type matters for URL format.** `addKey("CategoryID", "1")` generates `Categories('1')` (quoted) while `addKey("CategoryID", 1)` generates `Categories(1)` (unquoted). OData services may reject quoted integer keys — always pass the correct Java type (int for integers, String for strings).

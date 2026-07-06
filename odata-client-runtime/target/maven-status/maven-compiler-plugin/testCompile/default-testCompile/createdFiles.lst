@@ -1,7 +1,12 @@
 com/modernodata/runtime/batch/BatchRequestTest.class
+com/modernodata/runtime/NorthwindIntegrationTest.class
 com/modernodata/runtime/TripPinIntegrationTest$Trip.class
 com/modernodata/runtime/TripPinIntegrationTest.class
+com/modernodata/runtime/NorthwindIntegrationTest$Customer.class
+com/modernodata/runtime/NorthwindIntegrationTest$Order.class
 com/modernodata/runtime/RequestHelperTest.class
 com/modernodata/runtime/TripPinIntegrationTest$Person.class
+com/modernodata/runtime/NorthwindIntegrationTest$Product.class
 com/modernodata/runtime/internal/MultipartHelperTest.class
+com/modernodata/runtime/NorthwindIntegrationTest$Category.class
 com/modernodata/runtime/RequestHelperTest$TestEntity.class

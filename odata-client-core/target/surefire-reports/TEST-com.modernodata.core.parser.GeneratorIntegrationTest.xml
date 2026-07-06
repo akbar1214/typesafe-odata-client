@@ -13,7 +13,7 @@
     <property name="sun.java.launcher" value="SUN_STANDARD"/>
     <property name="user.country" value="IN"/>
     <property name="sun.boot.library.path" value="/Users/akbarhusain/Library/Java/JavaVirtualMachines/corretto-24.0.2/Contents/Home/lib"/>
-    <property name="sun.java.command" value="/Users/akbarhusain/projects/modern-odata-client/odata-client-core/target/surefire/surefirebooter-20260707004227511_3.jar /Users/akbarhusain/projects/modern-odata-client/odata-client-core/target/surefire 2026-07-07T00-42-27_485-jvmRun1 surefire-20260707004227511_1tmp surefire_0-20260707004227511_2tmp"/>
+    <property name="sun.java.command" value="/Users/akbarhusain/projects/modern-odata-client/odata-client-core/target/surefire/surefirebooter-20260707010605784_3.jar /Users/akbarhusain/projects/modern-odata-client/odata-client-core/target/surefire 2026-07-07T01-06-05_756-jvmRun1 surefire-20260707010605784_1tmp surefire_0-20260707010605784_2tmp"/>
     <property name="http.nonProxyHosts" value="local|*.local|169.254/16|*.169.254/16"/>
     <property name="jdk.debug" value="release"/>
     <property name="surefire.test.class.path" value="/Users/akbarhusain/projects/modern-odata-client/odata-client-core/target/test-classes:/Users/akbarhusain/projects/modern-odata-client/odata-client-core/target/classes:/Users/akbarhusain/.m2/repository/org/slf4j/slf4j-api/2.0.12/slf4j-api-2.0.12.jar:/Users/akbarhusain/.m2/repository/org/junit/jupiter/junit-jupiter/5.10.2/junit-jupiter-5.10.2.jar:/Users/akbarhusain/.m2/repository/org/junit/jupiter/junit-jupiter-api/5.10.2/junit-jupiter-api-5.10.2.jar:/Users/akbarhusain/.m2/repository/org/opentest4j/opentest4j/1.3.0/opentest4j-1.3.0.jar:/Users/akbarhusain/.m2/repository/org/junit/platform/junit-platform-commons/1.10.2/junit-platform-commons-1.10.2.jar:/Users/akbarhusain/.m2/repository/org/apiguardian/apiguardian-api/1.1.2/apiguardian-api-1.1.2.jar:/Users/akbarhusain/.m2/repository/org/junit/jupiter/junit-jupiter-params/5.10.2/junit-jupiter-params-5.10.2.jar:/Users/akbarhusain/.m2/repository/org/junit/jupiter/junit-jupiter-engine/5.10.2/junit-jupiter-engine-5.10.2.jar:/Users/akbarhusain/.m2/repository/org/junit/platform/junit-platform-engine/1.10.2/junit-platform-engine-1.10.2.jar:/Users/akbarhusain/.m2/repository/org/slf4j/slf4j-simple/2.0.12/slf4j-simple-2.0.12.jar:"/>
@@ -30,7 +30,7 @@
     <property name="java.vm.specification.vendor" value="Oracle Corporation"/>
     <property name="java.specification.name" value="Java Platform API Specification"/>
     <property name="apple.awt.application.name" value="ForkedBooter"/>
-    <property name="surefire.real.class.path" value="/Users/akbarhusain/projects/modern-odata-client/odata-client-core/target/surefire/surefirebooter-20260707004227511_3.jar"/>
+    <property name="surefire.real.class.path" value="/Users/akbarhusain/projects/modern-odata-client/odata-client-core/target/surefire/surefirebooter-20260707010605784_3.jar"/>
     <property name="sun.management.compiler" value="HotSpot 64-Bit Tiered Compilers"/>
     <property name="ftp.nonProxyHosts" value="local|*.local|169.254/16|*.169.254/16"/>
     <property name="java.runtime.version" value="24.0.2+12-FR"/>
@@ -59,7 +59,7 @@
     <property name="socksNonProxyHosts" value="local|*.local|169.254/16|*.169.254/16"/>
     <property name="java.class.version" value="68.0"/>
   </properties>
-  <testcase name="generatesTripPinClient(Path)" classname="com.modernodata.core.parser.GeneratorIntegrationTest" time="0.008">
+  <testcase name="generatesTripPinClient(Path)" classname="com.modernodata.core.parser.GeneratorIntegrationTest" time="0.009">
     <system-err><![CDATA[[main] INFO com.modernodata.core.generator.Generator - Generating schema: Microsoft.OData.SampleService.Models.TripPin -> com.example.trippin
 ]]></system-err>
   </testcase>

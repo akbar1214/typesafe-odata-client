@@ -1,4 +1,4 @@
 -------------------------------------------------------------------------------
 Test set: com.modernodata.runtime.TripPinIntegrationTest
 -------------------------------------------------------------------------------
-Tests run: 14, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 6.810 s -- in com.modernodata.runtime.TripPinIntegrationTest
+Tests run: 18, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 12.78 s -- in com.modernodata.runtime.TripPinIntegrationTest

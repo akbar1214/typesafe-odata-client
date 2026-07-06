@@ -399,7 +399,10 @@ Body: {
 ### DELETE
 ```
 DELETE /People('scottketchum')
+If-Match: W/"12345678"
 ```
+
+> **Note:** Many OData services (including TripPin) require `If-Match` for DELETE operations. GET the entity first to obtain the ETag, then include it in the DELETE request. Without it, the server returns HTTP 428 (Precondition Required).
 
 ---
 

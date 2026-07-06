@@ -87,18 +87,18 @@ modern-odata-client/
 
 ---
 
-## Milestone 4: CRUD + Paging + Batch ✅ MOSTLY COMPLETE
+## Milestone 4: CRUD + Paging + Batch ✅ COMPLETE
 
 **Goal:** Full CRUD operations, proper paging, and OData batch support.
 
 - [x] Entity CRUD: GET, POST, PATCH (changed fields only), PUT, DELETE
 - [x] ETag / If-Match support for optimistic concurrency
 - [x] Collection paging with `@odata.nextLink` and `@odata.count`
-- [ ] Cancellable streaming
-- [ ] `$batch` requests
+- [ ] Cancellable streaming (deferred)
+- [x] `$batch` requests (multipart/mixed, 5 integration tests)
 - [x] `$ref` support for navigation property links
 - [x] `$count` support in collection queries
-- [x] Integration tests: 9 live tests against TripPin service
+- [x] Integration tests: 18 live tests against TripPin service (9 original + 5 batch + 4 CRUD)
 
 ---
 
@@ -109,9 +109,10 @@ modern-odata-client/
 - [x] `odata-client-maven-plugin` with `generate` goal (downloads metadata or reads from file)
 - [x] Unit tests for generator (29 tests)
 - [x] Runtime tests (6 tests)
-- [x] Integration tests against live TripPin service (9 tests)
+- [x] Integration tests against live TripPin service (18 tests: reads, writes, batch)
+- [x] Integration tests against live Northwind V4 service (16 tests)
 - [x] README with usage examples
-- **Total: 44 tests passing**
+- **Total: 85 tests passing**
 
 ---
 

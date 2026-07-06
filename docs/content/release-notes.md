@@ -2,7 +2,7 @@
 
 ## 0.1.0-SNAPSHOT (Development)
 
-### Milestones 1-5 Complete
+### Milestones 1-6 Complete
 
 **Core Features:**
 
@@ -25,8 +25,9 @@
 - GET: Single entity and collection queries
 - POST: Create entities
 - PATCH: Update entities (with ETag support)
-- DELETE: Remove entities
+- DELETE: Remove entities (with ETag support)
 - $ref: Add/remove navigation links
+- $batch: Batch multiple operations in a single request
 
 **Query Operations:**
 
@@ -39,7 +40,7 @@
 
 **HTTP Transport:**
 
-- JdkHttpTransport (default)
+- JdkHttpTransport (Java 11+ HttpClient, native PATCH support)
 - ApacheHttpTransport
 - Custom HttpTransport interface
 
@@ -50,6 +51,13 @@
 - JakartaJsonBSerializer
 - Custom Serializer interface
 
+**Batch Support:**
+
+- multipart/mixed format
+- GET, POST, PATCH, DELETE operations in batch
+- Async batch execution
+- Typed batch results
+
 **Error Handling:**
 
 - Typed exceptions: BadRequest, Unauthorized, Forbidden, NotFound, Conflict, PreconditionFailed, RateLimit, Server
@@ -58,20 +66,20 @@
 
 **Testing:**
 
-- 44 tests passing
+- 85 tests passing
 - Parser tests: 27 (TripPin + Northwind)
 - Generator tests: 2
 - Runtime tests: 6
-- Integration tests: 9 (live TripPin service)
+- Batch tests: 16
+- Integration tests: 18 (live TripPin service)
+- Northwind tests: 16 (live Northwind V4 service)
 
 ### Known Limitations
 
 - Complex type inheritance skipped for MVP
-- No batch support yet
-- No streaming support yet
+- Cancellable streaming not yet implemented
 
 ### Future Milestones
 
-- Milestone 6: Batch requests
-- Milestone 7: Northwind integration tests
-- Milestone 8: Publish to Maven Central
+- Cancellable streaming support
+- Publish to Maven Central
