@@ -127,7 +127,7 @@ class GeneratorCompilationTest {
                     .filter(p -> p.toString().endsWith(".jar"))
                     .filter(p -> !p.toString().contains("-sources"))
                     .filter(p -> !p.toString().contains("-javadoc"))
-                    .filter(p -> p.toString().contains("0.1.0-SNAPSHOT"))
+                    .filter(p -> p.toString().contains("0.1.0-SNAPSHOT") || !artifactId.equals("odata-client-runtime"))
                     .findFirst()
                     .orElse(null);
         } catch (Exception e) {

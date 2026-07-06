@@ -106,6 +106,16 @@ public class RequestHelper {
         checkResponse(response);
     }
 
+    public static void executeDeleteWithETag(Context context, ContextPath path, String etag) {
+        java.util.Map<String, String> headers = new java.util.LinkedHashMap<>();
+        if (etag != null && !etag.isEmpty()) {
+            headers.put("If-Match", etag);
+        }
+        HttpResponse response = executeSync(context, HttpMethod.DELETE, path, null,
+                headers.isEmpty() ? null : headers);
+        checkResponse(response);
+    }
+
     public static void addRef(Context context, ContextPath navigationPath, String targetEntityUrl) {
         ContextPath refPath = navigationPath.addSegment("$ref");
         byte[] body = ("{\"@odata.id\":\"" + targetEntityUrl + "\"}").getBytes(java.nio.charset.StandardCharsets.UTF_8);
@@ -117,7 +127,7 @@ public class RequestHelper {
     public static void removeRef(Context context, ContextPath navigationPath, String targetKey) {
         ContextPath refPath = navigationPath.addSegment("$ref");
         if (targetKey != null && !targetKey.isEmpty()) {
-            refPath = refPath.addSegment(targetKey);
+            refPath = refPath.addQuery("$id", targetKey);
         }
         HttpResponse response = executeSync(context, HttpMethod.DELETE, refPath, null, null);
         checkResponse(response);

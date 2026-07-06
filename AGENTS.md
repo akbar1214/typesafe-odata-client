@@ -259,7 +259,8 @@ modern-odata-client/
 - **Batch tests:** Multipart encode/decode, batch request construction, ContextPath relative URLs (16 tests)
 - **Integration tests:** Live TripPin service: collection queries, entity get, navigation, filtering, ordering, select, count, airlines, airports, batch requests, CRUD operations (POST/PATCH/DELETE with ETag), $ref link/unlink (18 tests)
 - **Northwind integration tests:** Live Northwind V4 service: categories, products, customers, orders, employees, suppliers, filtering, ordering, select, count, expand (16 tests)
-- **Total: 85 tests passing**
+- **Generated client tests:** Type-safe generated TripPin client: collection queries, entity by key, filter, orderBy, select, count, navigation, CRUD, ETag (14 tests)
+- **Total: 99 tests passing**
 - **Future:** Cancellable streaming
 
 ---

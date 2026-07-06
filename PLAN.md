@@ -111,8 +111,9 @@ modern-odata-client/
 - [x] Runtime tests (6 tests)
 - [x] Integration tests against live TripPin service (18 tests: reads, writes, batch)
 - [x] Integration tests against live Northwind V4 service (16 tests)
+- [x] Generated client integration tests against live TripPin service (14 tests)
 - [x] README with usage examples
-- **Total: 85 tests passing**
+- **Total: 99 tests passing**
 
 ---
 

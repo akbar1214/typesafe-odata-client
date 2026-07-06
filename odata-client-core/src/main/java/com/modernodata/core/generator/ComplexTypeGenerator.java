@@ -51,14 +51,17 @@ public class ComplexTypeGenerator {
         }
         sb.append("\n");
 
-        // Private constructor
-        sb.append("    private ").append(className).append("(");
+        // Constructor with Jackson annotations for deserialization
+        sb.append("    @com.fasterxml.jackson.annotation.JsonCreator\n");
+        sb.append("    public ").append(className).append("(\n");
         for (int i = 0; i < complexType.properties().size(); i++) {
             var prop = complexType.properties().get(i);
-            if (i > 0) sb.append(", ");
-            sb.append(resolvePropertyJavaType(prop)).append(" ").append(Names.toJavaFieldName(prop.name()));
+            sb.append("            @com.fasterxml.jackson.annotation.JsonProperty(\"").append(prop.name()).append("\") ")
+              .append(resolvePropertyJavaType(prop)).append(" ").append(Names.toJavaFieldName(prop.name()));
+            if (i < complexType.properties().size() - 1) sb.append(",");
+            sb.append("\n");
         }
-        sb.append(") {\n");
+        sb.append("    ) {\n");
         for (var prop : complexType.properties()) {
             String fn = Names.toJavaFieldName(prop.name());
             sb.append("        this.").append(fn).append(" = ").append(fn).append(";\n");
