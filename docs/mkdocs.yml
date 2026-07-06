@@ -1,0 +1,100 @@
+site_name: Modern OData Client
+site_description: A type-safe OData v4 client generator for Java — immutable entities, compile-time validated queries, pluggable HTTP
+site_url: https://modernodata.dev/
+repo_url: https://github.com/modern-odata-client/modern-odata-client
+repo_name: modern-odata-client/modern-odata-client
+edit_uri: edit/main/docs/content/
+
+docs_dir: content
+
+nav:
+  - Home: index.md
+  - Getting Started: getting-started.md
+  - Tutorial:
+    - Your First Query: tutorial/first-query.md
+  - How-to Guides:
+    - Overview: how-to/index.md
+    - Filter with Type-Safe Expressions: how-to/filter.md
+    - Select and Order Results: how-to/select-order.md
+    - Expand Navigation Properties: how-to/expand.md
+    - Use Pagination: how-to/pagination.md
+    - Perform CRUD Operations: how-to/crud.md
+    - Handle ETags and Concurrency: how-to/etag.md
+    - Manage Navigation Links ($ref): how-to/ref.md
+    - Add Authentication: how-to/auth.md
+    - Use Custom HTTP Transport: how-to/custom-transport.md
+    - Handle Errors Gracefully: how-to/error-handling.md
+  - Concepts:
+    - How Code Generation Works: concepts/code-generation.md
+    - The Context Pattern: concepts/context.md
+    - Type-Safe Query Building: concepts/query-builder.md
+    - Entity Immutability: concepts/immutability.md
+    - CSDL Metadata Parsing: concepts/csdl-parsing.md
+  - Reference:
+    - Maven Plugin Configuration: reference/maven-plugin.md
+    - Generated Code Structure: reference/generated-code.md
+    - Query Expression API: reference/query-api.md
+    - HTTP Transport: reference/http-transport.md
+    - Serialization: reference/serialization.md
+    - Error Handling: reference/error-handling.md
+    - OData URL Patterns: reference/odata-urls.md
+    - Package Structure: reference/packages.md
+  - Contributing: contributing.md
+  - Release Notes: release-notes.md
+
+theme:
+  name: material
+  custom_dir: overrides
+  palette:
+    - scheme: default
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.highlight
+    - content.code.copy
+    - content.action.edit
+
+plugins:
+  - search
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.tabbed:
+      alternate_style: true
+  - attr_list
+  - md_in_html
+  - toc:
+      permalink: true
+
+copyright: >-
+  Licensed under
+  <a href="https://www.apache.org/licenses/LICENSE-2.0" target="_blank" rel="noopener">Apache License 2.0</a>
+
+extra_css:
+  - stylesheets/extra.css
+
+extra:
+  generator: false
+  version:
+    provider: mike
+    alias: true
+    default: latest
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/modern-odata-client/modern-odata-client
+  odata_client_version: 0.1.0-SNAPSHOT

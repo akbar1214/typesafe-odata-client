@@ -1,0 +1,3 @@
+com/modernodata/core/parser/GeneratorIntegrationTest.class
+com/modernodata/core/parser/StaxCsdlParserTest.class
+com/modernodata/core/parser/GeneratorCompilationTest.class

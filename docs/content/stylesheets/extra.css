@@ -1,0 +1,45 @@
+/* Custom styles for Modern OData Client documentation */
+
+/* Code block styling */
+.md-typeset code {
+    background-color: rgba(0, 0, 0, 0.05);
+    border-radius: 4px;
+    padding: 0.1em 0.4em;
+}
+
+/* Admonition styling */
+.md-typeset .admonition {
+    border-radius: 4px;
+}
+
+/* Table styling */
+.md-typeset table {
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+/* Navigation tabs */
+.md-tabs {
+    background-color: #1a1a2e;
+}
+
+/* Header styling */
+.md-header {
+    background-color: #16213e;
+}
+
+/* Footer styling */
+.md-footer {
+    background-color: #1a1a2e;
+}
+
+/* Button styling */
+.md-typeset .md-button {
+    border-radius: 4px;
+}
+
+/* Code block copy button */
+.md-clipboard:focus,
+.md-clipboard:hover {
+    color: #333;
+}

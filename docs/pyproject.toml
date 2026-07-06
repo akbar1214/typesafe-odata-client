@@ -1,0 +1,12 @@
+[project]
+name = "modern-odata-client-docs"
+version = "0.1.0"
+description = "Documentation for Modern OData Client"
+requires-python = ">=3.10"
+dependencies = [
+    "mkdocs-material>=9.5",
+    "mike==2.1.4",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = []

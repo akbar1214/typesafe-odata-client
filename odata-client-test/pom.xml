@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.modernodata</groupId>
+        <artifactId>modern-odata-client</artifactId>
+        <version>0.1.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>odata-client-test</artifactId>
+    <name>OData Client Tests</name>
+    <description>Integration tests for generated OData clients</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.modernodata</groupId>
+            <artifactId>odata-client-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.modernodata</groupId>
+            <artifactId>odata-client-runtime</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-simple</artifactId>
+            <version>${slf4j.version}</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+</project>
