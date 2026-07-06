@@ -381,6 +381,7 @@ public class EntityGenerator {
     private String getPropertyConstantType(String edmType, SchemaModel schema) {
         if (Names.isStringType(edmType)) return "StringProperty";
         if (Names.isBooleanType(edmType)) return "BooleanProperty";
+        if (Names.isDateTimeType(edmType)) return "DateTimeProperty";
         if (isEnumType(edmType, schema)) return "EnumProperty";
         if (Names.isNumericType(edmType)) return "NumberProperty";
         return "StringProperty";

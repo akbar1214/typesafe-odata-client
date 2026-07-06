@@ -169,6 +169,13 @@ public final class Names {
         return "Edm.Boolean".equals(edmType);
     }
 
+    public static boolean isDateTimeType(String edmType) {
+        return switch (edmType) {
+            case "Edm.DateTimeOffset", "Edm.Date", "Edm.Duration", "Edm.TimeOfDay" -> true;
+            default -> false;
+        };
+    }
+
     public static String unqualifyType(String edmType, String currentNamespace) {
         if (edmType.contains(".")) return edmType;
         return currentNamespace + "." + edmType;

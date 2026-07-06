@@ -200,4 +200,18 @@ class NorthwindGeneratedClientTest {
             assertEquals("France", o.getShipCountry().orElse(null));
         }
     }
+
+    @Test
+    void filterOrdersByDate() {
+        CollectionPage<Order> page = client.orders()
+                .filter(Order.ORDER_DATE.greaterThanOrEqualTo("1998-01-01T00:00:00Z"))
+                .orderBy(Order.ORDER_DATE.asc())
+                .top(3)
+                .get();
+
+        assertFalse(page.currentPage().isEmpty());
+        for (Order o : page.currentPage()) {
+            assertTrue(o.getOrderDate().isPresent());
+        }
+    }
 }
