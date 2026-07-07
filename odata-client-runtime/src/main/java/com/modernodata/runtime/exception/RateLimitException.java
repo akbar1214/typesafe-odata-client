@@ -3,8 +3,6 @@ package com.modernodata.runtime.exception;
 import com.modernodata.runtime.http.HttpResponse;
 
 import java.time.Instant;
-import java.time.format.DateTimeFormatter;
-import java.util.Map;
 
 public class RateLimitException extends ODataException {
 

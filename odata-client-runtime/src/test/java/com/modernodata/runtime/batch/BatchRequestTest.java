@@ -2,7 +2,6 @@ package com.modernodata.runtime.batch;
 
 import com.modernodata.runtime.entity.Context;
 import com.modernodata.runtime.entity.ContextPath;
-import com.modernodata.runtime.http.HttpMethod;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;

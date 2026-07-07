@@ -2,7 +2,6 @@ package com.modernodata.core.generator;
 
 import com.modernodata.core.model.CsdlModel;
 import com.modernodata.core.model.CsdlModel.ComplexTypeModel;
-import com.modernodata.core.model.CsdlModel.SchemaModel;
 
 import java.util.Set;
 import java.util.TreeSet;

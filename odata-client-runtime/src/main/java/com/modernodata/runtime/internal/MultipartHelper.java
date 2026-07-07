@@ -2,7 +2,6 @@ package com.modernodata.runtime.internal;
 
 import com.modernodata.runtime.batch.BatchOperation;
 import com.modernodata.runtime.batch.BatchResult;
-import com.modernodata.runtime.http.HttpMethod;
 
 import java.nio.charset.StandardCharsets;
 import java.util.*;

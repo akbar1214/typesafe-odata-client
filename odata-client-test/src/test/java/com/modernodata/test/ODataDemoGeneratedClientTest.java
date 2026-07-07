@@ -1,15 +1,13 @@
 package com.modernodata.test;
 
-import com.example.odata.container.DemoService;
 import com.example.odata.complex.Address;
+import com.example.odata.container.DemoService;
 import com.example.odata.entity.*;
 import com.modernodata.runtime.entity.Context;
 import com.modernodata.runtime.http.JdkHttpTransport;
 import com.modernodata.runtime.paging.CollectionPage;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
-
-import java.math.BigDecimal;
 
 import static org.junit.jupiter.api.Assertions.*;
 

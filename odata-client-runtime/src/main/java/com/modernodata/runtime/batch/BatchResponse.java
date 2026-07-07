@@ -1,9 +1,8 @@
 package com.modernodata.runtime.batch;
 
-import com.modernodata.runtime.serialization.Serializer;
-
 import java.lang.reflect.Type;
-import java.util.*;
+import java.util.Iterator;
+import java.util.List;
 
 public class BatchResponse implements Iterable<BatchResult<?>> {
     private final List<BatchResult<?>> results;

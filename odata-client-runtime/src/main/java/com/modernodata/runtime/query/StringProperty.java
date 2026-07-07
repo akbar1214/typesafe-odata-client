@@ -1,7 +1,5 @@
 package com.modernodata.runtime.query;
 
-import java.util.function.Function;
-
 public final class StringProperty<E> implements OrderExpression<String> {
     private final String edmName;
     private final Class<E> entityType;

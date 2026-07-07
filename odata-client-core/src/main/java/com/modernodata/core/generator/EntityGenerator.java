@@ -1,8 +1,12 @@
 package com.modernodata.core.generator;
 
-import com.modernodata.core.model.CsdlModel.*;
-import java.util.*;
-import java.util.stream.Collectors;
+import com.modernodata.core.model.CsdlModel.EntityTypeModel;
+import com.modernodata.core.model.CsdlModel.NavigationPropertyModel;
+import com.modernodata.core.model.CsdlModel.PropertyModel;
+import com.modernodata.core.model.CsdlModel.SchemaModel;
+
+import java.util.Set;
+import java.util.TreeSet;
 
 public class EntityGenerator {
 

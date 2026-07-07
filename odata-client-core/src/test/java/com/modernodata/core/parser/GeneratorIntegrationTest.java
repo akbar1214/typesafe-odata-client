@@ -1,7 +1,6 @@
 package com.modernodata.core.parser;
 
 import com.modernodata.core.generator.Generator;
-import com.modernodata.core.generator.Names;
 import com.modernodata.core.model.CsdlModel;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -12,7 +11,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class GeneratorIntegrationTest {
 

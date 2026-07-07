@@ -1,7 +1,11 @@
 package com.modernodata.runtime;
 
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.modernodata.runtime.batch.BatchOperation;
-import com.modernodata.runtime.batch.BatchRequest;
 import com.modernodata.runtime.batch.BatchResponse;
 import com.modernodata.runtime.batch.BatchResult;
 import com.modernodata.runtime.entity.Context;
@@ -10,16 +14,8 @@ import com.modernodata.runtime.http.HttpResponse;
 import com.modernodata.runtime.http.HttpTransport;
 import com.modernodata.runtime.http.JdkHttpTransport;
 import com.modernodata.runtime.internal.RequestHelper;
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.JavaType;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
-import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
-
-import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 

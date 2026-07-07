@@ -1,6 +1,6 @@
 package com.modernodata.core.generator;
 
-import com.modernodata.core.model.CsdlModel.*;
+import com.modernodata.core.model.CsdlModel.PropertyModel;
 
 public final class Names {
 

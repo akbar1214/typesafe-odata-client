@@ -2,7 +2,6 @@ package com.modernodata.runtime.query;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.function.Function;
 
 public final class NavProperty<E, T> {
     private final String edmName;
