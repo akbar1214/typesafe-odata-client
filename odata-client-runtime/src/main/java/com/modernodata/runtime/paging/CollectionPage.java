@@ -1,5 +1,6 @@
 package com.modernodata.runtime.paging;
 
+import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Optional;
@@ -18,7 +19,7 @@ public class CollectionPage<T> implements Iterable<T> {
     }
 
     public CollectionPage(List<T> currentPage, String nextLink, Long count) {
-        this.currentPage = List.copyOf(currentPage);
+        this.currentPage = Collections.unmodifiableList(currentPage);
         this.nextLink = nextLink;
         this.count = count;
     }

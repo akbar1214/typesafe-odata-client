@@ -73,7 +73,7 @@ public record ContextPath(
     private void appendSegments(StringBuilder sb) {
         for (Segment segment : segments) {
             if (!segment.name().isEmpty()) {
-                if (sb.length() > 0 && !sb.toString().endsWith("/")) sb.append("/");
+                if (sb.length() > 0 && sb.charAt(sb.length() - 1) != '/') sb.append("/");
                 sb.append(segment.name());
 
                 if (!segment.keys().isEmpty()) {
@@ -108,16 +108,32 @@ public record ContextPath(
         String encoded = URLEncoder.encode(value, StandardCharsets.UTF_8)
                 .replace("+", "%20");
         // Restore OData-safe characters that URLEncoder encodes
-        encoded = encoded.replace("%24", "$");
-        encoded = encoded.replace("%27", "'");
-        encoded = encoded.replace("%28", "(");
-        encoded = encoded.replace("%29", ")");
-        encoded = encoded.replace("%2C", ",");
-        encoded = encoded.replace("%2F", "/");
-        encoded = encoded.replace("%3A", ":");
-        encoded = encoded.replace("%3D", "=");
-        encoded = encoded.replace("%40", "@");
-        return encoded;
+        // Single-pass replacement via StringBuilder instead of 9 chained String.replace calls
+        StringBuilder sb = new StringBuilder(encoded.length());
+        for (int i = 0; i < encoded.length(); i++) {
+            char c = encoded.charAt(i);
+            if (c == '%' && i + 2 < encoded.length()) {
+                char h1 = Character.toUpperCase(encoded.charAt(i + 1));
+                char h2 = Character.toUpperCase(encoded.charAt(i + 2));
+                String seq = "" + h1 + h2;
+                switch (seq) {
+                    case "24" -> sb.append('$');
+                    case "27" -> sb.append('\'');
+                    case "28" -> sb.append('(');
+                    case "29" -> sb.append(')');
+                    case "2C" -> sb.append(',');
+                    case "2F" -> sb.append('/');
+                    case "3A" -> sb.append(':');
+                    case "3D" -> sb.append('=');
+                    case "40" -> sb.append('@');
+                    default -> { sb.append('%'); sb.append(h1); sb.append(h2); }
+                }
+                i += 2;
+            } else {
+                sb.append(c);
+            }
+        }
+        return sb.toString();
     }
 
     private static String formatValue(Object value) {

@@ -324,3 +324,13 @@ modern-odata-client/
 27. **OData Demo service tests inheritance, open types, geography, stream gaps.** The parser correctly parses `BaseType`, `OpenType`, `HasStream`, and `ConcurrencyMode` attributes, but the generator ignores them. Generated classes for inherited types (e.g., `FeaturedProduct extends Product`) are standalone `final` classes with no inheritance. `Edm.Stream` and `Edm.GeographyPoint` map to `Object`. This is acceptable for MVP — the parser layer is complete, and code generation for these features is a clear future milestone.
 
 28. **OData Demo service IDs start at 0, not 1.** The `Products` entity set has `ID=0` for "Bread". Assertions like `assertTrue(p.getID() > 0)` fail — use `assertNotNull()` or non-zero-specific checks instead.
+
+29. **async-profiler TLAB sampling shows TLAB refill events, not individual small allocations.** With JDK 24, `event=alloc` captures TLAB boundary crossings (typically ~512KB each). Small per-request allocations (HashMap, ArrayList, String) don't individually trigger samples — they're swallowed by the TLAB. To see small allocations, use `event=alloc` with `forkCount=0` (tests in Maven JVM) and look for stacks involving your code at TLAB refill points.
+
+30. **ObjectMapper per-request is the most expensive allocation hotspot.** `RequestHelper.executeAndGetCollection()` was creating a new `ObjectMapper` with module registration on every collection fetch. ObjectMapper initialization cascades into TypeFactory, SerializerProvider, DeserializerProvider, and serializer cache compilation. Fix: static final singleton, thread-safe for concurrent reads.
+
+31. **`StringBuilder.toString().endsWith("/")` in a loop allocates a temp String per iteration.** `ContextPath.appendSegments()` called `sb.toString()` to check trailing slash — this allocates a full String copy on every segment. Fix: `sb.charAt(sb.length() - 1) != '/'` avoids the allocation entirely.
+
+32. **Chained `String.replace()` calls create O(n) intermediate Strings.** `ContextPath.encodeQueryParam()` had 9 chained `.replace()` calls, each scanning the entire string and allocating a new one. Fix: single-pass `StringBuilder` with a `switch` on hex sequences — one allocation, one scan.
+
+33. **`List.copyOf()` defensively copies an already-safe list.** `CollectionPage` constructor called `List.copyOf(currentPage)` which copies all element references into a new array. Since the Jackson-deserialized list is the only reference, `Collections.unmodifiableList()` wraps without copying — same immutability guarantee, zero allocation overhead.

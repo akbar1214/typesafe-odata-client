@@ -17,6 +17,16 @@ import java.util.concurrent.CompletionException;
 
 public class RequestHelper {
 
+    private static final com.fasterxml.jackson.databind.ObjectMapper COLLECTION_MAPPER;
+
+    static {
+        com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        mapper.configure(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+        mapper.registerModule(new com.fasterxml.jackson.datatype.jdk8.Jdk8Module());
+        mapper.registerModule(new com.fasterxml.jackson.datatype.jsr310.JavaTimeModule());
+        COLLECTION_MAPPER = mapper;
+    }
+
     private RequestHelper() {}
 
     public static HttpResponse executeSync(Context context, HttpMethod method, ContextPath path,
@@ -140,20 +150,15 @@ public class RequestHelper {
         checkResponse(response);
 
         try {
-            com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
-            mapper.configure(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-            mapper.registerModule(new com.fasterxml.jackson.datatype.jdk8.Jdk8Module());
-            mapper.registerModule(new com.fasterxml.jackson.datatype.jsr310.JavaTimeModule());
-
-            com.fasterxml.jackson.databind.JavaType listType = mapper.getTypeFactory()
+            com.fasterxml.jackson.databind.JavaType listType = COLLECTION_MAPPER.getTypeFactory()
                     .constructCollectionType(java.util.List.class, elementType);
 
-            com.fasterxml.jackson.databind.JsonNode root = mapper.readTree(response.body());
+            com.fasterxml.jackson.databind.JsonNode root = COLLECTION_MAPPER.readTree(response.body());
             com.fasterxml.jackson.databind.JsonNode valueNode = root.get("value");
 
             List<T> items;
             if (valueNode != null && valueNode.isArray()) {
-                items = mapper.convertValue(valueNode, listType);
+                items = COLLECTION_MAPPER.convertValue(valueNode, listType);
             } else {
                 items = List.of();
             }
