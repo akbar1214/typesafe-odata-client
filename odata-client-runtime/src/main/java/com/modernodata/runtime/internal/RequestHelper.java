@@ -10,6 +10,7 @@ import java.lang.reflect.Type;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -44,9 +45,14 @@ public class RequestHelper {
                                                                 ContextPath path, byte[] body,
                                                                 Map<String, String> extraHeaders) {
         String url = path.toUrl();
-        Map<String, List<String>> headers = new HashMap<>();
+        Map<String, String> authHeaders = context.authProvider().getHeaders();
+        int headerCount = authHeaders.size() + (extraHeaders != null ? extraHeaders.size() : 0);
+        Map<String, List<String>> headers = new LinkedHashMap<>(Math.max(headerCount + 1, 4));
 
-        headers.putAll(toMultiMap(context.authProvider().getHeaders()));
+        // Inline auth headers directly as List.of() (avoids intermediate HashMap from toMultiMap)
+        for (var entry : authHeaders.entrySet()) {
+            headers.put(entry.getKey(), List.of(entry.getValue()));
+        }
 
         if (extraHeaders != null) {
             for (var entry : extraHeaders.entrySet()) {
@@ -101,7 +107,7 @@ public class RequestHelper {
     public static <T> T executePatchEntityWithETag(Context context, ContextPath path, Object entity,
                                                      Class<T> responseType, String etag) {
         byte[] body = context.serializer().serialize((T) entity, responseType);
-        java.util.Map<String, String> headers = new java.util.LinkedHashMap<>();
+        java.util.Map<String, String> headers = new LinkedHashMap<>();
         headers.put("Content-Type", "application/json");
         if (etag != null && !etag.isEmpty()) {
             headers.put("If-Match", etag);
@@ -117,7 +123,7 @@ public class RequestHelper {
     }
 
     public static void executeDeleteWithETag(Context context, ContextPath path, String etag) {
-        java.util.Map<String, String> headers = new java.util.LinkedHashMap<>();
+        java.util.Map<String, String> headers = new LinkedHashMap<>();
         if (etag != null && !etag.isEmpty()) {
             headers.put("If-Match", etag);
         }
@@ -128,7 +134,12 @@ public class RequestHelper {
 
     public static void addRef(Context context, ContextPath navigationPath, String targetEntityUrl) {
         ContextPath refPath = navigationPath.addSegment("$ref");
-        byte[] body = ("{\"@odata.id\":\"" + targetEntityUrl + "\"}").getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        byte[] body = new StringBuilder(targetEntityUrl.length() + 20)
+                .append("{\"@odata.id\":\"")
+                .append(targetEntityUrl)
+                .append("\"}")
+                .toString()
+                .getBytes(java.nio.charset.StandardCharsets.UTF_8);
         HttpResponse response = executeSync(context, HttpMethod.POST, refPath, body,
                 Map.of("Content-Type", "application/json"));
         checkResponse(response);
@@ -145,34 +156,38 @@ public class RequestHelper {
 
     @SuppressWarnings("unchecked")
     public static <T> CollectionPage<T> executeAndGetCollection(Context context, ContextPath path,
-                                                                 Class<T> elementType) {
+                                                                  Class<T> elementType) {
         HttpResponse response = executeSync(context, HttpMethod.GET, path, null, null);
         checkResponse(response);
 
         try {
-            com.fasterxml.jackson.databind.JavaType listType = COLLECTION_MAPPER.getTypeFactory()
-                    .constructCollectionType(java.util.List.class, elementType);
+            // Single-pass parse: read as Map instead of JsonNode tree (avoids JsonNode allocation overhead)
+            com.fasterxml.jackson.databind.JavaType mapType = COLLECTION_MAPPER.getTypeFactory()
+                    .constructMapType(java.util.HashMap.class, String.class, Object.class);
+            Map<String, Object> envelope = COLLECTION_MAPPER.readValue(response.body(), mapType);
 
-            com.fasterxml.jackson.databind.JsonNode root = COLLECTION_MAPPER.readTree(response.body());
-            com.fasterxml.jackson.databind.JsonNode valueNode = root.get("value");
-
-            List<T> items;
-            if (valueNode != null && valueNode.isArray()) {
-                items = COLLECTION_MAPPER.convertValue(valueNode, listType);
-            } else {
-                items = List.of();
-            }
-
+            // Extract @odata annotations before converting the value array
             String nextLink = null;
-            com.fasterxml.jackson.databind.JsonNode nextLinkNode = root.get("@odata.nextLink");
-            if (nextLinkNode != null && !nextLinkNode.isNull()) {
-                nextLink = nextLinkNode.asText();
+            Object nextLinkObj = envelope.get("@odata.nextLink");
+            if (nextLinkObj instanceof String s && !s.isEmpty()) {
+                nextLink = s;
             }
 
             Long count = null;
-            com.fasterxml.jackson.databind.JsonNode countNode = root.get("@odata.count");
-            if (countNode != null && !countNode.isNull()) {
-                count = countNode.asLong();
+            Object countObj = envelope.get("@odata.count");
+            if (countObj instanceof Number n) {
+                count = n.longValue();
+            }
+
+            // Convert the raw value list to typed list
+            List<T> items;
+            Object valueObj = envelope.get("value");
+            if (valueObj instanceof java.util.List<?> rawList && !rawList.isEmpty()) {
+                com.fasterxml.jackson.databind.JavaType listType = COLLECTION_MAPPER.getTypeFactory()
+                        .constructCollectionType(java.util.List.class, elementType);
+                items = COLLECTION_MAPPER.convertValue(rawList, listType);
+            } else {
+                items = List.of();
             }
 
             return new CollectionPage<>(items, nextLink, count);
