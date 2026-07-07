@@ -14,6 +14,7 @@ class StaxCsdlParserTest {
 
     private static CsdlModel trippinModel;
     private static CsdlModel northwindModel;
+    private static CsdlModel odataDemoModel;
 
     @BeforeAll
     static void parseMetadata() throws Exception {
@@ -27,6 +28,11 @@ class StaxCsdlParserTest {
         try (InputStream is = StaxCsdlParserTest.class.getResourceAsStream("/northwind-metadata.xml")) {
             assertNotNull(is, "northwind-metadata.xml not found on classpath");
             northwindModel = parser.parse(is);
+        }
+
+        try (InputStream is = StaxCsdlParserTest.class.getResourceAsStream("/odata-demo-metadata.xml")) {
+            assertNotNull(is, "odata-demo-metadata.xml not found on classpath");
+            odataDemoModel = parser.parse(is);
         }
     }
 
@@ -309,5 +315,306 @@ class StaxCsdlParserTest {
         List<String> targets = orders.navigationPropertyBindings().stream()
                 .map(NavigationPropertyBindingModel::target).toList();
         assertTrue(targets.containsAll(List.of("Customers", "Employees")));
+    }
+
+    // ===== OData Demo Tests =====
+
+    @Test
+    void odataDemo_hasSingleSchema() {
+        assertEquals(1, odataDemoModel.schemas().size());
+    }
+
+    @Test
+    void odataDemo_entityTypes() {
+        SchemaModel schema = odataDemoModel.schemas().get(0);
+        List<String> names = schema.entityTypes().stream()
+                .map(EntityTypeModel::name).toList();
+        assertTrue(names.containsAll(List.of(
+                "Product", "FeaturedProduct", "ProductDetail",
+                "Category", "Supplier", "Person", "Customer",
+                "Employee", "PersonDetail", "Advertisement")));
+    }
+
+    @Test
+    void odataDemo_inheritance() {
+        SchemaModel schema = odataDemoModel.schemas().get(0);
+
+        EntityTypeModel featuredProduct = schema.entityTypes().stream()
+                .filter(e -> e.name().equals("FeaturedProduct")).findFirst().orElseThrow();
+        assertEquals("ODataDemo.Product", featuredProduct.baseType());
+
+        EntityTypeModel customer = schema.entityTypes().stream()
+                .filter(e -> e.name().equals("Customer")).findFirst().orElseThrow();
+        assertEquals("ODataDemo.Person", customer.baseType());
+
+        EntityTypeModel employee = schema.entityTypes().stream()
+                .filter(e -> e.name().equals("Employee")).findFirst().orElseThrow();
+        assertEquals("ODataDemo.Person", employee.baseType());
+    }
+
+    @Test
+    void odataDemo_openType() {
+        SchemaModel schema = odataDemoModel.schemas().get(0);
+
+        EntityTypeModel category = schema.entityTypes().stream()
+                .filter(e -> e.name().equals("Category")).findFirst().orElseThrow();
+        assertTrue(category.openType());
+    }
+
+    @Test
+    void odataDemo_complexTypes() {
+        SchemaModel schema = odataDemoModel.schemas().get(0);
+        assertEquals(1, schema.complexTypes().size());
+        assertEquals("Address", schema.complexTypes().get(0).name());
+    }
+
+    @Test
+    void odataDemo_addressProperties() {
+        SchemaModel schema = odataDemoModel.schemas().get(0);
+        ComplexTypeModel address = schema.complexTypes().get(0);
+        List<String> props = address.properties().stream()
+                .map(PropertyModel::name).toList();
+        assertTrue(props.containsAll(List.of("Street", "City", "State", "ZipCode", "Country")));
+    }
+
+    @Test
+    void odataDemo_productProperties() {
+        SchemaModel schema = odataDemoModel.schemas().get(0);
+        EntityTypeModel product = schema.entityTypes().stream()
+                .filter(e -> e.name().equals("Product")).findFirst().orElseThrow();
+
+        assertEquals("Edm.Int32", product.properties().stream()
+                .filter(p -> p.name().equals("ID")).findFirst().orElseThrow().edmType());
+        assertEquals("Edm.DateTimeOffset", product.properties().stream()
+                .filter(p -> p.name().equals("ReleaseDate")).findFirst().orElseThrow().edmType());
+        assertEquals("Edm.Int16", product.properties().stream()
+                .filter(p -> p.name().equals("Rating")).findFirst().orElseThrow().edmType());
+        assertEquals("Edm.Double", product.properties().stream()
+                .filter(p -> p.name().equals("Price")).findFirst().orElseThrow().edmType());
+    }
+
+    @Test
+    void odataDemo_supplierProperties() {
+        SchemaModel schema = odataDemoModel.schemas().get(0);
+        EntityTypeModel supplier = schema.entityTypes().stream()
+                .filter(e -> e.name().equals("Supplier")).findFirst().orElseThrow();
+
+        // Geography type
+        assertEquals("Edm.GeographyPoint", supplier.properties().stream()
+                .filter(p -> p.name().equals("Location")).findFirst().orElseThrow().edmType());
+        // Complex type
+        assertEquals("ODataDemo.Address", supplier.properties().stream()
+                .filter(p -> p.name().equals("Address")).findFirst().orElseThrow().edmType());
+    }
+
+    @Test
+    void odataDemo_employeeProperties() {
+        SchemaModel schema = odataDemoModel.schemas().get(0);
+        EntityTypeModel employee = schema.entityTypes().stream()
+                .filter(e -> e.name().equals("Employee")).findFirst().orElseThrow();
+
+        assertEquals("Edm.Int64", employee.properties().stream()
+                .filter(p -> p.name().equals("EmployeeID")).findFirst().orElseThrow().edmType());
+        assertEquals("Edm.DateTimeOffset", employee.properties().stream()
+                .filter(p -> p.name().equals("HireDate")).findFirst().orElseThrow().edmType());
+        assertEquals("Edm.Single", employee.properties().stream()
+                .filter(p -> p.name().equals("Salary")).findFirst().orElseThrow().edmType());
+    }
+
+    @Test
+    void odataDemo_personDetailProperties() {
+        SchemaModel schema = odataDemoModel.schemas().get(0);
+        EntityTypeModel personDetail = schema.entityTypes().stream()
+                .filter(e -> e.name().equals("PersonDetail")).findFirst().orElseThrow();
+
+        assertEquals("Edm.Byte", personDetail.properties().stream()
+                .filter(p -> p.name().equals("Age")).findFirst().orElseThrow().edmType());
+        assertEquals("Edm.Boolean", personDetail.properties().stream()
+                .filter(p -> p.name().equals("Gender")).findFirst().orElseThrow().edmType());
+        assertEquals("Edm.Stream", personDetail.properties().stream()
+                .filter(p -> p.name().equals("Photo")).findFirst().orElseThrow().edmType());
+    }
+
+    @Test
+    void odataDemo_advertisementGuid() {
+        SchemaModel schema = odataDemoModel.schemas().get(0);
+        EntityTypeModel ad = schema.entityTypes().stream()
+                .filter(e -> e.name().equals("Advertisement")).findFirst().orElseThrow();
+
+        assertEquals("Edm.Guid", ad.properties().stream()
+                .filter(p -> p.name().equals("ID")).findFirst().orElseThrow().edmType());
+        assertTrue(ad.hasStream());
+    }
+
+    @Test
+    void odataDemo_entitySets() {
+        SchemaModel containerSchema = odataDemoModel.schemas().stream()
+                .filter(s -> s.containers().size() > 0).findFirst().orElseThrow();
+        ContainerModel container = containerSchema.containers().get(0);
+
+        List<String> names = container.entitySets().stream()
+                .map(EntitySetModel::name).toList();
+        assertTrue(names.containsAll(List.of(
+                "Products", "ProductDetails", "Categories",
+                "Suppliers", "Persons", "PersonDetails", "Advertisements")));
+    }
+
+    // ===== Inheritance Deep-Dive Tests =====
+
+    @Test
+    void odataDemo_inheritance_fullChain() {
+        SchemaModel schema = odataDemoModel.schemas().get(0);
+
+        // Person is the root — no base type
+        EntityTypeModel person = schema.entityTypes().stream()
+                .filter(e -> e.name().equals("Person")).findFirst().orElseThrow();
+        assertNull(person.baseType());
+
+        // Customer extends Person
+        EntityTypeModel customer = schema.entityTypes().stream()
+                .filter(e -> e.name().equals("Customer")).findFirst().orElseThrow();
+        assertEquals("ODataDemo.Person", customer.baseType());
+
+        // Employee extends Person
+        EntityTypeModel employee = schema.entityTypes().stream()
+                .filter(e -> e.name().equals("Employee")).findFirst().orElseThrow();
+        assertEquals("ODataDemo.Person", employee.baseType());
+
+        // Product is the root — no base type
+        EntityTypeModel product = schema.entityTypes().stream()
+                .filter(e -> e.name().equals("Product")).findFirst().orElseThrow();
+        assertNull(product.baseType());
+
+        // FeaturedProduct extends Product
+        EntityTypeModel featuredProduct = schema.entityTypes().stream()
+                .filter(e -> e.name().equals("FeaturedProduct")).findFirst().orElseThrow();
+        assertEquals("ODataDemo.Product", featuredProduct.baseType());
+    }
+
+    @Test
+    void odataDemo_inheritance_derivedTypeHasOwnProperties() {
+        SchemaModel schema = odataDemoModel.schemas().get(0);
+
+        // Employee has its own properties (EmployeeID, HireDate, Salary) plus inherited ones
+        EntityTypeModel employee = schema.entityTypes().stream()
+                .filter(e -> e.name().equals("Employee")).findFirst().orElseThrow();
+        List<String> propNames = employee.properties().stream()
+                .map(PropertyModel::name).toList();
+        assertTrue(propNames.contains("EmployeeID"));
+        assertTrue(propNames.contains("HireDate"));
+        assertTrue(propNames.contains("Salary"));
+
+        // Customer has its own property (TotalExpense)
+        EntityTypeModel customer = schema.entityTypes().stream()
+                .filter(e -> e.name().equals("Customer")).findFirst().orElseThrow();
+        List<String> customerProps = customer.properties().stream()
+                .map(PropertyModel::name).toList();
+        assertTrue(customerProps.contains("TotalExpense"));
+
+        // FeaturedProduct has its own navigation (Advertisement)
+        EntityTypeModel featuredProduct = schema.entityTypes().stream()
+                .filter(e -> e.name().equals("FeaturedProduct")).findFirst().orElseThrow();
+        List<String> fpNavs = featuredProduct.navigationProperties().stream()
+                .map(NavigationPropertyModel::name).toList();
+        assertTrue(fpNavs.contains("Advertisement"));
+    }
+
+    @Test
+    void tripPin_inheritance_fullChain() {
+        SchemaModel schema = trippinModel.schemas().get(0);
+
+        // PlanItem is root
+        EntityTypeModel planItem = schema.entityTypes().stream()
+                .filter(e -> e.name().equals("PlanItem")).findFirst().orElseThrow();
+        assertNull(planItem.baseType());
+        assertFalse(planItem.openType());
+
+        // PublicTransportation extends PlanItem
+        EntityTypeModel publicTransport = schema.entityTypes().stream()
+                .filter(e -> e.name().equals("PublicTransportation")).findFirst().orElseThrow();
+        assertEquals("Microsoft.OData.SampleService.Models.TripPin.PlanItem", publicTransport.baseType());
+
+        // Flight extends PublicTransportation (3-level chain: Flight → PublicTransportation → PlanItem)
+        EntityTypeModel flight = schema.entityTypes().stream()
+                .filter(e -> e.name().equals("Flight")).findFirst().orElseThrow();
+        assertEquals("Microsoft.OData.SampleService.Models.TripPin.PublicTransportation", flight.baseType());
+
+        // Event extends PlanItem
+        EntityTypeModel event = schema.entityTypes().stream()
+                .filter(e -> e.name().equals("Event")).findFirst().orElseThrow();
+        assertEquals("Microsoft.OData.SampleService.Models.TripPin.PlanItem", event.baseType());
+        assertTrue(event.openType());
+    }
+
+    @Test
+    void tripPin_openTypeEntityTypes() {
+        SchemaModel schema = trippinModel.schemas().get(0);
+
+        // Only Person and Event are open entity types in TripPin
+        List<String> openEntityTypes = schema.entityTypes().stream()
+                .filter(EntityTypeModel::openType)
+                .map(EntityTypeModel::name)
+                .toList();
+        assertTrue(openEntityTypes.contains("Person"));
+        assertTrue(openEntityTypes.contains("Event"));
+    }
+
+    @Test
+    void tripPin_complexTypeInheritance_multiLevel() {
+        SchemaModel schema = trippinModel.schemas().get(0);
+
+        // Location complex type is open but has no base type
+        ComplexTypeModel location = schema.complexTypes().stream()
+                .filter(c -> c.name().equals("Location")).findFirst().orElseThrow();
+        assertTrue(location.openType());
+        assertNull(location.baseType());
+
+        // Airline has no base type
+        EntityTypeModel airline = schema.entityTypes().stream()
+                .filter(e -> e.name().equals("Airline")).findFirst().orElseThrow();
+        assertNull(airline.baseType());
+    }
+
+    // ===== GeographyPoint Tests =====
+
+    @Test
+    void odataDemo_geographyType() {
+        SchemaModel schema = odataDemoModel.schemas().get(0);
+
+        EntityTypeModel supplier = schema.entityTypes().stream()
+                .filter(e -> e.name().equals("Supplier")).findFirst().orElseThrow();
+
+        PropertyModel location = supplier.properties().stream()
+                .filter(p -> p.name().equals("Location")).findFirst().orElseThrow();
+        assertEquals("Edm.GeographyPoint", location.edmType());
+    }
+
+    @Test
+    void odataDemo_complexTypeAsProperty() {
+        SchemaModel schema = odataDemoModel.schemas().get(0);
+
+        EntityTypeModel supplier = schema.entityTypes().stream()
+                .filter(e -> e.name().equals("Supplier")).findFirst().orElseThrow();
+
+        PropertyModel address = supplier.properties().stream()
+                .filter(p -> p.name().equals("Address")).findFirst().orElseThrow();
+        assertEquals("ODataDemo.Address", address.edmType());
+    }
+
+    @Test
+    void odataDemo_navigationToComplexType() {
+        SchemaModel schema = odataDemoModel.schemas().get(0);
+
+        // Person has nav to PersonDetail
+        EntityTypeModel person = schema.entityTypes().stream()
+                .filter(e -> e.name().equals("Person")).findFirst().orElseThrow();
+        assertTrue(person.navigationProperties().stream()
+                .anyMatch(n -> n.name().equals("PersonDetail")));
+
+        // Product has nav to Supplier
+        EntityTypeModel product = schema.entityTypes().stream()
+                .filter(e -> e.name().equals("Product")).findFirst().orElseThrow();
+        assertTrue(product.navigationProperties().stream()
+                .anyMatch(n -> n.name().equals("Supplier")));
     }
 }

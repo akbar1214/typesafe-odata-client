@@ -71,6 +71,19 @@
                             </schemaPackages>
                         </configuration>
                     </execution>
+                    <execution>
+                        <id>generate-odata-demo</id>
+                        <phase>generate-sources</phase>
+                        <goals>
+                            <goal>generate</goal>
+                        </goals>
+                        <configuration>
+                            <metadataFile>${project.basedir}/src/test/resources/odata-demo-metadata.xml</metadataFile>
+                            <schemaPackages>
+                                <ODataDemo>com.example.odata</ODataDemo>
+                            </schemaPackages>
+                        </configuration>
+                    </execution>
                 </executions>
                 <dependencies>
                     <dependency>

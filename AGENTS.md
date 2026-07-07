@@ -252,7 +252,7 @@ modern-odata-client/
 
 ## Testing Strategy
 
-- **Parser tests:** Parse TripPin + Northwind metadata XML, verify model correctness (27 tests)
+- **Parser tests:** Parse TripPin + Northwind + OData Demo metadata XML, verify model correctness (47 tests)
 - **Generator integration tests:** Generate TripPin client, verify file structure and code content (1 test)
 - **Generator compilation tests:** Generate + compile TripPin client against runtime JARs (1 test)
 - **Runtime tests:** Verify OData collection response parsing, Context URL construction, key formatting (6 tests)
@@ -260,8 +260,9 @@ modern-odata-client/
 - **Integration tests:** Live TripPin service: collection queries, entity get, navigation, filtering, ordering, select, count, airlines, airports, batch requests, CRUD operations (POST/PATCH/DELETE with ETag), $ref link/unlink (18 tests)
 - **Northwind integration tests:** Live Northwind V4 service: categories, products, customers, orders, employees, suppliers, filtering, ordering, select, count, expand (16 tests)
 - **Generated client tests:** Type-safe generated TripPin client: collection queries, entity by key, filter, orderBy, select, count, navigation, CRUD, ETag (14 tests)
-- **Northwind generated client tests:** Type-safe generated Northwind client: collection queries, entity by key, filter, orderBy, select, count, suppliers, employees (16 tests)
-- **Total: 116 tests passing**
+- **Northwind generated client tests:** Type-safe generated Northwind client: collection queries, entity by key, filter, orderBy, select, count, suppliers, employees (17 tests)
+- **OData Demo generated client tests:** Type-safe generated OData Demo client: inheritance, open types, complex types, geography, stream, Guid, Byte, Single, Int64, DateTime (22 tests)
+- **Total: 158 tests passing**
 - **Future:** Cancellable streaming
 
 ---
@@ -319,3 +320,7 @@ modern-odata-client/
 25. **`ContextPath.addKey()` value type matters for URL format.** `addKey("CategoryID", "1")` generates `Categories('1')` (quoted) while `addKey("CategoryID", 1)` generates `Categories(1)` (unquoted). OData services may reject quoted integer keys — always pass the correct Java type (int for integers, String for strings).
 
 26. **OData datetime literals must NOT be quoted in filter expressions.** Using `StringProperty` for `Edm.DateTimeOffset` generates `OrderDate ge '1998-01-01T00:00:00Z'` (quoted), but OData requires `OrderDate ge 1998-01-01T00:00:00Z` (unquoted). Fixed by adding `DateTimeProperty` that generates unquoted datetime literals.
+
+27. **OData Demo service tests inheritance, open types, geography, stream gaps.** The parser correctly parses `BaseType`, `OpenType`, `HasStream`, and `ConcurrencyMode` attributes, but the generator ignores them. Generated classes for inherited types (e.g., `FeaturedProduct extends Product`) are standalone `final` classes with no inheritance. `Edm.Stream` and `Edm.GeographyPoint` map to `Object`. This is acceptable for MVP — the parser layer is complete, and code generation for these features is a clear future milestone.
+
+28. **OData Demo service IDs start at 0, not 1.** The `Products` entity set has `ID=0` for "Bread". Assertions like `assertTrue(p.getID() > 0)` fail — use `assertNotNull()` or non-zero-specific checks instead.
