@@ -64,12 +64,7 @@ public class RequestHelper {
                 .readTimeout(Duration.ofSeconds(60))
                 .build();
 
-        HttpTransport transport = context.transport();
-
-        for (HttpInterceptor interceptor : context.interceptors()) {
-            HttpResponse response = interceptor.intercept(request, transport);
-            return CompletableFuture.completedFuture(response);
-        }
+        HttpTransport transport = buildTransportChain(context, context.transport());
 
         return transport.submit(request);
     }
@@ -204,5 +199,26 @@ public class RequestHelper {
             case 429 -> new RateLimitException(response);
             default -> new ODataException(code, "HTTP " + code + ": " + response.getText());
         };
+    }
+
+    public static HttpTransport buildTransportChain(Context context, HttpTransport real) {
+        HttpTransport transport = real;
+        List<HttpInterceptor> interceptors = context.interceptors();
+        for (int i = interceptors.size() - 1; i >= 0; i--) {
+            HttpInterceptor next = interceptors.get(i);
+            HttpTransport delegate = transport;
+            transport = new HttpTransport() {
+                @Override
+                public CompletableFuture<HttpResponse> submit(HttpRequest request) {
+                    return CompletableFuture.completedFuture(next.intercept(request, delegate));
+                }
+
+                @Override
+                public CompletableFuture<java.io.InputStream> stream(HttpRequest request) {
+                    throw new UnsupportedOperationException("Interceptors do not support stream()");
+                }
+            };
+        }
+        return transport;
     }
 }

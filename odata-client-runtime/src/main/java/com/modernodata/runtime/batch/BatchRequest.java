@@ -5,6 +5,7 @@ import com.modernodata.runtime.entity.ContextPath;
 import com.modernodata.runtime.exception.ODataException;
 import com.modernodata.runtime.http.*;
 import com.modernodata.runtime.internal.MultipartHelper;
+import com.modernodata.runtime.internal.RequestHelper;
 
 import java.time.Duration;
 import java.util.ArrayList;
@@ -60,12 +61,7 @@ public class BatchRequest {
                 .readTimeout(Duration.ofSeconds(120))
                 .build();
 
-        HttpTransport transport = context.transport();
-
-        for (HttpInterceptor interceptor : context.interceptors()) {
-            HttpResponse response = interceptor.intercept(request, transport);
-            return parseResponse(response, boundary);
-        }
+        HttpTransport transport = RequestHelper.buildTransportChain(context, context.transport());
 
         try {
             HttpResponse response = transport.submit(request).join();
@@ -102,12 +98,7 @@ public class BatchRequest {
                 .readTimeout(Duration.ofSeconds(120))
                 .build();
 
-        HttpTransport transport = context.transport();
-
-        for (HttpInterceptor interceptor : context.interceptors()) {
-            HttpResponse response = interceptor.intercept(request, transport);
-            return CompletableFuture.completedFuture(parseResponse(response, boundary));
-        }
+        HttpTransport transport = RequestHelper.buildTransportChain(context, context.transport());
 
         return transport.submit(request)
                 .thenApply(response -> parseResponse(response, boundary));
