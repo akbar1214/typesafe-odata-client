@@ -23,14 +23,16 @@ import java.util.concurrent.ConcurrentHashMap;
 public class EntityOperations {
 
     private static final ObjectMapper COLLECTION_MAPPER;
+    private static final JavaType MAP_TYPE;
     private static final ConcurrentHashMap<Class<?>, JavaType> LIST_TYPE_CACHE = new ConcurrentHashMap<>();
 
     static {
         ObjectMapper mapper = new ObjectMapper();
         mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-        mapper.registerModule(new Jdk8Module());
-        mapper.registerModule(new JavaTimeModule());
+        mapper.registerModule(new com.fasterxml.jackson.datatype.jdk8.Jdk8Module());
+        mapper.registerModule(new com.fasterxml.jackson.datatype.jsr310.JavaTimeModule());
         COLLECTION_MAPPER = mapper;
+        MAP_TYPE = mapper.getTypeFactory().constructMapType(HashMap.class, String.class, Object.class);
     }
 
     private EntityOperations() {}
@@ -117,9 +119,7 @@ public class EntityOperations {
         checkResponse(response);
 
         try {
-            JavaType mapType = COLLECTION_MAPPER.getTypeFactory()
-                    .constructMapType(HashMap.class, String.class, Object.class);
-            Map<String, Object> envelope = COLLECTION_MAPPER.readValue(response.body(), mapType);
+            Map<String, Object> envelope = COLLECTION_MAPPER.readValue(response.body(), MAP_TYPE);
 
             String nextLink = null;
             Object nextLinkObj = envelope.get("@odata.nextLink");
