@@ -1,7 +1,9 @@
 package com.modernodata.runtime.internal;
 
 import com.modernodata.runtime.auth.AuthProvider;
+import com.modernodata.runtime.client.EntityOperations;
 import com.modernodata.runtime.entity.Context;
+import com.modernodata.runtime.http.HttpMethod;
 import com.modernodata.runtime.http.HttpRequest;
 import com.modernodata.runtime.http.HttpResponse;
 import com.modernodata.runtime.http.HttpTransport;
@@ -15,7 +17,7 @@ import java.util.concurrent.CompletableFuture;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-class RequestHelperHeaderTest {
+class EntityOperationsHeaderTest {
 
     static final class CapturingTransport implements HttpTransport {
         HttpRequest captured;
@@ -43,7 +45,7 @@ class RequestHelperHeaderTest {
                 .authProvider(auth)
                 .build();
 
-        RequestHelper.executeAsync(ctx, com.modernodata.runtime.http.HttpMethod.GET,
+        EntityOperations.executeAsync(ctx, HttpMethod.GET,
                 ctx.basePath().addSegment("People"), null,
                 Map.of("X-Trace", "extra-value"));
 

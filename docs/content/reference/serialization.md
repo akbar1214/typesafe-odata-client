@@ -146,7 +146,7 @@ The serializer handles OData response wrapping:
 }
 ```
 
-The `RequestHelper` extracts the `value` array and passes it to the serializer.
+The `EntityOperations` extracts the `value` array and passes it to the serializer.
 
 ## What's Next
 

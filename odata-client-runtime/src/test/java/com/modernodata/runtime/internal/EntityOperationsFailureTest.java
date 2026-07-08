@@ -2,9 +2,9 @@ package com.modernodata.runtime.internal;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.core.WireMockConfiguration;
+import com.modernodata.runtime.client.EntityOperations;
 import com.modernodata.runtime.entity.Context;
 import com.modernodata.runtime.exception.*;
-import com.modernodata.runtime.http.HttpMethod;
 import com.modernodata.runtime.http.JdkHttpTransport;
 
 import org.junit.jupiter.api.AfterEach;
@@ -14,7 +14,7 @@ import org.junit.jupiter.api.Test;
 import static com.github.tomakehurst.wiremock.client.WireMock.*;
 import static org.junit.jupiter.api.Assertions.*;
 
-class RequestHelperFailureTest {
+class EntityOperationsFailureTest {
 
     private WireMockServer server;
     private Context ctx;
@@ -53,7 +53,7 @@ class RequestHelperFailureTest {
             server.stubFor(get(anyUrl()).willReturn(aResponse().withStatus(status)));
 
             assertThrows(expected,
-                    () -> RequestHelper.executeAndGetEntity(ctx,
+                    () -> EntityOperations.executeAndGetEntity(ctx,
                             ctx.basePath().addSegment("People"), Object.class),
                     "HTTP " + status + " should map to " + expected.getSimpleName());
         }
@@ -64,7 +64,7 @@ class RequestHelperFailureTest {
         server.stubFor(get(anyUrl()).willReturn(aResponse().withStatus(404)));
 
         assertThrows(NotFoundException.class,
-                () -> RequestHelper.executeAndGetCollection(ctx,
+                () -> EntityOperations.executeAndGetCollection(ctx,
                         ctx.basePath().addSegment("People"), Object.class));
     }
 }

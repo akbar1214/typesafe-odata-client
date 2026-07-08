@@ -54,7 +54,7 @@ Runtime library for generated code.
 - `serialization/` — JacksonSerializer
 - `paging/` — CollectionPage
 - `exception/` — Typed exceptions
-- `internal/` — RequestHelper
+- `client/` — EntityOperations (HTTP execution)
 
 ### Dependencies
 

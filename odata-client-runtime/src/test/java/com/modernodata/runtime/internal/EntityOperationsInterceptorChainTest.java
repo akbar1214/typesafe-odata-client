@@ -1,6 +1,7 @@
 package com.modernodata.runtime.internal;
 
 import com.modernodata.runtime.auth.AuthProvider;
+import com.modernodata.runtime.client.EntityOperations;
 import com.modernodata.runtime.entity.Context;
 import com.modernodata.runtime.http.HttpInterceptor;
 import com.modernodata.runtime.http.HttpMethod;
@@ -18,7 +19,7 @@ import java.util.concurrent.CompletableFuture;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-class InterceptorChainTest {
+class EntityOperationsInterceptorChainTest {
 
     static final class OrderTrackingTransport implements HttpTransport {
         @Override
@@ -51,7 +52,7 @@ class InterceptorChainTest {
                 .interceptors(List.of(i1, i2))
                 .build();
 
-        RequestHelper.executeAsync(ctx, HttpMethod.GET,
+        EntityOperations.executeAsync(ctx, HttpMethod.GET,
                 ctx.basePath().addSegment("People"), null, null);
 
         assertEquals(List.of("i1", "i2"), order,

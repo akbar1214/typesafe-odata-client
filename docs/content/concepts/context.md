@@ -59,7 +59,7 @@ DefaultContainer (holds Context)
     ↓
 PeopleCollectionRequest (holds Context)
     ↓
-RequestHelper.submit(context, request)
+EntityOperations.submit(context, request)
     ↓
 HttpTransport.submit(httpRequest)
     ↓

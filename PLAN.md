@@ -39,7 +39,7 @@ modern-odata-client/
 │       ├── serialization/        # Serializer interface
 │       ├── paging/               # CollectionPage
 │       ├── exception/            # Typed exceptions
-│       └── internal/             # RequestHelper
+│       └── client/             # EntityOperations (HTTP execution)
 ├── odata-client-maven-plugin/    # Maven plugin (generate goal)
 └── odata-client-test/            # Integration tests
 ```
@@ -80,8 +80,8 @@ modern-odata-client/
 - [x] Typed exception hierarchy: `ODataException`, `NotFoundException`, `UnauthorizedException`, `RateLimitException`, etc.
 - [x] `HttpInterceptor` pattern for logging, metrics, retry
 - [x] `Context` record holding all dependencies (baseUrl, serializer, transport, auth, schemas, interceptors)
-- [x] `RequestHelper` utility for executing HTTP requests
-- [x] Generated request classes wired to `RequestHelper` for actual HTTP execution
+- [x] `EntityOperations` utility for executing HTTP requests
+- [x] Generated request classes wired to `EntityOperations` for actual HTTP execution
 - [x] `CollectionPage<T>` with OData `{"value": [...]}` response parsing (JsonNode-based)
 - [x] Runtime tests (6 tests): collection response parsing, URL construction, key formatting
 
