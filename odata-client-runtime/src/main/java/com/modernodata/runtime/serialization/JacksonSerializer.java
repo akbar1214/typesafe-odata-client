@@ -15,14 +15,14 @@ public class JacksonSerializer implements Serializer {
 
     private static final ObjectMapper MAPPER = createMapper();
     private static final ObjectMapper MAPPER_INCLUDE_NULLS = createMapperIncludeNulls();
+    private static final ObjectMapper MAPPER_PRETTY = createMapperPretty();
 
     private static ObjectMapper createMapper() {
         return new ObjectMapper()
                 .registerModule(new Jdk8Module())
                 .registerModule(new JavaTimeModule())
                 .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
-                .setSerializationInclusion(JsonInclude.Include.NON_NULL)
-                .enable(SerializationFeature.INDENT_OUTPUT);
+                .setSerializationInclusion(JsonInclude.Include.NON_NULL);
     }
 
     private static ObjectMapper createMapperIncludeNulls() {
@@ -30,7 +30,15 @@ public class JacksonSerializer implements Serializer {
                 .registerModule(new Jdk8Module())
                 .registerModule(new JavaTimeModule())
                 .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
-                .setSerializationInclusion(JsonInclude.Include.ALWAYS)
+                .setSerializationInclusion(JsonInclude.Include.ALWAYS);
+    }
+
+    private static ObjectMapper createMapperPretty() {
+        return new ObjectMapper()
+                .registerModule(new Jdk8Module())
+                .registerModule(new JavaTimeModule())
+                .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
+                .setSerializationInclusion(JsonInclude.Include.NON_NULL)
                 .enable(SerializationFeature.INDENT_OUTPUT);
     }
 
@@ -76,7 +84,7 @@ public class JacksonSerializer implements Serializer {
 
     public String serializeToString(Object value) {
         try {
-            return MAPPER.writeValueAsString(value);
+            return MAPPER_PRETTY.writeValueAsString(value);
         } catch (JsonProcessingException e) {
             throw new com.modernodata.runtime.exception.ODataException(
                     "Serialization failed: " + e.getMessage(), e);
@@ -85,7 +93,7 @@ public class JacksonSerializer implements Serializer {
 
     public String toJson(Object value) {
         try {
-            return MAPPER.writeValueAsString(value);
+            return MAPPER_PRETTY.writeValueAsString(value);
         } catch (JsonProcessingException e) {
             throw new com.modernodata.runtime.exception.ODataException(
                     "Serialization failed: " + e.getMessage(), e);

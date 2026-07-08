@@ -27,6 +27,7 @@ public class EntityGenerator {
         Set<String> imports = new TreeSet<>();
         imports.add("java.util.Optional");
         imports.add("java.util.List");
+        imports.add("java.util.Collections");
         imports.add("java.util.Objects");
         imports.add("java.util.Set");
         imports.add("com.modernodata.runtime.entity.ODataEntityType");
@@ -90,7 +91,7 @@ public class EntityGenerator {
         sb.append("        this.etag = etag;\n");
         for (PropertyModel prop : entityType.properties()) {
             String fn = Names.toJavaFieldName(prop.name());
-            sb.append("        this.").append(fn).append(" = ").append(fn).append(";\n");
+            sb.append("        this.").append(fn).append(" = ").append(fieldInit(prop)).append(";\n");
         }
         sb.append("        this.unmappedFields = java.util.Map.of();\n");
         sb.append("        this.changedFields = Set.of();\n");
@@ -107,7 +108,7 @@ public class EntityGenerator {
         sb.append("        this.etag = etag;\n");
         for (PropertyModel prop : entityType.properties()) {
             String fn = Names.toJavaFieldName(prop.name());
-            sb.append("        this.").append(fn).append(" = ").append(fn).append(";\n");
+            sb.append("        this.").append(fn).append(" = ").append(fieldInit(prop)).append(";\n");
         }
         sb.append("        this.unmappedFields = unmappedFields != null ? unmappedFields : java.util.Map.of();\n");
         sb.append("        this.changedFields = changedFields != null ? changedFields : Set.of();\n");
@@ -223,18 +224,26 @@ public class EntityGenerator {
         }
     }
 
+    private String fieldInit(PropertyModel prop) {
+        String fn = Names.toJavaFieldName(prop.name());
+        if (Names.isCollectionType(prop.edmType())) {
+            return fn + " == null ? List.of() : List.copyOf(" + fn + ")";
+        }
+        return fn;
+    }
+
     private String generateGetter(PropertyModel prop, SchemaModel schema) {
         String javaType = resolvePropertyJavaType(prop, schema, prop.nullable());
         String fn = Names.toJavaFieldName(prop.name());
+        StringBuilder sb = new StringBuilder();
 
         if (Names.isCollectionType(prop.edmType())) {
-            sb().append("    public ").append(javaType).append(" ").append(Names.getterMethod(prop)).append("() {\n");
-            sb().append("        return ").append(fn).append(";\n");
-            sb().append("    }\n\n");
-            return "";
+            sb.append("    public ").append(javaType).append(" ").append(Names.getterMethod(prop)).append("() {\n");
+            sb.append("        return Collections.unmodifiableList(").append(fn).append(");\n");
+            sb.append("    }\n\n");
+            return sb.toString();
         }
 
-        StringBuilder sb = new StringBuilder();
         if (prop.nullable()) {
             sb.append("    public Optional<").append(javaType).append("> ").append(Names.getterMethod(prop)).append("() {\n");
             sb.append("        return Optional.ofNullable(").append(fn).append(");\n");
@@ -425,6 +434,4 @@ public class EntityGenerator {
             imports.add(basePackage + Names.packageNameSuffixComplexType() + "." + Names.complexTypeClassName(Names.simpleNameFromFullName(edmType)));
         }
     }
-
-    private StringBuilder sb() { return new StringBuilder(); }
 }

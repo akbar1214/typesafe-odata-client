@@ -23,7 +23,7 @@ public final class CollectionProperty<E, T> {
     public FilterExpression any(Function<FilterableElement<T>, FilterExpression> predicate) {
         FilterableElement<T> element = new FilterableElement<>();
         FilterExpression result = predicate.apply(element);
-        return new RawFilterExpression(edmName + "/any(x: " + result.toODataExpression().replace("x", "x") + ")");
+        return new RawFilterExpression(edmName + "/any(x: " + result.toODataExpression() + ")");
     }
 
     public FilterExpression all(Function<FilterableElement<T>, FilterExpression> predicate) {

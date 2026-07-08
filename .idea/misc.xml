@@ -9,6 +9,7 @@
         <option value="$PROJECT_DIR$/odata-client-maven-plugin/pom.xml" />
         <option value="$PROJECT_DIR$/odata-client-runtime/pom.xml" />
         <option value="$PROJECT_DIR$/odata-client-test/pom.xml" />
+        <option value="$PROJECT_DIR$/pom.xml" />
       </list>
     </option>
   </component>

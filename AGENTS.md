@@ -42,7 +42,7 @@ A type-safe OData v4 client generator for Java. Parses CSDL XML metadata and gen
 **Approach:** Inspired by SAP Cloud SDK and jOOQ:
 - Each entity gets static property constants (`Person.FIRST_NAME`)
 - Each property type has its own set of valid operations
-- `StringProperty` has `contains()`, `startsWith()` — not `greaterThan()`
+- `StringProperty` has `contains()`, `startsWith()` *and* `greaterThan()` (OData supports lexicographic `gt`/`lt`/`ge`/`le` on strings)
 - `NumberProperty` has `greaterThan()`, `multiply()` — not `contains()`
 - Composable: `filter(a.and(b.or(c)))`
 
@@ -150,20 +150,21 @@ ODataException (base)
 
 ### 8. Serialization-Agnostic Model
 
-**Decision:** Generated entities have no Jackson/Gson annotations.
+**Decision:** Generated entities use Jackson `@JsonCreator`/`@JsonProperty` annotations for deserialization, but the `Serializer` interface is pluggable.
 
-**Reason:** The reference's entities are annotated with `@JsonProperty`, `@JsonAnySetter`, `@JacksonInject`, etc. This:
-- Forces Jackson on the classpath
-- Couples model to serialization library
-- Makes it impossible to use Gson or Jakarta JSON-B
+**Reason:** The reference's entities are annotated with `@JsonAnySetter`, `@JacksonInject`, etc. We simplified to just `@JsonCreator` and `@JsonProperty` — the minimum needed for Jackson deserialization. The `Serializer` interface allows plugging in custom serialization logic, but Jackson annotations on the model are required for the default `JacksonSerializer`.
 
-**Our approach:** Model is clean POJOs. `Serializer` interface is pluggable:
+**Our approach:** Entities are annotated with `@JsonCreator`/`@JsonProperty` for Jackson. `Serializer` interface is pluggable for custom serialization:
 ```java
 public interface Serializer {
     <T> byte[] serialize(T value, Class<T> type);
     <T> T deserialize(byte[] data, Class<T> type);
 }
 ```
+
+**Known limitation:** Swapping to Gson or JSON-B requires removing `@JsonCreator`/`@JsonProperty` and implementing a custom `Serializer` with schema-driven deserialization.
+
+**Known limitation (as of v0.1.0):** The `EntityGenerator` currently emits `@JsonCreator`/`@JsonProperty` annotations on generated entities for Jackson deserialization. This couples the model to Jackson despite the pluggable `Serializer` interface. The `Serializer` interface works for serialization (POST/PATCH bodies) but deserialization relies on Jackson annotations. Swapping to Gson or JSON-B requires either removing annotations and writing a schema-driven deserializer, or registering Jackson mixins. This is documented tech debt tracked in issue #10 of the code review.
 
 ### 9. Maven Plugin (Not CLI Tool)
 
@@ -346,3 +347,24 @@ modern-odata-client/
 38. **Profiling methodology: use `forkCount=0` + `asprof` attachment for accurate results.** Maven's default `forkCount=1` forks a child JVM for tests, making it hard to attach the profiler. Using `forkCount=0` runs tests in the Maven JVM directly, allowing `asprof -e alloc -i 1000 -d 60 <pid>` to attach cleanly. For JFR-based profiling, use `.mvn/jvm.config` with `-agentpath:...=start,event=alloc,file=output.jfr` which is the most reliable approach. Always run 5+ iterations to get stable data — single runs show too much JVM startup noise.
 
 39. **Profile BEFORE and AFTER to confirm fixes work.** Don't just fix based on code reading — the profiler reveals which allocations actually matter at the TLAB level. For example, `RawFilterExpression.and()` is O(n²) in string concatenation theory, but with typical 1-5 filter clauses it never appears in profiler stacks. Meanwhile, the `ObjectMapper` per-request was invisible in code review but dominant in profiler output.
+
+40. **`EntityGenerator.generateGetter` silently drops collection-typed property getters.** The collection branch (`EntityGenerator.java:230-235`) calls `sb()` which returns a throwaway `new StringBuilder()`, writes the getter to it, then returns `""`. The caller does `sb.append(generateGetter(...))` which appends nothing. Collection properties get a field and a builder setter but no getter. Fix: hoist `StringBuilder sb = new StringBuilder()` to the top of the method and use it for both branches.
+    - **FIXED in v0.1.1.** `generateGetter` now hoists `StringBuilder` and emits the getter for collections. Per the "Truly Immutable Entities" decision, collection fields are stored via `List.copyOf(fn)` (null-safe) in both constructors, and the getter returns `Collections.unmodifiableList(fn)`. Verified by `EntityGeneratorCollectionGetterTest` (TDD: failing test first, then fix).
+
+41. **`INDENT_OUTPUT` on wire serialization wastes bandwidth.** `JacksonSerializer.createMapper()` enables `SerializationFeature.INDENT_OUTPUT`, which pretty-prints every POST/PATCH body sent over the wire. This adds ~30% to body size and CPU cost with no benefit. Disable for the wire mapper; keep a separate mapper for debug `toJson()`.
+    - **FIXED in v0.1.1.** `INDENT_OUTPUT` removed from the wire mappers (`MAPPER`, `MAPPER_INCLUDE_NULLS`). A separate `MAPPER_PRETTY` (with `INDENT_OUTPUT`) is used only by `toJson()`/`serializeToString()` for human-readable debug output. Verified by `JacksonSerializerTest`.
+
+42. **`CompletableFuture.supplyAsync` on `ForkJoinPool.commonPool()` blocks shared pool.** `JdkHttpTransport.submit()` and `stream()` submit blocking I/O to the common pool with no executor. Under concurrent load this starves other common-pool users. Use a dedicated `ExecutorService` (e.g., cached, IO-bounded).
+    - **FIXED in v0.1.1.** `JdkHttpTransport` takes an injected `Executor`; the default constructor uses a dedicated daemon cached pool with named threads (`odata-http-N`). Both `submit()` and `stream()` pass the executor to `supplyAsync(...)`. Verified by `JdkHttpTransportTest` (asserts the request runs on the injected executor, not the common pool).
+
+43. **Auth header + extra header collision throws `UnsupportedOperationException`.** `RequestHelper.executeAsync()` stores auth headers as `List.of(...)` (immutable), then `extraHeaders` calls `computeIfAbsent(...).add(...)`. If any extra header key collides with an auth header key, `.add()` on the immutable list throws. Low probability but a latent bug.
+    - **FIXED in v0.1.1.** Auth headers are now stored as mutable `new ArrayList<>(List.of(value))`, so colliding extra headers merge via `computeIfAbsent(...).add(...)` without throwing. Verified by `RequestHelperHeaderTest` (TDD: threw `UnsupportedOperationException` before the fix).
+
+44. **Interceptors are "first wins" — multiple interceptors silently don't chain.** `RequestHelper.executeAsync()` returns the first interceptor's result inside the loop (`return` at line 71). If 3 interceptors are registered, only the first runs. The interface signature `intercept(request, delegate)` allows calling `delegate.submit()` internally, but this design should be documented clearly — or reworked into a proper middleware chain.
+    - **STATUS: NOT fixed (deferred).** Out of scope for the P0/P1 pass (see user direction). `HttpInterceptor.intercept(request, delegate)` still only runs the first interceptor. If multiple interceptors are ever needed, rework into a middleware chain with a `proceed` callback. Documented as a known design gap.
+
+45. **`CollectionProperty.any()` has a no-op `.replace("x", "x").** `CollectionProperty.java:26` calls `.replace("x", "x")` on the filter expression — this does literally nothing. It works only because `FilterableElement.prefix` is hardcoded to `"x"` matching the `any(x: ...)` variable. If the prefix were ever changed, this would silently break.
+    - **FIXED in v0.1.1.** The `.replace("x", "x")` no-op was removed. `FilterableElement.prefix` remains `"x"` (matches `any(x: ...)`/`all(x: ...)`). Verified by `CollectionPropertyTest` (locks `Emails/any(x: x/Value eq 'a')` and `Emails/all(x: x/Value eq 'a')`).
+
+46. **Dead `toMultiMap` method after inlining.** `RequestHelper.toMultiMap` (lines 209-215) was inlined per lesson 35 but the method body was never deleted. Dead code — delete it.
+    - **FIXED in v0.1.1.** `RequestHelper.toMultiMap` was deleted (it was unreferenced; the `BatchRequest.toMultiMap` is a separate method and untouched). The stale comment in `executeAsync` was also corrected.

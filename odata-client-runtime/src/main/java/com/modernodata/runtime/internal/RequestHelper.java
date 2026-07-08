@@ -44,9 +44,9 @@ public class RequestHelper {
         int headerCount = authHeaders.size() + (extraHeaders != null ? extraHeaders.size() : 0);
         Map<String, List<String>> headers = new LinkedHashMap<>(Math.max(headerCount + 1, 4));
 
-        // Inline auth headers directly as List.of() (avoids intermediate HashMap from toMultiMap)
+        // Inline auth headers as mutable single-element lists so extra headers can merge.
         for (var entry : authHeaders.entrySet()) {
-            headers.put(entry.getKey(), List.of(entry.getValue()));
+            headers.put(entry.getKey(), new ArrayList<>(List.of(entry.getValue())));
         }
 
         if (extraHeaders != null) {
@@ -204,13 +204,5 @@ public class RequestHelper {
             case 429 -> new RateLimitException(response);
             default -> new ODataException(code, "HTTP " + code + ": " + response.getText());
         };
-    }
-
-    private static Map<String, List<String>> toMultiMap(Map<String, String> singleMap) {
-        Map<String, List<String>> result = new HashMap<>();
-        for (var entry : singleMap.entrySet()) {
-            result.put(entry.getKey(), List.of(entry.getValue()));
-        }
-        return result;
     }
 }
