@@ -256,14 +256,14 @@ modern-odata-client/
 - **Parser tests:** Parse TripPin + Northwind + OData Demo metadata XML, verify model correctness (47 tests)
 - **Generator integration tests:** Generate TripPin client, verify file structure and code content (1 test)
 - **Generator compilation tests:** Generate + compile TripPin client against runtime JARs (1 test)
-- **Runtime tests:** Verify OData collection response parsing, Context URL construction, key formatting (6 tests)
+- **Runtime tests:** Verify OData collection response parsing, Context URL construction, key formatting, typed exceptions, interceptor chaining, header merging, streaming (26 tests)
 - **Batch tests:** Multipart encode/decode, batch request construction, ContextPath relative URLs (16 tests)
 - **Integration tests:** Live TripPin service: collection queries, entity get, navigation, filtering, ordering, select, count, airlines, airports, batch requests, CRUD operations (POST/PATCH/DELETE with ETag), $ref link/unlink (18 tests)
 - **Northwind integration tests:** Live Northwind V4 service: categories, products, customers, orders, employees, suppliers, filtering, ordering, select, count, expand (16 tests)
 - **Generated client tests:** Type-safe generated TripPin client: collection queries, entity by key, filter, orderBy, select, count, navigation, CRUD, ETag (14 tests)
 - **Northwind generated client tests:** Type-safe generated Northwind client: collection queries, entity by key, filter, orderBy, select, count, suppliers, employees (17 tests)
 - **OData Demo generated client tests:** Type-safe generated OData Demo client: inheritance, open types, complex types, geography, stream, Guid, Byte, Single, Int64, DateTime (22 tests)
-- **Total: 158 tests passing**
+- **Total: 183 tests passing**
 - **Future:** Cancellable streaming
 
 ---
@@ -371,3 +371,12 @@ modern-odata-client/
 
 47. **`ContextPath.formatValue` doesn't encode special chars in string key values.** `ContextPath.formatValue()` wraps strings in single quotes but doesn't escape `'`, `&`, `?`, `#`, or `%` inside the value. A key value like `"O'Brien"` produces `People('O'Brien')` (broken OData literal), `"A&B"` produces `People('A&B')` (`&` interpreted as query separator), `"A?B"` starts a query string, `"A#B"` starts a fragment.
     - **FIXED in v0.1.1.** Added `encodeKeyValue()` helper in `ContextPath` that single-pass scans the value and encodes: `'` → `''` (OData string literal escaping), `&` → `%26`, `?` → `%3F`, `#` → `%23`, `%` → `%25`. Verified by `ContextPathTest` (6 tests: singleQuote, ampersand, questionMark, hash, percent, compositeKey).
+
+48. **`JdkHttpTransport.stream()` throws generic `ODataException` on error, not typed exceptions.** The `stream()` method at line 97-100 threw a raw `ODataException` for any 4xx/5xx status code, while the `submit()` path produced typed exceptions (`NotFoundException`, `RateLimitException`, etc.) via `RequestHelper.checkResponse`. Inconsistent error handling between the two paths.
+    - **FIXED in v0.1.1.** Added `ODataException.fromResponse(HttpResponse)` as a shared factory in the `exception` package that maps status codes to typed exceptions. Both `RequestHelper.checkResponse()` and `JdkHttpTransport.stream()` now delegate to it. `stream()` reads the error body, builds an `HttpResponse`, and throws the correct typed exception. Verified by `ODataExceptionTest` (7 tests covering 400/401/403/404/409/429/500).
+
+49. **`EntityGenerator.getKey()` returns only the first key for composite-key entities.** The generated `getKey()` method used `entityType.keys().get(0).propertyRefs().get(0)` — the first property ref from the first key. Composite-key entities (like Northwind's `Order_Detail` with `[OrderID, ProductID]`) lost all key fields except the first one.
+    - **FIXED in v0.1.1.** `EntityGenerator.getKey()` now checks the number of `propertyRefs`. Single key: returns the raw value (unchanged). Composite key: returns `java.util.Map.of("key1", field1, "key2", field2, ...)`. Verified by `EntityGeneratorCompositeKeyTest` (parses Northwind `Order_Detail`, checks the getKey body contains `Map.of` with both `OrderID` and `ProductID`).
+
+50. **`RequestHelper` is public but lives in the `internal` package.** The generated code referenced `com.modernodata.runtime.internal.RequestHelper` for all CRUD operations, exposing internal implementation details as public API. The `internal` package convention was undermined by requiring public access.
+    - **FIXED in v0.1.1.** Created `com.modernodata.runtime.client.EntityOperations` with the same public API. `RequestHelper` now delegates to `EntityOperations` and is deprecated. `RequestGenerator` emits `EntityOperations.*` instead of `RequestHelper.*`. `BatchRequest` uses `EntityOperations.buildTransportChain` directly. Verified by full test suite (183 tests passing, including all generated client tests that now compile against the new class).

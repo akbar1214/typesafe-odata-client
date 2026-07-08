@@ -27,7 +27,7 @@ public class RequestGenerator {
         Set<String> imports = new TreeSet<>();
         imports.add("com.modernodata.runtime.entity.Context");
         imports.add("com.modernodata.runtime.entity.ContextPath");
-        imports.add("com.modernodata.runtime.internal.RequestHelper");
+        imports.add("com.modernodata.runtime.client.EntityOperations");
         imports.add("com.modernodata.runtime.query.*");
         imports.add("com.modernodata.runtime.batch.BatchOperation");
         imports.add(basePackage + Names.packageNameSuffixEntity() + "." + entityClassName);
@@ -66,34 +66,34 @@ public class RequestGenerator {
             if (Names.isCollectionType(nav.type())) {
                 String collReqClass = Names.collectionRequestClassName(Names.simpleNameFromFullName(Names.unwrapCollectionType(nav.type())));
                 sb.append("    public void add").append(Names.capitalize(nav.name())).append("Ref(String targetEntityUrl) {\n");
-                sb.append("        RequestHelper.addRef(context, contextPath.addSegment(\"").append(nav.name()).append("\"), targetEntityUrl);\n");
+                sb.append("        EntityOperations.addRef(context, contextPath.addSegment(\"").append(nav.name()).append("\"), targetEntityUrl);\n");
                 sb.append("    }\n\n");
 
                 sb.append("    public void remove").append(Names.capitalize(nav.name())).append("Ref(String targetKey) {\n");
-                sb.append("        RequestHelper.removeRef(context, contextPath.addSegment(\"").append(nav.name()).append("\"), targetKey);\n");
+                sb.append("        EntityOperations.removeRef(context, contextPath.addSegment(\"").append(nav.name()).append("\"), targetKey);\n");
                 sb.append("    }\n\n");
             }
         }
 
         // CRUD operations
         sb.append("    public ").append(entityClassName).append(" get() {\n");
-        sb.append("        return RequestHelper.executeAndGetEntity(context, contextPath, ").append(entityClassName).append(".class);\n");
+        sb.append("        return EntityOperations.executeAndGetEntity(context, contextPath, ").append(entityClassName).append(".class);\n");
         sb.append("    }\n\n");
 
         sb.append("    public ").append(entityClassName).append(" patch(").append(entityClassName).append(" entity) {\n");
-        sb.append("        return RequestHelper.executePatchEntity(context, contextPath, entity, ").append(entityClassName).append(".class);\n");
+        sb.append("        return EntityOperations.executePatchEntity(context, contextPath, entity, ").append(entityClassName).append(".class);\n");
         sb.append("    }\n\n");
 
         sb.append("    public ").append(entityClassName).append(" patchWithETag(").append(entityClassName).append(" entity, String etag) {\n");
-        sb.append("        return RequestHelper.executePatchEntityWithETag(context, contextPath, entity, ").append(entityClassName).append(".class, etag);\n");
+        sb.append("        return EntityOperations.executePatchEntityWithETag(context, contextPath, entity, ").append(entityClassName).append(".class, etag);\n");
         sb.append("    }\n\n");
 
         sb.append("    public void delete() {\n");
-        sb.append("        RequestHelper.executeDelete(context, contextPath);\n");
+        sb.append("        EntityOperations.executeDelete(context, contextPath);\n");
         sb.append("    }\n\n");
 
         sb.append("    public void deleteWithETag(String etag) {\n");
-        sb.append("        RequestHelper.executeDeleteWithETag(context, contextPath, etag);\n");
+        sb.append("        EntityOperations.executeDeleteWithETag(context, contextPath, etag);\n");
         sb.append("    }\n\n");
 
         // Batch methods
@@ -127,7 +127,7 @@ public class RequestGenerator {
         imports.add("java.util.stream.Stream");
         imports.add("com.modernodata.runtime.entity.Context");
         imports.add("com.modernodata.runtime.entity.ContextPath");
-        imports.add("com.modernodata.runtime.internal.RequestHelper");
+        imports.add("com.modernodata.runtime.client.EntityOperations");
         imports.add("com.modernodata.runtime.query.*");
         imports.add("com.modernodata.runtime.paging.CollectionPage");
         imports.add("com.modernodata.runtime.batch.BatchOperation");
@@ -240,7 +240,7 @@ public class RequestGenerator {
         sb.append("    }\n\n");
 
         sb.append("    public CollectionPage<").append(entityClassName).append("> get() {\n");
-        sb.append("        return RequestHelper.executeAndGetCollection(context, buildContext(), ").append(entityClassName).append(".class);\n");
+        sb.append("        return EntityOperations.executeAndGetCollection(context, buildContext(), ").append(entityClassName).append(".class);\n");
         sb.append("    }\n\n");
 
         sb.append("    public Stream<").append(entityClassName).append("> stream() {\n");

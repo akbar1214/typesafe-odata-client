@@ -7,7 +7,7 @@ import com.example.trippin.enums.PersonGender;
 import com.modernodata.runtime.entity.Context;
 import com.modernodata.runtime.entity.ContextPath;
 import com.modernodata.runtime.http.JdkHttpTransport;
-import com.modernodata.runtime.internal.RequestHelper;
+import com.modernodata.runtime.client.EntityOperations;
 import com.modernodata.runtime.paging.CollectionPage;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -197,7 +197,7 @@ class TripPinGeneratedClientTest {
 
         ContextPath path = context.basePath().addSegment("People");
         try {
-            RequestHelper.executePostEntity(context, path, newPerson, Person.class);
+            EntityOperations.executePostEntity(context, path, newPerson, Person.class);
 
             Person created = client.people().personByUserName(testUserName).get();
             assertNotNull(created);

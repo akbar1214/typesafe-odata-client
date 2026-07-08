@@ -13,7 +13,7 @@ import com.modernodata.runtime.entity.ContextPath;
 import com.modernodata.runtime.http.HttpResponse;
 import com.modernodata.runtime.http.HttpTransport;
 import com.modernodata.runtime.http.JdkHttpTransport;
-import com.modernodata.runtime.internal.RequestHelper;
+import com.modernodata.runtime.client.EntityOperations;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
@@ -47,7 +47,7 @@ class TripPinIntegrationTest {
                 .addSegment("People")
                 .addQuery("$top", "3");
 
-        HttpResponse response = RequestHelper.executeSync(
+        HttpResponse response = EntityOperations.executeSync(
                 tripPinContext,
                 com.modernodata.runtime.http.HttpMethod.GET,
                 path, null, null);
@@ -71,7 +71,7 @@ class TripPinIntegrationTest {
                 .addSegment("People")
                 .addKey("UserName", "scottketchum");
 
-        HttpResponse response = RequestHelper.executeSync(
+        HttpResponse response = EntityOperations.executeSync(
                 tripPinContext,
                 com.modernodata.runtime.http.HttpMethod.GET,
                 path, null, null);
@@ -91,7 +91,7 @@ class TripPinIntegrationTest {
                 .addKey("UserName", "scottketchum")
                 .addSegment("Trips");
 
-        HttpResponse response = RequestHelper.executeSync(
+        HttpResponse response = EntityOperations.executeSync(
                 tripPinContext,
                 com.modernodata.runtime.http.HttpMethod.GET,
                 path, null, null);
@@ -110,7 +110,7 @@ class TripPinIntegrationTest {
                 .addQuery("$filter", "FirstName eq 'Scott'")
                 .addQuery("$top", "1");
 
-        HttpResponse response = RequestHelper.executeSync(
+        HttpResponse response = EntityOperations.executeSync(
                 tripPinContext,
                 com.modernodata.runtime.http.HttpMethod.GET,
                 path, null, null);
@@ -129,7 +129,7 @@ class TripPinIntegrationTest {
                 .addQuery("$select", "UserName,FirstName")
                 .addQuery("$top", "1");
 
-        HttpResponse response = RequestHelper.executeSync(
+        HttpResponse response = EntityOperations.executeSync(
                 tripPinContext,
                 com.modernodata.runtime.http.HttpMethod.GET,
                 path, null, null);
@@ -150,7 +150,7 @@ class TripPinIntegrationTest {
                 .addQuery("$orderby", "LastName desc")
                 .addQuery("$top", "3");
 
-        HttpResponse response = RequestHelper.executeSync(
+        HttpResponse response = EntityOperations.executeSync(
                 tripPinContext,
                 com.modernodata.runtime.http.HttpMethod.GET,
                 path, null, null);
@@ -178,7 +178,7 @@ class TripPinIntegrationTest {
                 .addQuery("$count", "true")
                 .addQuery("$top", "1");
 
-        HttpResponse response = RequestHelper.executeSync(
+        HttpResponse response = EntityOperations.executeSync(
                 tripPinContext,
                 com.modernodata.runtime.http.HttpMethod.GET,
                 path, null, null);
@@ -196,7 +196,7 @@ class TripPinIntegrationTest {
         ContextPath path = tripPinContext.basePath()
                 .addSegment("Airlines");
 
-        HttpResponse response = RequestHelper.executeSync(
+        HttpResponse response = EntityOperations.executeSync(
                 tripPinContext,
                 com.modernodata.runtime.http.HttpMethod.GET,
                 path, null, null);
@@ -214,7 +214,7 @@ class TripPinIntegrationTest {
                 .addSegment("Airports")
                 .addQuery("$top", "2");
 
-        HttpResponse response = RequestHelper.executeSync(
+        HttpResponse response = EntityOperations.executeSync(
                 tripPinContext,
                 com.modernodata.runtime.http.HttpMethod.GET,
                 path, null, null);
@@ -325,7 +325,7 @@ class TripPinIntegrationTest {
         ContextPath path = tripPinContext.basePath()
                 .addSegment("People");
 
-        HttpResponse response = RequestHelper.executeSync(
+        HttpResponse response = EntityOperations.executeSync(
                 tripPinContext,
                 com.modernodata.runtime.http.HttpMethod.POST,
                 path,
@@ -343,14 +343,14 @@ class TripPinIntegrationTest {
         ContextPath getPath = tripPinContext.basePath()
                 .addSegment("People")
                 .addKey("UserName", testUserName);
-        HttpResponse getResponse = RequestHelper.executeSync(
+        HttpResponse getResponse = EntityOperations.executeSync(
                 tripPinContext,
                 com.modernodata.runtime.http.HttpMethod.GET,
                 getPath, null, null);
         assertEquals(200, getResponse.statusCode());
 
         // Cleanup: delete the test person
-        RequestHelper.executeSync(
+        EntityOperations.executeSync(
                 tripPinContext,
                 com.modernodata.runtime.http.HttpMethod.DELETE,
                 getPath, null, null);
@@ -371,7 +371,7 @@ class TripPinIntegrationTest {
 
         // Create person
         ContextPath basePath = tripPinContext.basePath().addSegment("People");
-        RequestHelper.executeSync(
+        EntityOperations.executeSync(
                 tripPinContext,
                 com.modernodata.runtime.http.HttpMethod.POST,
                 basePath,
@@ -383,7 +383,7 @@ class TripPinIntegrationTest {
                 .addKey("UserName", testUserName);
 
         // GET to obtain ETag (TripPin requires If-Match for PATCH)
-        HttpResponse getResponse = RequestHelper.executeSync(
+        HttpResponse getResponse = EntityOperations.executeSync(
                 tripPinContext,
                 com.modernodata.runtime.http.HttpMethod.GET,
                 entityPath, null, null);
@@ -410,7 +410,7 @@ class TripPinIntegrationTest {
             patchHeaders.put("If-Match", etag);
         }
 
-        HttpResponse patchResponse = RequestHelper.executeSync(
+        HttpResponse patchResponse = EntityOperations.executeSync(
                 tripPinContext,
                 com.modernodata.runtime.http.HttpMethod.PATCH,
                 entityPath,
@@ -421,7 +421,7 @@ class TripPinIntegrationTest {
                 "PATCH should succeed: " + patchResponse.statusCode() + " - " + patchResponse.getText());
 
         // Verify update via GET
-        HttpResponse verifyResponse = RequestHelper.executeSync(
+        HttpResponse verifyResponse = EntityOperations.executeSync(
                 tripPinContext,
                 com.modernodata.runtime.http.HttpMethod.GET,
                 entityPath, null, null);
@@ -442,7 +442,7 @@ class TripPinIntegrationTest {
         if (deleteEtag != null) {
             deleteHeaders.put("If-Match", deleteEtag);
         }
-        RequestHelper.executeSync(
+        EntityOperations.executeSync(
                 tripPinContext,
                 com.modernodata.runtime.http.HttpMethod.DELETE,
                 entityPath, null, deleteHeaders);
@@ -463,7 +463,7 @@ class TripPinIntegrationTest {
 
         // Create person
         ContextPath basePath = tripPinContext.basePath().addSegment("People");
-        RequestHelper.executeSync(
+        EntityOperations.executeSync(
                 tripPinContext,
                 com.modernodata.runtime.http.HttpMethod.POST,
                 basePath,
@@ -475,7 +475,7 @@ class TripPinIntegrationTest {
                 .addKey("UserName", testUserName);
 
         // GET to obtain ETag
-        HttpResponse getResponse = RequestHelper.executeSync(
+        HttpResponse getResponse = EntityOperations.executeSync(
                 tripPinContext,
                 com.modernodata.runtime.http.HttpMethod.GET,
                 entityPath, null, null);
@@ -497,7 +497,7 @@ class TripPinIntegrationTest {
             deleteHeaders.put("If-Match", etag);
         }
 
-        HttpResponse deleteResponse = RequestHelper.executeSync(
+        HttpResponse deleteResponse = EntityOperations.executeSync(
                 tripPinContext,
                 com.modernodata.runtime.http.HttpMethod.DELETE,
                 entityPath,
@@ -509,7 +509,7 @@ class TripPinIntegrationTest {
 
         // Verify person is gone - TripPin returns 404 or 204 (no content) for deleted entities
         Thread.sleep(1000);
-        HttpResponse verifyResponse = RequestHelper.executeSync(
+        HttpResponse verifyResponse = EntityOperations.executeSync(
                 tripPinContext,
                 com.modernodata.runtime.http.HttpMethod.GET,
                 entityPath, null, null);
@@ -532,7 +532,7 @@ class TripPinIntegrationTest {
                 }
                 """;
 
-        HttpResponse addResponse = RequestHelper.executeSync(
+        HttpResponse addResponse = EntityOperations.executeSync(
                 tripPinContext,
                 com.modernodata.runtime.http.HttpMethod.POST,
                 addRefPath,
@@ -556,7 +556,7 @@ class TripPinIntegrationTest {
                 .addSegment("$ref")
                 .addQuery("$id", "People('keithcombs')");
 
-        HttpResponse removeResponse = RequestHelper.executeSync(
+        HttpResponse removeResponse = EntityOperations.executeSync(
                 tripPinContext,
                 com.modernodata.runtime.http.HttpMethod.DELETE,
                 removeRefPath, null, null);

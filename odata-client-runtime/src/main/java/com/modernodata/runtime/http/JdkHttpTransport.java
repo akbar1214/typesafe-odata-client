@@ -95,8 +95,11 @@ public class JdkHttpTransport implements HttpTransport {
                         builder.build(), java.net.http.HttpResponse.BodyHandlers.ofInputStream());
 
                 if (resp.statusCode() >= 400) {
-                    throw new com.modernodata.runtime.exception.ODataException(
-                            "HTTP " + resp.statusCode() + " from " + request.url());
+                    byte[] errorBody = resp.body().readAllBytes();
+                    Map<String, List<String>> responseHeaders = new HashMap<>();
+                    resp.headers().map().forEach((k, v) -> responseHeaders.put(k, v));
+                    HttpResponse errorResponse = new HttpResponse(resp.statusCode(), responseHeaders, errorBody);
+                    throw com.modernodata.runtime.exception.ODataException.fromResponse(errorResponse);
                 }
                 return resp.body();
             } catch (com.modernodata.runtime.exception.ODataException e) {

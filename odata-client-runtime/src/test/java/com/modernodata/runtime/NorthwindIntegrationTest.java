@@ -10,7 +10,7 @@ import com.modernodata.runtime.entity.ContextPath;
 import com.modernodata.runtime.http.HttpResponse;
 import com.modernodata.runtime.http.HttpTransport;
 import com.modernodata.runtime.http.JdkHttpTransport;
-import com.modernodata.runtime.internal.RequestHelper;
+import com.modernodata.runtime.client.EntityOperations;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
@@ -46,7 +46,7 @@ class NorthwindIntegrationTest {
                 .addSegment("Categories")
                 .addQuery("$top", "3");
 
-        HttpResponse response = RequestHelper.executeSync(
+        HttpResponse response = EntityOperations.executeSync(
                 northwindContext,
                 com.modernodata.runtime.http.HttpMethod.GET,
                 path, null, null);
@@ -69,7 +69,7 @@ class NorthwindIntegrationTest {
                 .addSegment("Categories")
                 .addKey("CategoryID", 1);
 
-        HttpResponse response = RequestHelper.executeSync(
+        HttpResponse response = EntityOperations.executeSync(
                 northwindContext,
                 com.modernodata.runtime.http.HttpMethod.GET,
                 path, null, null);
@@ -87,7 +87,7 @@ class NorthwindIntegrationTest {
                 .addSegment("Products")
                 .addQuery("$top", "3");
 
-        HttpResponse response = RequestHelper.executeSync(
+        HttpResponse response = EntityOperations.executeSync(
                 northwindContext,
                 com.modernodata.runtime.http.HttpMethod.GET,
                 path, null, null);
@@ -110,7 +110,7 @@ class NorthwindIntegrationTest {
                 .addSegment("Customers")
                 .addQuery("$top", "3");
 
-        HttpResponse response = RequestHelper.executeSync(
+        HttpResponse response = EntityOperations.executeSync(
                 northwindContext,
                 com.modernodata.runtime.http.HttpMethod.GET,
                 path, null, null);
@@ -133,7 +133,7 @@ class NorthwindIntegrationTest {
                 .addSegment("Customers")
                 .addKey("CustomerID", "ALFKI");
 
-        HttpResponse response = RequestHelper.executeSync(
+        HttpResponse response = EntityOperations.executeSync(
                 northwindContext,
                 com.modernodata.runtime.http.HttpMethod.GET,
                 path, null, null);
@@ -153,7 +153,7 @@ class NorthwindIntegrationTest {
                 .addQuery("$filter", "CategoryID eq 1")
                 .addQuery("$top", "3");
 
-        HttpResponse response = RequestHelper.executeSync(
+        HttpResponse response = EntityOperations.executeSync(
                 northwindContext,
                 com.modernodata.runtime.http.HttpMethod.GET,
                 path, null, null);
@@ -176,7 +176,7 @@ class NorthwindIntegrationTest {
                 .addQuery("$orderby", "UnitPrice desc")
                 .addQuery("$top", "3");
 
-        HttpResponse response = RequestHelper.executeSync(
+        HttpResponse response = EntityOperations.executeSync(
                 northwindContext,
                 com.modernodata.runtime.http.HttpMethod.GET,
                 path, null, null);
@@ -202,7 +202,7 @@ class NorthwindIntegrationTest {
                 .addQuery("$select", "ProductID,ProductName")
                 .addQuery("$top", "1");
 
-        HttpResponse response = RequestHelper.executeSync(
+        HttpResponse response = EntityOperations.executeSync(
                 northwindContext,
                 com.modernodata.runtime.http.HttpMethod.GET,
                 path, null, null);
@@ -223,7 +223,7 @@ class NorthwindIntegrationTest {
                 .addQuery("$count", "true")
                 .addQuery("$top", "1");
 
-        HttpResponse response = RequestHelper.executeSync(
+        HttpResponse response = EntityOperations.executeSync(
                 northwindContext,
                 com.modernodata.runtime.http.HttpMethod.GET,
                 path, null, null);
@@ -242,7 +242,7 @@ class NorthwindIntegrationTest {
                 .addSegment("Orders")
                 .addQuery("$top", "3");
 
-        HttpResponse response = RequestHelper.executeSync(
+        HttpResponse response = EntityOperations.executeSync(
                 northwindContext,
                 com.modernodata.runtime.http.HttpMethod.GET,
                 path, null, null);
@@ -266,7 +266,7 @@ class NorthwindIntegrationTest {
                 .addQuery("$expand", "Customer")
                 .addQuery("$top", "1");
 
-        HttpResponse response = RequestHelper.executeSync(
+        HttpResponse response = EntityOperations.executeSync(
                 northwindContext,
                 com.modernodata.runtime.http.HttpMethod.GET,
                 path, null, null);
@@ -288,7 +288,7 @@ class NorthwindIntegrationTest {
                 .addQuery("$orderby", "OrderDate asc")
                 .addQuery("$top", "3");
 
-        HttpResponse response = RequestHelper.executeSync(
+        HttpResponse response = EntityOperations.executeSync(
                 northwindContext,
                 com.modernodata.runtime.http.HttpMethod.GET,
                 path, null, null);
@@ -305,7 +305,7 @@ class NorthwindIntegrationTest {
                 .addSegment("Suppliers")
                 .addQuery("$top", "2");
 
-        HttpResponse response = RequestHelper.executeSync(
+        HttpResponse response = EntityOperations.executeSync(
                 northwindContext,
                 com.modernodata.runtime.http.HttpMethod.GET,
                 path, null, null);
@@ -329,7 +329,7 @@ class NorthwindIntegrationTest {
                 .addQuery("$filter", "Country eq 'Germany'")
                 .addQuery("$top", "3");
 
-        HttpResponse response = RequestHelper.executeSync(
+        HttpResponse response = EntityOperations.executeSync(
                 northwindContext,
                 com.modernodata.runtime.http.HttpMethod.GET,
                 path, null, null);
@@ -351,7 +351,7 @@ class NorthwindIntegrationTest {
                 .addSegment("Employees")
                 .addQuery("$top", "2");
 
-        HttpResponse response = RequestHelper.executeSync(
+        HttpResponse response = EntityOperations.executeSync(
                 northwindContext,
                 com.modernodata.runtime.http.HttpMethod.GET,
                 path, null, null);
@@ -376,7 +376,7 @@ class NorthwindIntegrationTest {
                 .addQuery("$orderby", "UnitPrice desc")
                 .addQuery("$top", "3");
 
-        HttpResponse response = RequestHelper.executeSync(
+        HttpResponse response = EntityOperations.executeSync(
                 northwindContext,
                 com.modernodata.runtime.http.HttpMethod.GET,
                 path, null, null);

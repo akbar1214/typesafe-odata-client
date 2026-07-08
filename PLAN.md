@@ -115,7 +115,7 @@ modern-odata-client/
 - [x] Northwind generated client tests against live Northwind V4 service (17 tests)
 - [x] OData Demo generated client tests against live OData Demo service (22 tests)
 - [x] README with usage examples
-- **Total: 158 tests passing**
+- **Total: 183 tests passing**
 
 ---
 

@@ -5,6 +5,7 @@ import com.modernodata.core.model.CsdlModel.NavigationPropertyModel;
 import com.modernodata.core.model.CsdlModel.PropertyModel;
 import com.modernodata.core.model.CsdlModel.SchemaModel;
 
+import java.util.List;
 import java.util.Set;
 import java.util.TreeSet;
 
@@ -155,8 +156,23 @@ public class EntityGenerator {
 
         sb.append("    @Override\n    public Object getKey() {\n");
         if (!entityType.keys().isEmpty()) {
-            String keyProp = entityType.keys().get(0).propertyRefs().get(0);
-            sb.append("        return ").append(Names.toJavaFieldName(keyProp)).append(";\n");
+            List<String> refs = entityType.keys().get(0).propertyRefs();
+            if (refs.size() == 1) {
+                String keyProp = refs.get(0);
+                sb.append("        return ").append(Names.toJavaFieldName(keyProp)).append(";\n");
+            } else {
+                sb.append("        return java.util.Map.of(\n");
+                for (int i = 0; i < refs.size(); i++) {
+                    String fieldName = Names.toJavaFieldName(refs.get(i));
+                    sb.append("            \"").append(refs.get(i)).append("\", ").append(fieldName);
+                    if (i < refs.size() - 1) {
+                        sb.append(",\n");
+                    } else {
+                        sb.append("\n");
+                    }
+                }
+                sb.append("        );\n");
+            }
         } else {
             sb.append("        return null;\n");
         }

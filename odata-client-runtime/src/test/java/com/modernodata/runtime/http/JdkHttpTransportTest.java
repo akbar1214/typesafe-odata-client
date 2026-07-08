@@ -1,7 +1,7 @@
 package com.modernodata.runtime.http;
 
 import com.modernodata.runtime.entity.Context;
-import com.modernodata.runtime.internal.RequestHelper;
+import com.modernodata.runtime.client.EntityOperations;
 
 import org.junit.jupiter.api.Test;
 
@@ -31,7 +31,7 @@ class JdkHttpTransportTest {
                 .build();
 
         try {
-            RequestHelper.executeSync(ctx, HttpMethod.GET,
+            EntityOperations.executeSync(ctx, HttpMethod.GET,
                     ctx.basePath().addSegment("x"), null, null);
         } catch (Exception ignored) {
             // connection refused is expected; we only care which thread ran the task
