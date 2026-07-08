@@ -1,25 +1,35 @@
 package com.modernodata.runtime.client;
 
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.JavaType;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.modernodata.runtime.entity.Context;
 import com.modernodata.runtime.entity.ContextPath;
 import com.modernodata.runtime.exception.ODataException;
 import com.modernodata.runtime.http.*;
 import com.modernodata.runtime.paging.CollectionPage;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class EntityOperations {
 
-    private static final com.fasterxml.jackson.databind.ObjectMapper COLLECTION_MAPPER;
+    private static final ObjectMapper COLLECTION_MAPPER;
+    private static final ConcurrentHashMap<Class<?>, JavaType> LIST_TYPE_CACHE = new ConcurrentHashMap<>();
 
     static {
-        com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
-        mapper.configure(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-        mapper.registerModule(new com.fasterxml.jackson.datatype.jdk8.Jdk8Module());
-        mapper.registerModule(new com.fasterxml.jackson.datatype.jsr310.JavaTimeModule());
+        ObjectMapper mapper = new ObjectMapper();
+        mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+        mapper.registerModule(new Jdk8Module());
+        mapper.registerModule(new JavaTimeModule());
         COLLECTION_MAPPER = mapper;
     }
 
@@ -53,7 +63,7 @@ public class EntityOperations {
     public static <T> T executePatchEntityWithETag(Context context, ContextPath path, Object entity,
                                                      Class<T> responseType, String etag) {
         byte[] body = context.serializer().serialize((T) entity, responseType);
-        java.util.Map<String, String> headers = new LinkedHashMap<>();
+        Map<String, String> headers = new LinkedHashMap<>();
         headers.put("Content-Type", "application/json");
         if (etag != null && !etag.isEmpty()) {
             headers.put("If-Match", etag);
@@ -69,7 +79,7 @@ public class EntityOperations {
     }
 
     public static void executeDeleteWithETag(Context context, ContextPath path, String etag) {
-        java.util.Map<String, String> headers = new LinkedHashMap<>();
+        Map<String, String> headers = new LinkedHashMap<>();
         if (etag != null && !etag.isEmpty()) {
             headers.put("If-Match", etag);
         }
@@ -85,7 +95,7 @@ public class EntityOperations {
                 .append(targetEntityUrl)
                 .append("\"}")
                 .toString()
-                .getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                .getBytes(StandardCharsets.UTF_8);
         HttpResponse response = executeSync(context, HttpMethod.POST, refPath, body,
                 Map.of("Content-Type", "application/json"));
         checkResponse(response);
@@ -107,8 +117,8 @@ public class EntityOperations {
         checkResponse(response);
 
         try {
-            com.fasterxml.jackson.databind.JavaType mapType = COLLECTION_MAPPER.getTypeFactory()
-                    .constructMapType(java.util.HashMap.class, String.class, Object.class);
+            JavaType mapType = COLLECTION_MAPPER.getTypeFactory()
+                    .constructMapType(HashMap.class, String.class, Object.class);
             Map<String, Object> envelope = COLLECTION_MAPPER.readValue(response.body(), mapType);
 
             String nextLink = null;
@@ -125,16 +135,17 @@ public class EntityOperations {
 
             List<T> items;
             Object valueObj = envelope.get("value");
-            if (valueObj instanceof java.util.List<?> rawList && !rawList.isEmpty()) {
-                com.fasterxml.jackson.databind.JavaType listType = COLLECTION_MAPPER.getTypeFactory()
-                        .constructCollectionType(java.util.List.class, elementType);
+            if (valueObj instanceof List<?> rawList && !rawList.isEmpty()) {
+                JavaType listType = LIST_TYPE_CACHE.computeIfAbsent(
+                        elementType, t -> COLLECTION_MAPPER.getTypeFactory()
+                                .constructCollectionType(List.class, t));
                 items = COLLECTION_MAPPER.convertValue(rawList, listType);
             } else {
                 items = List.of();
             }
 
             return new CollectionPage<>(items, nextLink, count);
-        } catch (java.io.IOException e) {
+        } catch (IOException e) {
             throw new ODataException("Failed to parse collection response: " + e.getMessage(), e);
         }
     }
@@ -157,7 +168,7 @@ public class EntityOperations {
                 }
 
                 @Override
-                public CompletableFuture<java.io.InputStream> stream(HttpRequest request) {
+                public CompletableFuture<InputStream> stream(HttpRequest request) {
                     throw new UnsupportedOperationException("Interceptors do not support stream()");
                 }
             };

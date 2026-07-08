@@ -35,7 +35,7 @@ public final class StringProperty<E> implements OrderExpression<String> {
         return (OrderExpression<String>) expr;
     }
 
-    // Comparison operators
+    // Equality operators
     public FilterExpression equalTo(String value) {
         return new RawFilterExpression(edmName + " eq '" + escape(value) + "'");
     }
@@ -44,22 +44,7 @@ public final class StringProperty<E> implements OrderExpression<String> {
         return new RawFilterExpression(edmName + " ne '" + escape(value) + "'");
     }
 
-    public FilterExpression greaterThan(String value) {
-        return new RawFilterExpression(edmName + " gt '" + escape(value) + "'");
-    }
-
-    public FilterExpression greaterThanOrEqualTo(String value) {
-        return new RawFilterExpression(edmName + " ge '" + escape(value) + "'");
-    }
-
-    public FilterExpression lessThan(String value) {
-        return new RawFilterExpression(edmName + " lt '" + escape(value) + "'");
-    }
-
-    public FilterExpression lessThanOrEqualTo(String value) {
-        return new RawFilterExpression(edmName + " le '" + escape(value) + "'");
-    }
-
+    // String-specific operators
     public FilterExpression contains(String value) {
         return new RawFilterExpression("contains(" + edmName + ",'" + escape(value) + "')");
     }
