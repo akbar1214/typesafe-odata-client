@@ -164,6 +164,12 @@ public record ContextPath(
         return List.copyOf(result);
     }
 
+    private static <T> List<T> append(List<T> list, T item) {
+        var result = new java.util.ArrayList<>(list);
+        result.add(item);
+        return List.copyOf(result);
+    }
+
     public record Segment(String name, List<KeyValuePair> keys, List<KeyValuePair> queries) {
         public Segment(String name, List<KeyValuePair> keys) {
             this(name, keys, List.of());
