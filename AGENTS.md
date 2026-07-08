@@ -368,3 +368,6 @@ modern-odata-client/
 
 46. **Dead `toMultiMap` method after inlining.** `RequestHelper.toMultiMap` (lines 209-215) was inlined per lesson 35 but the method body was never deleted. Dead code — delete it.
     - **FIXED in v0.1.1.** `RequestHelper.toMultiMap` was deleted (it was unreferenced; the `BatchRequest.toMultiMap` is a separate method and untouched). The stale comment in `executeAsync` was also corrected.
+
+47. **`ContextPath.formatValue` doesn't encode special chars in string key values.** `ContextPath.formatValue()` wraps strings in single quotes but doesn't escape `'`, `&`, `?`, `#`, or `%` inside the value. A key value like `"O'Brien"` produces `People('O'Brien')` (broken OData literal), `"A&B"` produces `People('A&B')` (`&` interpreted as query separator), `"A?B"` starts a query string, `"A#B"` starts a fragment.
+    - **FIXED in v0.1.1.** Added `encodeKeyValue()` helper in `ContextPath` that single-pass scans the value and encodes: `'` → `''` (OData string literal escaping), `&` → `%26`, `?` → `%3F`, `#` → `%23`, `%` → `%25`. Verified by `ContextPathTest` (6 tests: singleQuote, ampersand, questionMark, hash, percent, compositeKey).

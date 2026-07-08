@@ -137,8 +137,24 @@ public record ContextPath(
     }
 
     private static String formatValue(Object value) {
-        if (value instanceof String s) return "'" + s + "'";
+        if (value instanceof String s) return "'" + encodeKeyValue(s) + "'";
         return String.valueOf(value);
+    }
+
+    private static String encodeKeyValue(String value) {
+        StringBuilder sb = new StringBuilder(value.length());
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            switch (c) {
+                case '\'' -> sb.append("''");
+                case '&'  -> sb.append("%26");
+                case '?'  -> sb.append("%3F");
+                case '#'  -> sb.append("%23");
+                case '%'  -> sb.append("%25");
+                default   -> sb.append(c);
+            }
+        }
+        return sb.toString();
     }
 
     @SafeVarargs
