@@ -9,6 +9,14 @@
     <file url="file://$PROJECT_DIR$/odata-client-runtime/src/main/resources" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/odata-client-test/src/main/java" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/odata-client-test/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/odata-codegen-core/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/odata-codegen-core/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/odata-codegen-maven-plugin/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/odata-codegen-maven-plugin/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/odata-codegen-runtime/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/odata-codegen-runtime/src/main/resources" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/odata-codegen-test/src/main/java" charset="UTF-8" />
+    <file url="file://$PROJECT_DIR$/odata-codegen-test/src/main/resources" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/src/main/java" charset="UTF-8" />
     <file url="file://$PROJECT_DIR$/src/main/resources" charset="UTF-8" />
   </component>

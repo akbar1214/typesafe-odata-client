@@ -32,7 +32,7 @@ Context ctx = Context.builder()
 ### GsonSerializer
 
 ```java
-import com.modernodata.runtime.serialization.GsonSerializer;
+import io.github.akbarhusain.odata.runtime.serialization.GsonSerializer;
 
 Context ctx = Context.builder()
     .baseUrl("https://services.odata.org/V4/TripPinService")
@@ -49,7 +49,7 @@ Context ctx = Context.builder()
 ### JakartaJsonBSerializer
 
 ```java
-import com.modernodata.runtime.serialization.JakartaJsonBSerializer;
+import io.github.akbarhusain.odata.runtime.serialization.JakartaJsonBSerializer;
 
 Context ctx = Context.builder()
     .baseUrl("https://services.odata.org/V4/TripPinService")
@@ -68,7 +68,7 @@ Context ctx = Context.builder()
 ### Implement Serializer
 
 ```java
-import com.modernodata.runtime.serialization.Serializer;
+import io.github.akbarhusain.odata.runtime.serialization.Serializer;
 
 public class CustomSerializer implements Serializer {
     private final ObjectMapper mapper = new ObjectMapper();

@@ -1,6 +1,6 @@
 # Maven Plugin Configuration
 
-Configure the `odata-client-maven-plugin` for code generation.
+Configure the `odata-codegen-maven-plugin` for code generation.
 
 ## Basic Configuration
 
@@ -8,8 +8,8 @@ Configure the `odata-client-maven-plugin` for code generation.
 <build>
     <plugins>
         <plugin>
-            <groupId>com.modernodata</groupId>
-            <artifactId>odata-client-maven-plugin</artifactId>
+            <groupId>io.github.akbarhusain.odata</groupId>
+            <artifactId>odata-codegen-maven-plugin</artifactId>
             <version>{{ odata_client_version }}</version>
             <executions>
                 <execution>

@@ -5,9 +5,9 @@ Send multiple OData operations in a single HTTP request with `$batch`.
 ## Basic Usage
 
 ```java
-import com.modernodata.runtime.batch.BatchOperation;
-import com.modernodata.runtime.batch.BatchResponse;
-import com.modernodata.runtime.batch.BatchResult;
+import io.github.akbarhusain.odata.runtime.batch.BatchOperation;
+import io.github.akbarhusain.odata.runtime.batch.BatchResponse;
+import io.github.akbarhusain.odata.runtime.batch.BatchResult;
 
 Context ctx = Context.builder()
     .baseUrl("https://services.odata.org/V4/TripPinService")

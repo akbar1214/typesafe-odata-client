@@ -19,7 +19,7 @@ ODataException (base)
 ## Basic Error Handling
 
 ```java
-import com.modernodata.runtime.exception.*;
+import io.github.akbarhusain.odata.runtime.exception.*;
 
 try {
     Person person = client.peopleByUserName("nonexistent").get();

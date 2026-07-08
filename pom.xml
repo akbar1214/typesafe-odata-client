@@ -4,18 +4,18 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <groupId>com.modernodata</groupId>
-    <artifactId>modern-odata-client</artifactId>
+    <groupId>io.github.akbarhusain</groupId>
+    <artifactId>odata-codegen</artifactId>
     <version>0.1.0-SNAPSHOT</version>
     <packaging>pom</packaging>
-    <name>Modern OData Client</name>
+    <name>OData Codegen</name>
     <description>Type-safe OData v4 client generator for Java</description>
 
     <modules>
-        <module>odata-client-core</module>
-        <module>odata-client-runtime</module>
-        <module>odata-client-maven-plugin</module>
-        <module>odata-client-test</module>
+        <module>odata-codegen-core</module>
+        <module>odata-codegen-runtime</module>
+        <module>odata-codegen-maven-plugin</module>
+        <module>odata-codegen-test</module>
     </modules>
 
     <properties>
@@ -32,13 +32,13 @@
         <dependencies>
             <!-- Internal modules -->
             <dependency>
-                <groupId>com.modernodata</groupId>
-                <artifactId>odata-client-core</artifactId>
+                <groupId>io.github.akbarhusain</groupId>
+                <artifactId>odata-codegen-core</artifactId>
                 <version>${project.version}</version>
             </dependency>
             <dependency>
-                <groupId>com.modernodata</groupId>
-                <artifactId>odata-client-runtime</artifactId>
+                <groupId>io.github.akbarhusain</groupId>
+                <artifactId>odata-codegen-runtime</artifactId>
                 <version>${project.version}</version>
             </dependency>
 

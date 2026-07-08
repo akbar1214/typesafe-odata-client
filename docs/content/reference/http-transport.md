@@ -32,7 +32,7 @@ Context ctx = Context.builder()
 ### ApacheHttpTransport
 
 ```java
-import com.modernodata.runtime.http.ApacheHttpTransport;
+import io.github.akbarhusain.odata.runtime.http.ApacheHttpTransport;
 
 Context ctx = Context.builder()
     .baseUrl("https://services.odata.org/V4/TripPinService")
@@ -52,9 +52,9 @@ Context ctx = Context.builder()
 ### Implement HttpTransport
 
 ```java
-import com.modernodata.runtime.http.HttpTransport;
-import com.modernodata.runtime.http.HttpRequest;
-import com.modernodata.runtime.http.HttpResponse;
+import io.github.akbarhusain.odata.runtime.http.HttpTransport;
+import io.github.akbarhusain.odata.runtime.http.HttpRequest;
+import io.github.akbarhusain.odata.runtime.http.HttpResponse;
 
 public class OkHttpTransport implements HttpTransport {
     private final OkHttpClient client = new OkHttpClient.Builder()

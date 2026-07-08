@@ -1,4 +1,4 @@
-# AGENTS.md — Modern OData Client
+# AGENTS.md — OData Codegen
 
 ## Project Overview
 
@@ -232,12 +232,12 @@ CollectionPage<Person> people = client.people()
 ## Architecture
 
 ```
-modern-odata-client/
-├── odata-client-core/        # Parser + Generator (no runtime deps)
+odata-codegen/
+├── odata-codegen-core/        # Parser + Generator (no runtime deps)
 │   ├── model/                # CsdlModel records
 │   ├── parser/               # StaxCsdlParser
 │   └── generator/            # Names, Generator, EntityGenerator, etc.
-├── odata-client-runtime/     # Runtime types (generated code depends on this)
+├── odata-codegen-runtime/     # Runtime types (generated code depends on this)
 │   ├── entity/               # ODataEntityType, ContextPath, SchemaInfo
 │   ├── query/                # Expression hierarchy (StringProperty, etc.)
 │   ├── http/                 # HttpTransport, HttpRequest, HttpResponse
@@ -245,8 +245,8 @@ modern-odata-client/
 │   ├── serialization/        # Serializer interface
 │   ├── paging/               # CollectionPage
 │   └── batch/                # BatchOperation, BatchRequest, BatchResponse
-├── odata-client-maven-plugin/ # Maven plugin wrapper
-└── odata-client-test/        # Integration tests
+├── odata-codegen-maven-plugin/ # Maven plugin wrapper
+└── odata-codegen-test/        # Integration tests
 ```
 
 ---
@@ -377,5 +377,5 @@ modern-odata-client/
 49. **`EntityGenerator.getKey()` returns only the first key for composite-key entities.** The generated `getKey()` method used `entityType.keys().get(0).propertyRefs().get(0)` — the first property ref from the first key. Composite-key entities (like Northwind's `Order_Detail` with `[OrderID, ProductID]`) lost all key fields except the first one.
     - **FIXED in v0.1.1.** `EntityGenerator.getKey()` now checks the number of `propertyRefs`. Single key: returns the raw value (unchanged). Composite key: returns `java.util.Map.of("key1", field1, "key2", field2, ...)`. Verified by `EntityGeneratorCompositeKeyTest` (parses Northwind `Order_Detail`, checks the getKey body contains `Map.of` with both `OrderID` and `ProductID`).
 
-50. **`RequestHelper` is public but lives in the `internal` package.** The generated code referenced `com.modernodata.runtime.internal.RequestHelper` for all CRUD operations, exposing internal implementation details as public API. The `internal` package convention was undermined by requiring public access.
-    - **FIXED in v0.1.1.** Created `com.modernodata.runtime.client.EntityOperations` with the same public API. `RequestHelper` now delegates to `EntityOperations` and is deprecated. `RequestGenerator` emits `EntityOperations.*` instead of `RequestHelper.*`. `BatchRequest` uses `EntityOperations.buildTransportChain` directly. Verified by full test suite (183 tests passing, including all generated client tests that now compile against the new class).
+50. **`RequestHelper` is public but lives in the `internal` package.** The generated code referenced `io.github.akbarhusain.odata.runtime.internal.RequestHelper` for all CRUD operations, exposing internal implementation details as public API. The `internal` package convention was undermined by requiring public access.
+    - **FIXED in v0.1.1.** Created `io.github.akbarhusain.odata.runtime.client.EntityOperations` with the same public API. `RequestHelper` now delegates to `EntityOperations` and is deprecated. `RequestGenerator` emits `EntityOperations.*` instead of `RequestHelper.*`. `BatchRequest` uses `EntityOperations.buildTransportChain` directly. Verified by full test suite (183 tests passing, including all generated client tests that now compile against the new class).

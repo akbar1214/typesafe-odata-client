@@ -13,7 +13,7 @@ mvn generate-sources
 ## Connect to the Service
 
 ```java
-import com.modernodata.runtime.entity.Context;
+import io.github.akbarhusain.odata.runtime.entity.Context;
 import com.example.trippin.container.DefaultContainer;
 
 Context ctx = Context.builder()
@@ -26,7 +26,7 @@ DefaultContainer client = new DefaultContainer(ctx);
 ## List All People
 
 ```java
-import com.modernodata.runtime.paging.CollectionPage;
+import io.github.akbarhusain.odata.runtime.paging.CollectionPage;
 import com.example.trippin.entity.Person;
 
 CollectionPage<Person> people = client.people().get();

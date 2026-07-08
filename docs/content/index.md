@@ -1,4 +1,4 @@
-# Modern OData Client
+# OData Codegen
 
 _A type-safe OData v4 client generator for Java.
 Immutable entities, compile-time validated queries, pluggable HTTP._
@@ -7,9 +7,9 @@ Immutable entities, compile-time validated queries, pluggable HTTP._
 
     Parser, code generator, runtime, Maven plugin, and integration tests against TripPin service — all working. 44 tests passing.
 
-## Why Modern OData Client
+## Why OData Codegen
 
-Most OData clients for Java force you into string-based queries, mutable entities, and tight coupling to specific HTTP libraries. Modern OData Client generates clean, immutable Java classes from OData CSDL metadata with compile-time safety at every step:
+Most OData clients for Java force you into string-based queries, mutable entities, and tight coupling to specific HTTP libraries. OData Codegen generates clean, immutable Java classes from OData CSDL metadata with compile-time safety at every step:
 
 * **Type-safe queries** — `Person.FIRST_NAME.equalTo("Scott")` not `filter("FirstName eq 'Scott'")`. Typos caught at compile time.
 * **Truly immutable entities** — All fields `final`, copy-on-write semantics. No mutable state, no null fields, no `@JacksonInject` coupling.
@@ -51,12 +51,12 @@ Ready? [Install the Maven plugin](getting-started.md), then run [your first quer
 ## Architecture
 
 ```
-modern-odata-client/
-├── odata-client-core/        # Parser + Code Generator
+odata-codegen/
+├── odata-codegen-core/        # Parser + Code Generator
 │   ├── model/                # CsdlModel (29 Java records)
 │   ├── parser/               # StAX CSDL parser
 │   └── generator/            # Entity, Request, Container generators
-├── odata-client-runtime/     # Runtime library
+├── odata-codegen-runtime/     # Runtime library
 │   ├── entity/               # Context, ContextPath, SchemaInfo
 │   ├── query/                # Expression builders (StringProperty, etc.)
 │   ├── http/                 # HttpTransport + JdkHttpTransport
@@ -64,7 +64,7 @@ modern-odata-client/
 │   ├── serialization/        # JacksonSerializer
 │   ├── paging/               # CollectionPage<T>
 │   └── exception/            # Typed exception hierarchy
-└── odata-client-maven-plugin/ # Build-time code generation
+└── odata-codegen-maven-plugin/ # Build-time code generation
 ```
 
 ## Status
@@ -76,6 +76,6 @@ modern-odata-client/
 
 ## Getting Help
 
-- **Questions** — [GitHub Discussions](https://github.com/modern-odata-client/modern-odata-client/discussions)
-- **Bug reports** — [GitHub Issues](https://github.com/modern-odata-client/modern-odata-client/issues)
-- **OData reference** — See [ODATA.md](https://github.com/modern-odata-client/modern-odata-client/blob/main/ODATA.md)
+- **Questions** — [GitHub Discussions](https://github.com/odata-codegen/odata-codegen/discussions)
+- **Bug reports** — [GitHub Issues](https://github.com/odata-codegen/odata-codegen/issues)
+- **OData reference** — See [ODATA.md](https://github.com/odata-codegen/odata-codegen/blob/main/ODATA.md)

@@ -1,6 +1,6 @@
 # Getting Started
 
-This guide walks you through setting up Modern OData Client in your Maven project.
+This guide walks you through setting up OData Codegen in your Maven project.
 
 ## Prerequisites
 
@@ -16,8 +16,8 @@ Add the plugin to your `pom.xml`:
 <build>
     <plugins>
         <plugin>
-            <groupId>com.modernodata</groupId>
-            <artifactId>odata-client-maven-plugin</artifactId>
+            <groupId>io.github.akbarhusain.odata</groupId>
+            <artifactId>odata-codegen-maven-plugin</artifactId>
             <version>{{ odata_client_version }}</version>
             <executions>
                 <execution>
@@ -40,8 +40,8 @@ Add the plugin to your `pom.xml`:
 ```xml
 <dependencies>
     <dependency>
-        <groupId>com.modernodata</groupId>
-        <artifactId>odata-client-runtime</artifactId>
+        <groupId>io.github.akbarhusain.odata</groupId>
+        <artifactId>odata-codegen-runtime</artifactId>
         <version>{{ odata_client_version }}</version>
     </dependency>
 </dependencies>
@@ -80,10 +80,10 @@ com/example/trippin/
 ## 4. Use the Client
 
 ```java
-import com.modernodata.runtime.entity.Context;
+import io.github.akbarhusain.odata.runtime.entity.Context;
 import com.example.trippin.container.DefaultContainer;
 import com.example.trippin.entity.Person;
-import com.modernodata.runtime.paging.CollectionPage;
+import io.github.akbarhusain.odata.runtime.paging.CollectionPage;
 
 public class Main {
     public static void main(String[] args) {

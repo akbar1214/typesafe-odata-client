@@ -1,6 +1,6 @@
 # Contributing
 
-How to contribute to Modern OData Client.
+How to contribute to OData Codegen.
 
 ## Development Setup
 
@@ -13,8 +13,8 @@ How to contribute to Modern OData Client.
 ### Clone the Repository
 
 ```bash
-git clone https://github.com/modern-odata-client/modern-odata-client.git
-cd modern-odata-client
+git clone https://github.com/odata-codegen/odata-codegen.git
+cd odata-codegen
 ```
 
 ### Build
@@ -40,10 +40,10 @@ mvn verify -Pintegration-tests
 ## Project Structure
 
 ```
-modern-odata-client/
-├── odata-client-core/        # Parser + Code Generator
-├── odata-client-runtime/     # Runtime library
-├── odata-client-maven-plugin/ # Build-time code generation
+odata-codegen/
+├── odata-codegen-core/        # Parser + Code Generator
+├── odata-codegen-runtime/     # Runtime library
+├── odata-codegen-maven-plugin/ # Build-time code generation
 └── docs/                     # Documentation (MkDocs)
 ```
 

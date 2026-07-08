@@ -5,27 +5,27 @@ Module organization and dependency graph.
 ## Modules
 
 ```
-modern-odata-client/
-├── odata-client-core/        # Parser + Code Generator
-├── odata-client-runtime/     # Runtime library
-├── odata-client-maven-plugin/ # Build-time code generation
+odata-codegen/
+├── odata-codegen-core/        # Parser + Code Generator
+├── odata-codegen-runtime/     # Runtime library
+├── odata-codegen-maven-plugin/ # Build-time code generation
 └── docs/                     # Documentation (MkDocs)
 ```
 
 ## Dependency Graph
 
 ```
-odata-client-maven-plugin
-    └── odata-client-core
+odata-codegen-maven-plugin
+    └── odata-codegen-core
 
-odata-client-runtime
+odata-codegen-runtime
     └── (no internal dependencies)
 
 Generated code
-    └── odata-client-runtime
+    └── odata-codegen-runtime
 ```
 
-## odata-client-core
+## odata-codegen-core
 
 Parser and code generator.
 
@@ -41,7 +41,7 @@ Parser and code generator.
 - `javax.xml.stream` (JDK built-in)
 - No external dependencies
 
-## odata-client-runtime
+## odata-codegen-runtime
 
 Runtime library for generated code.
 
@@ -62,7 +62,7 @@ Runtime library for generated code.
 - Apache HttpClient (optional)
 - Java 17+
 
-## odata-client-maven-plugin
+## odata-codegen-maven-plugin
 
 Maven plugin for code generation.
 
@@ -73,7 +73,7 @@ Maven plugin for code generation.
 ### Dependencies
 
 - `maven-core`
-- `odata-client-core`
+- `odata-codegen-core`
 
 ## Generated Code
 
@@ -90,7 +90,7 @@ Code generated from CSDL metadata.
 
 ### Dependencies
 
-- `odata-client-runtime`
+- `odata-codegen-runtime`
 - Jackson (optional)
 - Apache HttpClient (optional)
 

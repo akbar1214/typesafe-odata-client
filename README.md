@@ -1,4 +1,4 @@
-# Modern OData Client
+# OData Codegen
 
 A type-safe OData v4 client generator for Java. Parses CSDL XML metadata and generates immutable Java classes with compile-time validated query builders.
 
@@ -20,8 +20,8 @@ A type-safe OData v4 client generator for Java. Parses CSDL XML metadata and gen
 
 ```xml
 <plugin>
-    <groupId>com.modernodata</groupId>
-    <artifactId>odata-client-maven-plugin</artifactId>
+    <groupId>io.github.akbarhusain.odata</groupId>
+    <artifactId>odata-codegen-maven-plugin</artifactId>
     <version>0.1.0-SNAPSHOT</version>
     <executions>
         <execution>
@@ -38,11 +38,11 @@ A type-safe OData v4 client generator for Java. Parses CSDL XML metadata and gen
 ### 2. Use the Generated Client
 
 ```java
-import com.modernodata.runtime.entity.Context;
+import io.github.akbarhusain.odata.runtime.entity.Context;
 import com.example.trippin.container.DefaultContainer;
 import com.example.trippin.entity.Person;
 import com.example.trippin.entity.Trip;
-import com.modernodata.runtime.paging.CollectionPage;
+import io.github.akbarhusain.odata.runtime.paging.CollectionPage;
 
 // Create context with base URL
 Context ctx = Context.builder()
@@ -149,7 +149,7 @@ client.peopleByUserName("scottketchum")
 ### Error Handling
 
 ```java
-import com.modernodata.runtime.exception.*;
+import io.github.akbarhusain.odata.runtime.exception.*;
 
 try {
     Person person = client.peopleByUserName("nonexistent").get();
@@ -168,7 +168,7 @@ try {
 
 ```java
 // Use Apache HttpClient
-import com.modernodata.runtime.http.ApacheHttpTransport;
+import io.github.akbarhusain.odata.runtime.http.ApacheHttpTransport;
 
 Context ctx = Context.builder()
     .baseUrl("https://services.odata.org/V4/TripPinService")
@@ -194,20 +194,20 @@ future.thenAccept(people -> {
 ## Architecture
 
 ```
-modern-odata-client/
-├── odata-client-core/        # Parser + Generator (no runtime deps)
+odata-codegen/
+├── odata-codegen-core/        # Parser + Generator (no runtime deps)
 │   ├── model/                # CsdlModel records
 │   ├── parser/               # StaxCsdlParser
 │   └── generator/            # Names, Generator, EntityGenerator, etc.
-├── odata-client-runtime/     # Runtime types (generated code depends on this)
+├── odata-codegen-runtime/     # Runtime types (generated code depends on this)
 │   ├── entity/               # ODataEntityType, ContextPath, Context
 │   ├── query/                # Expression hierarchy (StringProperty, etc.)
 │   ├── http/                 # HttpTransport, HttpRequest, HttpResponse
 │   ├── auth/                 # AuthProvider
 │   ├── serialization/        # Serializer interface
 │   └── paging/               # CollectionPage
-├── odata-client-maven-plugin/ # Maven plugin wrapper
-└── odata-client-test/        # Integration tests
+├── odata-codegen-maven-plugin/ # Maven plugin wrapper
+└── odata-codegen-test/        # Integration tests
 ```
 
 ## Generated Code Structure

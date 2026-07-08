@@ -1,4 +1,4 @@
-# Modern OData Client — Project Plan
+# OData Codegen — Project Plan
 
 ## What We're Improving Over the Reference (davidmoten/odata-client)
 
@@ -20,17 +20,17 @@
 ## Module Structure
 
 ```
-modern-odata-client/
+odata-codegen/
 ├── pom.xml
 ├── AGENTS.md                     # Design decisions, lessons learned
 ├── ODATA.md                      # OData v4 knowledge reference
 ├── README.md                     # Usage examples
-├── odata-client-core/            # Parser + Generator (no runtime deps)
+├── odata-codegen-core/            # Parser + Generator (no runtime deps)
 │   └── src/main/java/.../core/
 │       ├── model/                # CsdlModel records
 │       ├── parser/               # StAX CSDL parser
 │       └── generator/            # Code generator engine
-├── odata-client-runtime/         # Runtime library (generated code depends on this)
+├── odata-codegen-runtime/         # Runtime library (generated code depends on this)
 │   └── src/main/java/.../runtime/
 │       ├── entity/               # ODataEntityType, Context, ContextPath
 │       ├── query/                # Type-safe filter/select/orderby/expand
@@ -40,8 +40,8 @@ modern-odata-client/
 │       ├── paging/               # CollectionPage
 │       ├── exception/            # Typed exceptions
 │       └── client/             # EntityOperations (HTTP execution)
-├── odata-client-maven-plugin/    # Maven plugin (generate goal)
-└── odata-client-test/            # Integration tests
+├── odata-codegen-maven-plugin/    # Maven plugin (generate goal)
+└── odata-codegen-test/            # Integration tests
 ```
 
 ---
@@ -106,7 +106,7 @@ modern-odata-client/
 
 **Goal:** Maven plugin, comprehensive tests, documentation.
 
-- [x] `odata-client-maven-plugin` with `generate` goal (downloads metadata or reads from file)
+- [x] `odata-codegen-maven-plugin` with `generate` goal (downloads metadata or reads from file)
 - [x] Unit tests for generator (29 tests)
 - [x] Runtime tests (6 tests)
 - [x] Integration tests against live TripPin service (18 tests: reads, writes, batch)
