@@ -12,7 +12,8 @@ client.people()
     .get();
 ```
 
-Each `Person` will have its `trips` field populated.
+Each `Person` will have its `trips` field populated with the expanded `Trip`
+entities.
 
 ### Expand Multiple Properties
 
@@ -22,75 +23,67 @@ client.people()
     .get();
 ```
 
-## Nested Expand
+## Nested Expand Options (NavQuery)
 
-### Expand with Sub-Expansion
-
-```java
-client.people()
-    .expand(Person.TRIPS, trip -> trip.expand(Trip.ITEMS))
-    .get();
-```
-
-Expands trips and each trip's items.
-
-### Deep Nesting
+A navigation property exposes `select`, `filter`, `orderBy`, and `top` methods
+that return a `NavQuery<T>`. Pass the `NavQuery` to `expand(...)` to nest those
+options inside the `$expand` clause — equivalent to OData's
+`$expand=Trips($select=...;$filter=...;$top=...;$orderby=...)`.
 
 ```java
 client.people()
-    .expand(Person.TRIPS, trip ->
-        trip.expand(Trip.ITEMS)
-    )
-    .expand(Person.PHOTOS)
+    .expand(Person.TRIPS
+        .select(Trip.TRIP_ID, Trip.BUDGET)
+        .filter(Trip.BUDGET.greaterThan(500.0f))
+        .orderBy(Trip.STARTS_AT.desc())
+        .top(5))
     .get();
 ```
 
-## Filter Expanded Results
+This produces (roughly):
+
+```text
+$expand=Trips($select=TripId,Budget;$filter=Budget gt 500.0;$orderby=StartsAt desc;$top=5)
+```
+
+### Select within Expand
+
+```java
+client.people()
+    .expand(Person.TRIPS.select(Trip.TRIP_ID, Trip.BUDGET))
+    .get();
+```
 
 ### Filter within Expand
 
 ```java
 client.people()
-    .expand(Person.TRIPS, trip ->
-        trip.filter(Trip.BUDGET.greaterThan(500.0f))
-    )
+    .expand(Person.TRIPS.filter(Trip.BUDGET.greaterThan(500.0f)))
     .get();
 ```
 
 Only trips with budget > 500 are included in the expansion.
 
-### Expand with Select
+### Order within Expand
 
 ```java
 client.people()
-    .expand(Person.TRIPS, trip ->
-        trip.select(Trip.TRIP_ID, Trip.BUDGET)
-    )
+    .expand(Person.TRIPS.orderBy(Trip.STARTS_AT.desc()))
     .get();
 ```
 
-Only trip ID and budget are included.
+### Combine Options
 
-### Expand with Order
-
-```java
-client.people()
-    .expand(Person.TRIPS, trip ->
-        trip.orderBy(Trip.STARTS_AT.desc())
-    )
-    .get();
-```
-
-### Combine Filter, Select, Order
+`NavQuery` methods chain, so you can combine `select`, `filter`, `orderBy`, and
+`top` freely:
 
 ```java
 client.people()
-    .expand(Person.TRIPS, trip ->
-        trip.filter(Trip.BUDGET.greaterThan(500.0f))
-            .select(Trip.TRIP_ID, Trip.BUDGET)
-            .orderBy(Trip.STARTS_AT.desc())
-            .top(5)
-    )
+    .expand(Person.TRIPS
+        .filter(Trip.BUDGET.greaterThan(500.0f))
+        .select(Trip.TRIP_ID, Trip.BUDGET)
+        .orderBy(Trip.STARTS_AT.desc())
+        .top(5))
     .get();
 ```
 
@@ -98,7 +91,7 @@ client.people()
 
 ```java
 // Expand when getting a single entity
-client.peopleByUserName("scottketchum")
+Person scott = client.peopleByUserName("scottketchum")
     .expand(Person.TRIPS)
     .get();
 ```
@@ -107,3 +100,4 @@ client.peopleByUserName("scottketchum")
 
 - [Use Pagination](pagination.md) — Handle large result sets
 - [Perform CRUD Operations](crud.md) — Create, update, delete
+- [Filter with Type-Safe Expressions](../how-to/filter.md) — The `$filter` expression API

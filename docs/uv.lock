@@ -364,7 +364,7 @@ wheels = [
 ]
 
 [[package]]
-name = "modern-odata-client-docs"
+name = "odata-codegen-docs"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [

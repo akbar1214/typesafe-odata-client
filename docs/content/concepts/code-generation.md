@@ -1,6 +1,6 @@
 # How Code Generation Works
 
-Modern OData Client uses build-time code generation to create type-safe Java classes from OData CSDL metadata.
+OData Codegen uses build-time code generation to create type-safe Java classes from OData CSDL metadata.
 
 ## Pipeline
 

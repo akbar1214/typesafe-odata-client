@@ -1,6 +1,6 @@
 # CSDL Metadata Parsing
 
-How Modern OData Client processes OData CSDL metadata.
+How OData Codegen processes OData CSDL metadata.
 
 ## What is CSDL?
 
@@ -37,7 +37,7 @@ CSDL (Conceptual Schema Definition Language) is the XML format used by OData to 
 
 ## StAX Parser
 
-Modern OData Client uses StAX (Streaming API for XML) for parsing:
+OData Codegen uses StAX (Streaming API for XML) for parsing:
 
 ### Why StAX Over JAXB?
 

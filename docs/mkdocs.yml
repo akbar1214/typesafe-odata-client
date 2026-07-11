@@ -1,8 +1,8 @@
-site_name: Modern OData Client
+site_name: OData Codegen
 site_description: A type-safe OData v4 client generator for Java — immutable entities, compile-time validated queries, pluggable HTTP
-site_url: https://modernodata.dev/
-repo_url: https://github.com/modern-odata-client/modern-odata-client
-repo_name: modern-odata-client/modern-odata-client
+site_url: https://odata-codegen.dev/
+repo_url: https://github.com/odata-codegen/odata-codegen
+repo_name: odata-codegen/odata-codegen
 edit_uri: edit/main/docs/content/
 
 docs_dir: content
@@ -10,6 +10,7 @@ docs_dir: content
 nav:
   - Home: index.md
   - Getting Started: getting-started.md
+  - OData for Newcomers: concepts/odata-for-newcomers.md
   - Tutorial:
     - Your First Query: tutorial/first-query.md
   - How-to Guides:
@@ -98,5 +99,5 @@ extra:
     default: latest
   social:
     - icon: fontawesome/brands/github
-      link: https://github.com/modern-odata-client/modern-odata-client
+      link: https://github.com/odata-codegen/odata-codegen
   odata_client_version: 0.1.0-SNAPSHOT

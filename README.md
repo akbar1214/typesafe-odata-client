@@ -6,6 +6,8 @@ A type-safe OData v4 client generator for Java. Parses CSDL XML metadata and gen
 
 - **Type-safe query API** — Expression builders for `$filter`, `$select`, `$orderby`, `$expand` with compile-time validation
 - **Truly immutable entities** — All fields `final`; copy-on-write semantics
+- **Entity inheritance** — Subtypes emit real Java `extends` clauses; base-type query predicates type-check against subtypes (e.g. `Flight` is a `PlanItem`)
+- **Nested `$expand`** — Type-safe `$expand=Trips($select=...;$filter=...;$top=...)` via `NavQuery`
 - **Pluggable HTTP** — `HttpTransport` interface; built-in JDK and Apache implementations
 - **Pluggable serialization** — `Serializer` interface; Jackson by default
 - **Typed exceptions** — `NotFoundException`, `UnauthorizedException`, `RateLimitException`, etc.
@@ -104,9 +106,16 @@ Trip trip = personReq.trips().top(1).get().currentPage().get(0);
 ### Expand with Navigation
 
 ```java
+// Simple expand
 CollectionPage<Person> peopleWithTrips = client.people()
     .expand(Person.TRIPS)
     .top(5)
+    .get();
+
+// Nested $expand options (select / filter / top / orderBy on the expanded nav)
+CollectionPage<Person> peopleNested = client.people()
+    .expand(Person.TRIPS.select(Trip.NAME).top(5)
+        .filter(Trip.BUDGET.greaterThan(500.0f)))
     .get();
 ```
 
@@ -224,8 +233,10 @@ public final class Person implements ODataEntityType {
 
 // Collection request (type-safe query building)
 public class PersonCollectionRequest {
-    public PersonCollectionRequest filter(FilterExpression predicate);
-    public PersonCollectionRequest select(StringProperty<?>... properties);
+    public PersonCollectionRequest filter(FilterExpression<Person> predicate);
+    public PersonCollectionRequest select(PropertyExpression<?>... properties);
+    public PersonCollectionRequest expand(NavProperty<?, ?>... navs);
+    public PersonCollectionRequest expand(NavProperty.NavQuery<?>... queries);
     public PersonCollectionRequest top(int count);
     public CollectionPage<Person> get();
 }

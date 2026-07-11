@@ -2,6 +2,22 @@
 
 Build `$filter` expressions that are validated at compile time.
 
+## Type Safety Guarantees
+
+A filter is a `FilterExpression<E>` parameterized by the entity type it applies
+to. This gives two compile-time guarantees:
+
+- **Cross-entity filters are rejected.** You cannot filter `People` with a
+  `Trip` predicate — `client.people().filter(Trip.BUDGET.greaterThan(500))`
+  fails to compile.
+- **Base-type predicates work on subtypes.** Because `filter()` accepts
+  `FilterExpression<? super E>`, a predicate written against a base type (e.g.
+  `PlanItem`) is accepted when filtering a subtype (`Flight`). This is what makes
+  entity inheritance useful in queries.
+
+Use `FilterExpression.of("raw odata")` only when you need an expression the
+builder doesn't cover.
+
 ## Basic Comparisons
 
 ### String Operations

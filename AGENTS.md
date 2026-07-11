@@ -227,6 +227,39 @@ CollectionPage<Person> people = client.people()
 
 **Reason:** Batch is a request-response protocol. The encoder builds the outgoing requests; the decoder parses the incoming responses. These are different formats — request lines start with the method, response lines start with `HTTP/x.x`. The decoder should not be tested with encoded requests (they have different formats).
 
+### 15. Entity Inheritance Generation
+
+**Decision:** For entity types that declare a `BaseType` in CSDL, the generator emits a Java `extends` clause, walking the full base chain for fields, keys, getters, navs, and property constants.
+
+**Reason:** Real OData services model domain hierarchies — TripPin has `Flight → PublicTransportation → PlanItem`; OData Demo has `FeaturedProduct extends Product` and `Event extends PlanItem`. Without inheritance, generated subclasses repeat every base property and lose the type relationship, and base-type query predicates can't be reused on subtypes.
+
+**Approach:**
+- `EntityGenerator.findBase()` / `inheritedProperties()` walk the `baseType` chain recursively (own props appended after inherited).
+- The subclass emits `extends BaseX`, `abstract` for `Abstract="true"` types, `protected final` fields for its own properties (base fields live in the parent), and `super(...)` calls in both the Jackson and internal constructors.
+- `getKey()` resolves keys up the chain; `toString()` and `with*()` use the full resolved property list.
+- `Builder` is generated **only** for concrete top-level entities (`base == null && !abstractType`) to avoid static-method clashes across the hierarchy; subtypes copy state via `with*()` methods.
+- Shared lifecycle fields (`contextPath`, `etag`, `unmappedFields`, `changedFields`) are declared `protected final` **only** in the root class.
+
+### 16. Generic `FilterExpression<E>` for Type-Safe, Inheritance-Aware Filtering
+
+**Decision:** `FilterExpression` is generic over the entity type (`FilterExpression<E>`). Collection-request `filter()` accepts `FilterExpression<? super E>`; property filter methods return `FilterExpression<E>`.
+
+**Reason:** This makes a cross-entity filter (e.g., filtering `People` with a `Trip` predicate) a compile-time error, while still allowing inheritance: a predicate written against a base type `PlanItem` is accepted when filtering a subtype `Flight`, because `FilterExpression<PlanItem>` satisfies `FilterExpression<? super Flight>`.
+- `and`/`or`/`not` stay same-type (`FilterExpression<E>`) to avoid silently widening the bound.
+- `RawFilterExpression<E>` is the record implementation; `FilterExpression.of("raw")` escapes to raw OData for advanced cases.
+
+### 17. `PropertyExpression<T>` Unifies `select` and `orderBy`
+
+**Decision:** Introduce `PropertyExpression<T> extends OrderExpression<T>` with `getEdmName()`, implemented by `StringProperty`, `NumberProperty`, `DateTimeProperty`, `BooleanProperty`, `EnumProperty`.
+
+**Reason:** `select(...)` previously accepted only `StringProperty`. Widening to `PropertyExpression<?>` lets any property type be selected, and gives a single source of truth for the OData property name reused by both `$select` and `$expand` nested selects. `OrderExpression.getEdmName()` (which threw) was removed from the base and now lives only on `PropertyExpression`.
+
+### 18. Nested `$expand` Options via `NavQuery`
+
+**Decision:** `NavProperty` gains `select()`/`orderBy()`/`filter()`/`top()` methods returning a `NavQuery<T>` record; `expand()` accepts either `NavProperty<?, ?>` or `NavQuery<?>`.
+
+**Reason:** OData allows `$expand=Trips($select=...;$filter=...;$top=...;$orderby=...)`. Exposing `NavQuery` lets users nest those options type-safely on the navigation target without string concatenation. `NavQuery.toODataExpand()` renders the full `Trips(...)` clause; `RequestGenerator` appends it to the `$expand` query option.
+
 ---
 
 ## Architecture
@@ -253,17 +286,15 @@ odata-codegen/
 
 ## Testing Strategy
 
-- **Parser tests:** Parse TripPin + Northwind + OData Demo metadata XML, verify model correctness (47 tests)
-- **Generator integration tests:** Generate TripPin client, verify file structure and code content (1 test)
-- **Generator compilation tests:** Generate + compile TripPin client against runtime JARs (1 test)
-- **Runtime tests:** Verify OData collection response parsing, Context URL construction, key formatting, typed exceptions, interceptor chaining, header merging, streaming (26 tests)
-- **Batch tests:** Multipart encode/decode, batch request construction, ContextPath relative URLs (16 tests)
-- **Integration tests:** Live TripPin service: collection queries, entity get, navigation, filtering, ordering, select, count, airlines, airports, batch requests, CRUD operations (POST/PATCH/DELETE with ETag), $ref link/unlink (18 tests)
-- **Northwind integration tests:** Live Northwind V4 service: categories, products, customers, orders, employees, suppliers, filtering, ordering, select, count, expand (16 tests)
-- **Generated client tests:** Type-safe generated TripPin client: collection queries, entity by key, filter, orderBy, select, count, navigation, CRUD, ETag (14 tests)
-- **Northwind generated client tests:** Type-safe generated Northwind client: collection queries, entity by key, filter, orderBy, select, count, suppliers, employees (17 tests)
-- **OData Demo generated client tests:** Type-safe generated OData Demo client: inheritance, open types, complex types, geography, stream, Guid, Byte, Single, Int64, DateTime (22 tests)
-- **Total: 183 tests passing**
+Run `mvn test` from the repo root. All modules build in one reactor; the runtime must be installed before `odata-codegen-core`/`odata-codegen-test` compile against it.
+
+- **Parser tests:** Parse TripPin + Northwind + OData Demo metadata XML, verify model correctness (`StaxCsdlParserTest`, 47 tests)
+- **Generator integration tests:** Generate TripPin client, verify file structure and code content (`GeneratorIntegrationTest`, 1 test)
+- **Generator compilation tests:** Generate + compile TripPin client (with the `Event`/`Flight`/`PlanItem` inheritance hierarchy) against runtime JARs (`GeneratorCompilationTest`, 1 test)
+- **Entity generator unit tests:** Composite-key `getKey()`, collection getter emission (`EntityGeneratorCompositeKeyTest` 1, `EntityGeneratorCollectionGetterTest` 2)
+- **Runtime unit + integration tests (116):** `NorthwindIntegrationTest` (20), `ContextPathTest` (6), `JacksonSerializerTest` (2), `EntityOperationsHeaderTest` (1), `MultipartHelperTest` (10), `EntityOperationsFailureTest` (2), `EntityOperationsInterceptorChainTest` (1), `JdkHttpTransportTest` (1), `BatchRequestTest` (6), `TripPinIntegrationTest` (18), `ODataParsingTest` (6), `StringPropertyTest` (21), `NavPropertyExpandTest` (9), `CollectionPropertyTest` (2), `ODataExceptionTest` (7), `EntityOperationsCollectionParseTest` (4)
+- **Generated client tests (68):** `NorthwindGeneratedClientTest` (24), `ODataDemoGeneratedClientTest` (22, exercises `FeaturedProduct extends Product`, `Event`/`PlanItem`), `TripPinGeneratedClientTest` (22, exercises `Flight`/`PublicTransportation`/`PlanItem` hierarchy, type-safe + nested `$expand`)
+- **Total: 236 tests passing**
 - **Future:** Cancellable streaming
 
 ---
@@ -288,7 +319,7 @@ odata-codegen/
 
 9. **OData collection responses need JsonNode parsing.** Records with generic type parameters have type erasure issues with Jackson's `constructParametricType()`. Using `JsonNode` tree traversal + `mapper.convertValue(valueNode, listType)` is simpler and more reliable.
 
-10. **Complex type inheritance is hard to generate correctly.** Subclasses need `super()` calls for inherited properties, constructors must chain properly, and builders can't hide parent methods. Skipped for MVP — TODO for future milestone.
+10. **Complex type inheritance is hard to generate correctly.** Subclasses need `super()` calls for inherited properties, constructors must chain properly, and builders can't hide parent methods. **Entity** inheritance is now implemented (see decision 15) — the parser reads `BaseType` and `EntityGenerator` emits `extends`/`super()` chains. **Complex-type** inheritance is still a TODO (MVP gap).
 
 11. **ContextPath keys must be segment-local, not a flat list.** OData key predicates apply to the segment they key into: `People('scott')/Trips`. If keys are stored as a flat list and appended at the end, the URL becomes `People/Trips('scott')` — wrong. Each segment must own its keys. The `addKey()` method must modify the last segment, not a separate list.
 
@@ -322,7 +353,7 @@ odata-codegen/
 
 26. **OData datetime literals must NOT be quoted in filter expressions.** Using `StringProperty` for `Edm.DateTimeOffset` generates `OrderDate ge '1998-01-01T00:00:00Z'` (quoted), but OData requires `OrderDate ge 1998-01-01T00:00:00Z` (unquoted). Fixed by adding `DateTimeProperty` that generates unquoted datetime literals.
 
-27. **OData Demo service tests inheritance, open types, geography, stream gaps.** The parser correctly parses `BaseType`, `OpenType`, `HasStream`, and `ConcurrencyMode` attributes, but the generator ignores them. Generated classes for inherited types (e.g., `FeaturedProduct extends Product`) are standalone `final` classes with no inheritance. `Edm.Stream` and `Edm.GeographyPoint` map to `Object`. This is acceptable for MVP — the parser layer is complete, and code generation for these features is a clear future milestone.
+27. **OData Demo service tests inheritance, open types, geography, stream gaps.** The parser correctly parses `BaseType`, `OpenType`, `HasStream`, and `ConcurrencyMode` attributes. `BaseType` is now honored by the generator (see decision 15 and lesson 51) — `FeaturedProduct` genuinely `extends Product`. `OpenType`, `HasStream`, and `ConcurrencyMode` are still ignored by the generator, and `Edm.Stream`/`Edm.GeographyPoint` still map to `Object`. Those remain clear future milestones.
 
 28. **OData Demo service IDs start at 0, not 1.** The `Products` entity set has `ID=0` for "Bread". Assertions like `assertTrue(p.getID() > 0)` fail — use `assertNotNull()` or non-zero-specific checks instead.
 
@@ -379,3 +410,9 @@ odata-codegen/
 
 50. **`RequestHelper` is public but lives in the `internal` package.** The generated code referenced `io.github.akbarhusain.odata.runtime.internal.RequestHelper` for all CRUD operations, exposing internal implementation details as public API. The `internal` package convention was undermined by requiring public access.
     - **FIXED in v0.1.1.** Created `io.github.akbarhusain.odata.runtime.client.EntityOperations` with the same public API. `RequestHelper` now delegates to `EntityOperations` and is deprecated. `RequestGenerator` emits `EntityOperations.*` instead of `RequestHelper.*`. `BatchRequest` uses `EntityOperations.buildTransportChain` directly. Verified by full test suite (183 tests passing, including all generated client tests that now compile against the new class).
+
+51. **Inheritance generation: `with*` methods must reference fields, not getters, for inherited properties.** `generateWithMethod` built `new SubType(...)` passing `this.getBaseProp()` for inherited properties, but a nullable getter returns `Optional<T>` while the constructor expects raw `T`. Since inherited fields are `protected final` in the parent, reference the field name directly for all properties (own and inherited). Verified by `GeneratorCompilationTest` (TripPin `Event`/`Flight`/`PublicTransportation` hierarchy now compiles).
+
+52. **Inheritance generation: shared lifecycle fields belong only in the root class.** `contextPath`, `etag`, `unmappedFields`, `changedFields` were redeclared in every generated class, shadowing the parent's `final` copies (which the `super()` call initializes, leaving the subclass's copy uninitialized → "variable ... might not have been initialized"). Fix: declare these four fields only when `base == null`, make them `protected` so subclasses can read them, and guard the constructor assignments (`this.unmappedFields = ...`, `this.changedFields = ...`) with `if (base == null)` since the parent `super()` already sets them.
+
+53. **Abstract base entity types are not yet supported in generation.** The generator emits `public abstract class` for `Abstract="true"` types but still generates `with*` methods that call `new AbstractX(...)` — a compile error. No current test metadata uses abstract entity types, so this is latent. When needed, skip `with*`/constructor generation for abstract types (or generate them to return the type without instantiating). Complex-type inheritance (lesson 10) remains a TODO.

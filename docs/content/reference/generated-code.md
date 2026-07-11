@@ -1,6 +1,6 @@
 # Generated Code Structure
 
-What Modern OData Client generates from your CSDL metadata.
+What OData Codegen generates from your CSDL metadata.
 
 ## Directory Structure
 
@@ -35,32 +35,37 @@ com/example/trippin/
 
 ## Entity Classes
 
-### Record (Data)
+### Immutable class (not a record)
+
+Generated entities are `final class` (not Java `record`s) so they can implement
+`ODataEntityType`, carry Jackson deserialization annotations, and support
+inheritance. All fields are `final`.
 
 ```java
-public record Person(
-    String userName,
-    String firstName,
-    String lastName,
-    Long age,
-    List<String> emails,
-    List<Trip> trips,
-    // ... other fields
-) implements ODataEntityType {
-    // Static constants
-    public static final StringProperty USER_NAME = ...;
-    public static final StringProperty FIRST_NAME = ...;
-    public static final NumberProperty<Long> AGE = ...;
-    public static final CollectionProperty<String> EMAILS = ...;
+public final class Person implements ODataEntityType {
+    // Static property constants (UPPER_CASE)
+    public static final StringProperty<Person> USER_NAME = ...;
+    public static final StringProperty<Person> FIRST_NAME = ...;
+    public static final NumberProperty<Person, Long> AGE = ...;
+    public static final CollectionProperty<Person, String> EMAILS = ...;
 
-    // Builder
-    public static Builder builder() { return new Builder(); }
+    // final fields
+    private final String userName;
+    private final String firstName;
+    // ...
 
-    // with*() methods
+    @JsonCreator
+    public Person(@JsonProperty("@odata.etag") String etag, /* ...props */) { ... }
+
+    // Getters — nullable props return Optional<T>
+    public String getUserName() { return userName; }
+    public Optional<String> getFirstName() { return Optional.ofNullable(firstName); }
+
+    // Copy-on-write
     public Person withFirstName(String firstName) { ... }
 
-    // Builder class
-    public static class Builder { ... }
+    // Builder — only for concrete, top-level entities
+    public static Builder builder() { return new Builder(); }
 }
 ```
 
@@ -76,6 +81,23 @@ Person person = Person.builder()
     .build();
 ```
 
+### Inheritance
+
+When a CSDL entity type declares a `BaseType`, the generated subclass emits a
+real Java `extends` clause and chains `super(...)` constructors. Inherited
+fields, keys, getters, navigation properties, and property constants all resolve
+up the base chain.
+
+```java
+// CSDL: Flight -> PublicTransportation -> PlanItem
+public final class Flight extends PublicTransportation {
+    // only Flight's own fields are declared here; base fields live in the parent
+    public static final NumberProperty<Flight, Integer> FLIGHT_NUMBER = ...;
+
+    public Flight withFlightNumber(Integer n) { ... }   // returns Flight, base fields preserved
+}
+```
+
 ## Request Classes
 
 ### Entity Request
@@ -86,8 +108,8 @@ public class PersonEntityRequest {
     private final ContextPath path;
 
     public Person get() { ... }
-    public void patch(Person person) { ... }
-    public void patchWithETag(Person person, String etag) { ... }
+    public Person patch(Person person) { ... }
+    public Person patchWithETag(Person person, String etag) { ... }
     public void delete() { ... }
 
     // Navigation
@@ -104,16 +126,18 @@ public class PersonCollectionRequest {
     private final ContextPath path;
 
     public CollectionPage<Person> get() { ... }
+    public CollectionPage<Person> getAsync() { ... }
     public Person post(Person person) { ... }
 
     // Query operations
-    public PersonCollectionRequest filter(Expression<Boolean> predicate) { ... }
-    public PersonCollectionRequest select(Property<?>... properties) { ... }
-    public PersonCollectionRequest orderBy(SortExpression<?>... sorts) { ... }
+    public PersonCollectionRequest filter(FilterExpression<Person> predicate) { ... }
+    public PersonCollectionRequest select(PropertyExpression<?>... properties) { ... }
+    public PersonCollectionRequest orderBy(OrderExpression<?>... sorts) { ... }
     public PersonCollectionRequest top(int count) { ... }
     public PersonCollectionRequest skip(int count) { ... }
     public PersonCollectionRequest count() { ... }
-    public PersonCollectionRequest expand(NavigationProperty<?>... properties) { ... }
+    public PersonCollectionRequest expand(NavProperty<?, ?>... navs) { ... }
+    public PersonCollectionRequest expand(NavProperty.NavQuery<?>... queries) { ... }
 }
 ```
 

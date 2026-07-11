@@ -1,6 +1,6 @@
 # Entity Immutability
 
-Why Modern OData Client uses truly immutable entities.
+Why OData Codegen uses truly immutable entities.
 
 ## The Problem with Mutable Entities
 
@@ -29,7 +29,7 @@ public class Person {
 
 ## Our Approach: Records
 
-Modern OData Client uses Java records:
+OData Codegen uses Java records:
 
 ```java
 public record Person(

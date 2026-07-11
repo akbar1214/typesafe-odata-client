@@ -3,9 +3,9 @@
 _A type-safe OData v4 client generator for Java.
 Immutable entities, compile-time validated queries, pluggable HTTP._
 
-!!! success "Milestones 1-5 Complete!"
+!!! success "Production-Ready Pipeline"
 
-    Parser, code generator, runtime, Maven plugin, and integration tests against TripPin service — all working. 44 tests passing.
+    Parser, code generator, runtime, Maven plugin, and live integration tests against TripPin, Northwind, and OData Demo services — all working. **236 tests passing.**
 
 ## Why OData Codegen
 
@@ -17,6 +17,7 @@ Most OData clients for Java force you into string-based queries, mutable entitie
 * **Pluggable serialization** — Jackson by default, but swap in Gson or Jakarta JSON-B. Generated entities are annotation-free.
 * **Typed exceptions** — `NotFoundException`, `UnauthorizedException`, `RateLimitException` — catch what matters, not generic `ClientException`.
 * **Zero runtime overhead** — Code generated at build time. No reflection, no proxies, no magic.
+* **Entity inheritance** — Subtypes emit real Java `extends` clauses; base-type query predicates type-check against subtypes.
 
 ## Quick Example
 
@@ -38,13 +39,20 @@ CollectionPage<Person> people = client.people()
     .top(10)
     .get();
 
-// 4. Navigate
+// 4. Navigate (with nested $expand options)
 PersonEntityRequest req = client.peopleByUserName("scottketchum");
 Person scott = req.get();
 CollectionPage<Trip> trips = req.trips()
     .filter(Trip.BUDGET.greaterThan(500.0f))
     .get();
+
+// 5. Nested $expand: expand trips, selecting only a few fields and top 5
+CollectionPage<Person> peopleWithTrips = client.people()
+    .expand(Person.TRIPS.select(Person.FIRST_NAME).top(5))
+    .get();
 ```
+
+New to OData? Start with [OData for Newcomers](concepts/odata-for-newcomers.md).
 
 Ready? [Install the Maven plugin](getting-started.md), then run [your first query](tutorial/first-query.md).
 
@@ -53,13 +61,13 @@ Ready? [Install the Maven plugin](getting-started.md), then run [your first quer
 ```
 odata-codegen/
 ├── odata-codegen-core/        # Parser + Code Generator
-│   ├── model/                # CsdlModel (29 Java records)
+│   ├── model/                # CsdlModel (records)
 │   ├── parser/               # StAX CSDL parser
 │   └── generator/            # Entity, Request, Container generators
 ├── odata-codegen-runtime/     # Runtime library
 │   ├── entity/               # Context, ContextPath, SchemaInfo
 │   ├── query/                # Expression builders (StringProperty, etc.)
-│   ├── http/                 # HttpTransport + JdkHttpTransport
+│   ├── http/                 # HttpTransport + JdkHttpTransport + ApacheHttpTransport
 │   ├── auth/                 # AuthProvider implementations
 │   ├── serialization/        # JacksonSerializer
 │   ├── paging/               # CollectionPage<T>
@@ -69,13 +77,14 @@ odata-codegen/
 
 ## Status
 
-- **44 tests passing** — Parser, generator, runtime, and live integration tests
-- **Milestones 1-5 complete** — Full pipeline from CSDL to HTTP execution
-- **TripPin service tested** — 9 integration tests against live OData service
-- **Maven plugin working** — `odata-client:generate` goal in `generate-sources` phase
+- **236 tests passing** — Parser, generator, runtime, and live integration tests
+- **Full pipeline** — CSDL → generated client → HTTP execution
+- **Multiple services tested** — TripPin, Northwind, and OData Demo (incl. inheritance hierarchies)
+- **Maven plugin working** — `odata-codegen:generate` goal in the `generate-sources` phase
 
 ## Getting Help
 
+- **New to OData?** — [OData for Newcomers](concepts/odata-for-newcomers.md)
 - **Questions** — [GitHub Discussions](https://github.com/odata-codegen/odata-codegen/discussions)
 - **Bug reports** — [GitHub Issues](https://github.com/odata-codegen/odata-codegen/issues)
 - **OData reference** — See [ODATA.md](https://github.com/odata-codegen/odata-codegen/blob/main/ODATA.md)

@@ -1,6 +1,6 @@
 # OData URL Patterns
 
-How Modern OData Client builds OData URLs.
+How OData Codegen builds OData URLs.
 
 ## URL Structure
 
