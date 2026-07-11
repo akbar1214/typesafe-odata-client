@@ -41,9 +41,9 @@ class EntityGeneratorCompositeKeyTest {
 
         assertTrue(getKeyMethod.contains("java.util.Map.of("),
                 "getKey() for composite keys should return java.util.Map.of(...)");
-        assertTrue(getKeyMethod.contains("\"OrderID\", orderID"),
+        assertTrue(getKeyMethod.contains("\"OrderID\", this.orderID"),
                 "getKey() should include OrderID mapping");
-        assertTrue(getKeyMethod.contains("\"ProductID\", productID"),
+        assertTrue(getKeyMethod.contains("\"ProductID\", this.productID"),
                 "getKey() should include ProductID mapping");
         assertFalse(getKeyMethod.contains("return orderID"),
                 "getKey() should NOT return a single field value for composite keys");

@@ -1,10 +1,13 @@
 package io.github.akbarhusain.odata.core.generator;
 
 import io.github.akbarhusain.odata.core.model.CsdlModel.EntityTypeModel;
+import io.github.akbarhusain.odata.core.model.CsdlModel.KeyModel;
 import io.github.akbarhusain.odata.core.model.CsdlModel.NavigationPropertyModel;
 import io.github.akbarhusain.odata.core.model.CsdlModel.PropertyModel;
 import io.github.akbarhusain.odata.core.model.CsdlModel.SchemaModel;
 
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.TreeSet;
@@ -20,6 +23,32 @@ public class EntityGenerator {
     public String generate(EntityTypeModel entityType, SchemaModel schema) {
         String pkg = basePackage + Names.packageNameSuffixEntity();
         String className = Names.entityClassName(entityType.name());
+        EntityTypeModel base = findBase(entityType, schema);
+        String baseSimpleName = base != null ? Names.entityClassName(base.name()) : null;
+
+        Set<String> extendedBases = new HashSet<>();
+        for (EntityTypeModel et : schema.entityTypes()) {
+            if (et.baseType() != null && !et.baseType().isBlank()) {
+                extendedBases.add(Names.entityClassName(Names.simpleNameFromFullName(et.baseType())));
+            }
+        }
+        boolean isBase = extendedBases.contains(className);
+
+        List<PropertyModel> ownProps = entityType.properties();
+        List<PropertyModel> inheritedProps = inheritedProperties(entityType, schema);
+        List<PropertyModel> allProps = new ArrayList<>(inheritedProps);
+        allProps.addAll(ownProps);
+
+        List<NavigationPropertyModel> allNavs = new ArrayList<>(inheritedNavProperties(entityType, schema));
+        allNavs.addAll(entityType.navigationProperties());
+
+        List<KeyModel> keys = resolvedKeys(entityType, schema);
+
+        Set<String> ownPropNames = new HashSet<>();
+        for (PropertyModel p : ownProps) {
+            ownPropNames.add(p.name());
+        }
+
 
         StringBuilder sb = new StringBuilder();
         sb.append("package ").append(pkg).append(";\n\n");
@@ -46,6 +75,9 @@ public class EntityGenerator {
         for (PropertyModel prop : entityType.properties()) {
             addPropertyImports(prop, imports, schema);
         }
+        if (base != null) {
+            imports.add(pkg + "." + baseSimpleName);
+        }
 
         for (String imp : imports) {
             sb.append("import ").append(imp).append(";\n");
@@ -53,7 +85,17 @@ public class EntityGenerator {
         sb.append("\n");
 
         // Class declaration
-        sb.append("public final class ").append(className).append(" implements ODataEntityType {\n\n");
+        if (entityType.abstractType()) {
+            sb.append("public abstract class ").append(className);
+        } else if (base != null || isBase) {
+            sb.append("public class ").append(className);
+        } else {
+            sb.append("public final class ").append(className);
+        }
+        if (base != null) {
+            sb.append(" extends ").append(baseSimpleName);
+        }
+        sb.append(" implements ODataEntityType {\n\n");
 
         // Static property constants
         for (PropertyModel prop : entityType.properties()) {
@@ -67,56 +109,79 @@ public class EntityGenerator {
         }
         if (!entityType.navigationProperties().isEmpty()) sb.append("\n");
 
-        // Fields
-        for (PropertyModel prop : entityType.properties()) {
+        // Fields (protected so subclasses can copy inherited state via with*/constructors)
+        for (PropertyModel prop : ownProps) {
             String javaType = resolvePropertyJavaType(prop, schema, true);
-            sb.append("    private final ").append(javaType).append(" ")
+            sb.append("    protected final ").append(javaType).append(" ")
               .append(Names.toJavaFieldName(prop.name())).append(";\n");
         }
-        sb.append("    private final ContextPath contextPath;\n");
-        sb.append("    private final String etag;\n");
-        sb.append("    private final java.util.Map<String, Object> unmappedFields;\n");
-        sb.append("    private final Set<String> changedFields;\n\n");
+        if (base == null) {
+            sb.append("    protected final ContextPath contextPath;\n");
+            sb.append("    protected final String etag;\n");
+            sb.append("    protected final java.util.Map<String, Object> unmappedFields;\n");
+            sb.append("    protected final Set<String> changedFields;\n");
+        }
+        sb.append("\n");
 
         // Constructor with Jackson annotations for deserialization
         sb.append("    @com.fasterxml.jackson.annotation.JsonCreator\n");
         sb.append("    public ").append(className).append("(\n");
         sb.append("            @com.fasterxml.jackson.annotation.JsonProperty(\"@odata.etag\") String etag");
-        for (PropertyModel prop : entityType.properties()) {
+        for (PropertyModel prop : allProps) {
             String javaType = resolvePropertyJavaType(prop, schema, true);
             sb.append(",\n            @com.fasterxml.jackson.annotation.JsonProperty(\"").append(prop.name()).append("\") ")
               .append(javaType).append(" ").append(Names.toJavaFieldName(prop.name()));
         }
         sb.append(") {\n");
-        sb.append("        this.contextPath = null;\n");
-        sb.append("        this.etag = etag;\n");
-        for (PropertyModel prop : entityType.properties()) {
+        if (base != null) {
+            sb.append("        super(etag");
+            for (PropertyModel prop : inheritedProps) {
+                sb.append(", ").append(Names.toJavaFieldName(prop.name()));
+            }
+            sb.append(");\n");
+        } else {
+            sb.append("        this.contextPath = null;\n");
+            sb.append("        this.etag = etag;\n");
+        }
+        for (PropertyModel prop : ownProps) {
             String fn = Names.toJavaFieldName(prop.name());
             sb.append("        this.").append(fn).append(" = ").append(fieldInit(prop)).append(";\n");
         }
-        sb.append("        this.unmappedFields = java.util.Map.of();\n");
-        sb.append("        this.changedFields = Set.of();\n");
+        if (base == null) {
+            sb.append("        this.unmappedFields = java.util.Map.of();\n");
+            sb.append("        this.changedFields = Set.of();\n");
+        }
         sb.append("    }\n\n");
 
         // Internal constructor for builder/with methods
-        sb.append("    private ").append(className).append("(ContextPath contextPath, String etag");
-        for (PropertyModel prop : entityType.properties()) {
+        sb.append("    protected ").append(className).append("(ContextPath contextPath, String etag");
+        for (PropertyModel prop : allProps) {
             String javaType = resolvePropertyJavaType(prop, schema, true);
             sb.append(", ").append(javaType).append(" ").append(Names.toJavaFieldName(prop.name()));
         }
         sb.append(", java.util.Map<String, Object> unmappedFields, Set<String> changedFields) {\n");
-        sb.append("        this.contextPath = contextPath;\n");
-        sb.append("        this.etag = etag;\n");
-        for (PropertyModel prop : entityType.properties()) {
+        if (base != null) {
+            sb.append("        super(contextPath, etag");
+            for (PropertyModel prop : inheritedProps) {
+                sb.append(", ").append(Names.toJavaFieldName(prop.name()));
+            }
+            sb.append(", unmappedFields, changedFields);\n");
+        } else {
+            sb.append("        this.contextPath = contextPath;\n");
+            sb.append("        this.etag = etag;\n");
+        }
+        for (PropertyModel prop : ownProps) {
             String fn = Names.toJavaFieldName(prop.name());
             sb.append("        this.").append(fn).append(" = ").append(fieldInit(prop)).append(";\n");
         }
-        sb.append("        this.unmappedFields = unmappedFields != null ? unmappedFields : java.util.Map.of();\n");
-        sb.append("        this.changedFields = changedFields != null ? changedFields : Set.of();\n");
+        if (base == null) {
+            sb.append("        this.unmappedFields = unmappedFields != null ? unmappedFields : java.util.Map.of();\n");
+            sb.append("        this.changedFields = changedFields != null ? changedFields : Set.of();\n");
+        }
         sb.append("    }\n\n");
 
         // Getters
-        for (PropertyModel prop : entityType.properties()) {
+        for (PropertyModel prop : ownProps) {
             sb.append(generateGetter(prop, schema));
         }
 
@@ -125,12 +190,14 @@ public class EntityGenerator {
             sb.append(generateNavAccessor(nav, schema));
         }
 
-        // Builder
-        sb.append(generateBuilder(entityType, className, schema));
+        // Builder (only for concrete top-level entities; subtypes reuse base builder or with* methods)
+        if (base == null && !entityType.abstractType()) {
+            sb.append(generateBuilder(allProps, className, schema, keys));
+        }
 
         // with*() methods
-        for (PropertyModel prop : entityType.properties()) {
-            sb.append(generateWithMethod(prop, className, entityType, schema));
+        for (PropertyModel prop : allProps) {
+            sb.append(generateWithMethod(prop, allProps, ownPropNames, className, schema));
         }
 
         // Interface methods
@@ -155,16 +222,14 @@ public class EntityGenerator {
         sb.append("    }\n\n");
 
         sb.append("    @Override\n    public Object getKey() {\n");
-        if (!entityType.keys().isEmpty()) {
-            List<String> refs = entityType.keys().get(0).propertyRefs();
+        if (!keys.isEmpty()) {
+            List<String> refs = keys.get(0).propertyRefs();
             if (refs.size() == 1) {
-                String keyProp = refs.get(0);
-                sb.append("        return ").append(Names.toJavaFieldName(keyProp)).append(";\n");
+                sb.append("        return ").append(getterCall(refs.get(0), allProps)).append(";\n");
             } else {
                 sb.append("        return java.util.Map.of(\n");
                 for (int i = 0; i < refs.size(); i++) {
-                    String fieldName = Names.toJavaFieldName(refs.get(i));
-                    sb.append("            \"").append(refs.get(i)).append("\", ").append(fieldName);
+                    sb.append("            \"").append(refs.get(i)).append("\", ").append(getterCall(refs.get(i), allProps));
                     if (i < refs.size() - 1) {
                         sb.append(",\n");
                     } else {
@@ -182,7 +247,7 @@ public class EntityGenerator {
         sb.append("    @Override\n    public String toString() {\n");
         sb.append("        return \"").append(className).append("{\" +\n");
         boolean first = true;
-        for (PropertyModel prop : entityType.properties()) {
+        for (PropertyModel prop : allProps) {
             String fn = Names.toJavaFieldName(prop.name());
             sb.append("            ").append(first ? "\"" : "\", ").append(prop.name()).append("=\" + ").append(fn).append(" +\n");
             first = false;
@@ -192,6 +257,76 @@ public class EntityGenerator {
 
         sb.append("}\n");
         return sb.toString();
+    }
+
+    private EntityTypeModel findBase(EntityTypeModel entityType, SchemaModel schema) {
+        String bt = entityType.baseType();
+        if (bt == null || bt.isBlank()) {
+            return null;
+        }
+        String baseSimple = Names.entityClassName(Names.simpleNameFromFullName(bt));
+        for (EntityTypeModel et : schema.entityTypes()) {
+            if (Names.entityClassName(et.name()).equals(baseSimple)) {
+                return et;
+            }
+        }
+        return null;
+    }
+
+    private List<PropertyModel> inheritedProperties(EntityTypeModel entityType, SchemaModel schema) {
+        EntityTypeModel base = findBase(entityType, schema);
+        if (base == null) {
+            return List.of();
+        }
+        List<PropertyModel> result = new ArrayList<>(inheritedProperties(base, schema));
+        Set<String> seen = new HashSet<>();
+        for (PropertyModel p : result) {
+            seen.add(p.name());
+        }
+        for (PropertyModel p : base.properties()) {
+            if (seen.add(p.name())) {
+                result.add(p);
+            }
+        }
+        return result;
+    }
+
+    private List<NavigationPropertyModel> inheritedNavProperties(EntityTypeModel entityType, SchemaModel schema) {
+        EntityTypeModel base = findBase(entityType, schema);
+        if (base == null) {
+            return List.of();
+        }
+        List<NavigationPropertyModel> result = new ArrayList<>(inheritedNavProperties(base, schema));
+        Set<String> seen = new HashSet<>();
+        for (NavigationPropertyModel n : result) {
+            seen.add(n.name());
+        }
+        for (NavigationPropertyModel n : base.navigationProperties()) {
+            if (seen.add(n.name())) {
+                result.add(n);
+            }
+        }
+        return result;
+    }
+
+    private List<KeyModel> resolvedKeys(EntityTypeModel entityType, SchemaModel schema) {
+        if (!entityType.keys().isEmpty()) {
+            return entityType.keys();
+        }
+        EntityTypeModel base = findBase(entityType, schema);
+        if (base == null) {
+            return List.of();
+        }
+        return resolvedKeys(base, schema);
+    }
+
+    private String getterCall(String propName, List<PropertyModel> props) {
+        for (PropertyModel p : props) {
+            if (p.name().equals(propName)) {
+                return "this." + Names.toJavaFieldName(p.name());
+            }
+        }
+        return "this." + Names.toJavaFieldName(propName);
     }
 
     private String generatePropertyConstant(PropertyModel prop, String className, SchemaModel schema) {
@@ -290,7 +425,7 @@ public class EntityGenerator {
         return sb.toString();
     }
 
-    private String generateBuilder(EntityTypeModel entityType, String className, SchemaModel schema) {
+    private String generateBuilder(List<PropertyModel> props, String className, SchemaModel schema, List<KeyModel> keys) {
         StringBuilder sb = new StringBuilder();
         sb.append("    public static Builder builder() {\n        return new Builder();\n    }\n\n");
 
@@ -298,7 +433,7 @@ public class EntityGenerator {
         sb.append("        private final java.util.Set<String> changed = new java.util.HashSet<>();\n");
         sb.append("        private ContextPath contextPath;\n");
         sb.append("        private String etag;\n");
-        for (PropertyModel prop : entityType.properties()) {
+        for (PropertyModel prop : props) {
             String javaType = resolvePropertyJavaType(prop, schema, true);
             sb.append("        private ").append(javaType).append(" ").append(Names.toJavaFieldName(prop.name())).append(";\n");
         }
@@ -314,7 +449,7 @@ public class EntityGenerator {
         sb.append("            return this;\n");
         sb.append("        }\n\n");
 
-        for (PropertyModel prop : entityType.properties()) {
+        for (PropertyModel prop : props) {
             String javaType = resolvePropertyJavaType(prop, schema, true);
             String fn = Names.toJavaFieldName(prop.name());
             sb.append("        public Builder ").append(fn).append("(").append(javaType).append(" value) {\n");
@@ -325,14 +460,14 @@ public class EntityGenerator {
         }
 
         sb.append("        public ").append(className).append(" build() {\n");
-        for (var key : entityType.keys()) {
+        for (var key : keys) {
             for (String keyProp : key.propertyRefs()) {
                 sb.append("            Objects.requireNonNull(").append(Names.toJavaFieldName(keyProp))
                   .append(", \"").append(keyProp).append(" is required (key)\");\n");
             }
         }
         sb.append("            return new ").append(className).append("(contextPath, etag");
-        for (PropertyModel prop : entityType.properties()) {
+        for (PropertyModel prop : props) {
             sb.append(", ").append(Names.toJavaFieldName(prop.name()));
         }
         sb.append(", unmappedFields, changed);\n");
@@ -342,7 +477,7 @@ public class EntityGenerator {
         return sb.toString();
     }
 
-    private String generateWithMethod(PropertyModel prop, String className, EntityTypeModel entityType, SchemaModel schema) {
+    private String generateWithMethod(PropertyModel prop, List<PropertyModel> allProps, Set<String> ownPropNames, String className, SchemaModel schema) {
         String javaType = resolvePropertyJavaType(prop, schema, true);
         String fn = Names.toJavaFieldName(prop.name());
 
@@ -350,7 +485,7 @@ public class EntityGenerator {
         sb.append("    public ").append(className).append(" ").append(Names.withMethod(prop))
           .append("(").append(javaType).append(" value) {\n");
         sb.append("        return new ").append(className).append("(contextPath, etag");
-        for (PropertyModel p : entityType.properties()) {
+        for (PropertyModel p : allProps) {
             sb.append(", ");
             if (p.name().equals(prop.name())) {
                 sb.append("value");

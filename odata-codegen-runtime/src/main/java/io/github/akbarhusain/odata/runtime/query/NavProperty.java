@@ -26,7 +26,7 @@ public class NavProperty<E, T> {
         return new NavQuery<>(edmName, selects, List.of(), List.of(), null);
     }
 
-    public NavQuery<T> filter(FilterExpression<T> predicate) {
+    public NavQuery<T> filter(FilterExpression<? super T> predicate) {
         return new NavQuery<>(edmName, List.of(), List.of(predicate.toODataExpression()), List.of(), null);
     }
 
@@ -62,7 +62,7 @@ public class NavProperty<E, T> {
             return new NavQuery<>(edmName, newSelects, filters, orderings, topOption);
         }
 
-        public NavQuery<T> filter(FilterExpression<T> predicate) {
+        public NavQuery<T> filter(FilterExpression<? super T> predicate) {
             List<String> newFilters = new ArrayList<>(this.filters);
             newFilters.add(predicate.toODataExpression());
             return new NavQuery<>(edmName, selects, newFilters, orderings, topOption);

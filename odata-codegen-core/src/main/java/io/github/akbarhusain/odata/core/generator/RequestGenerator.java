@@ -157,7 +157,7 @@ public class RequestGenerator {
         sb.append("    }\n\n");
 
         // Type-safe filter
-        sb.append("    public ").append(className).append(" filter(FilterExpression<").append(entityClassName).append("> predicate) {\n");
+        sb.append("    public ").append(className).append(" filter(FilterExpression<? super ").append(entityClassName).append("> predicate) {\n");
         sb.append("        ").append(className).append(" next = copy();\n");
         sb.append("        next.filters.add(predicate.toODataExpression());\n");
         sb.append("        return next;\n");
