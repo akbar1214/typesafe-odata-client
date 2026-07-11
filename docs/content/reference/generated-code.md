@@ -164,19 +164,58 @@ public class DefaultContainer {
 
 ## Complex Type Classes
 
-```java
-public record City(
-    String name,
-    String countryRegion,
-    String region,
-    Double latitude,
-    Double longitude
-) {
-    // Builder
-    public static Builder builder() { ... }
+Complex types are keyless value types, generated as immutable classes that
+implement `ODataType`.
 
-    // with*() methods
-    public City withName(String name) { ... }
+```java
+public class Location implements ODataType {
+    protected final String address;
+    protected final City city;
+
+    @JsonCreator
+    public Location(@JsonProperty("Address") String address,
+                    @JsonProperty("City") City city) { ... }
+
+    public String getAddress() { return address; }
+    public City getCity() { return city; }
+
+    // Copy-on-write
+    public Location withAddress(String value) { ... }
+
+    // Builder — only for concrete, top-level complex types
+    public static Builder builder() { ... }
+}
+```
+
+### Complex Type Inheritance
+
+Like entities, complex types honor `BaseType` and emit a real `extends` clause.
+Subtypes declare only their own fields (base fields live in the parent), chain
+`super(...)` in the constructor, and get `with*()` copy-on-write methods.
+
+The `Builder` is generated **only for concrete top-level complex types** — a
+static `builder()` in a subtype would clash with the inherited one (Java forbids
+hiding a static method with an incompatible return type). Subtypes use `with*()`.
+
+```java
+// CSDL: EventLocation BaseType="...Location"
+public class EventLocation extends Location {
+    protected final String buildingInfo;
+
+    @JsonCreator
+    public EventLocation(@JsonProperty("Address") String address,
+                         @JsonProperty("City") City city,
+                         @JsonProperty("BuildingInfo") String buildingInfo) {
+        super(address, city);
+        this.buildingInfo = buildingInfo;
+    }
+
+    public Optional<String> getBuildingInfo() { return Optional.ofNullable(buildingInfo); }
+
+    // Copy-on-write (no Builder — reuses the inherited builder() via with*)
+    public EventLocation withBuildingInfo(String value) {
+        return new EventLocation(address, city, value);
+    }
 }
 ```
 

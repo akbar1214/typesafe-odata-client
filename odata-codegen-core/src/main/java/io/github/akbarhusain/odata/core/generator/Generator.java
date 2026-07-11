@@ -49,7 +49,7 @@ public class Generator {
         }
 
         for (ComplexTypeModel complexType : schema.complexTypes()) {
-            String code = complexTypeGenerator.generate(complexType, schema.namespace());
+            String code = complexTypeGenerator.generate(complexType, schema);
             writeCode(basePackage + Names.packageNameSuffixComplexType(), complexType.name(), code);
         }
 

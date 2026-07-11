@@ -118,6 +118,11 @@ PlanItem  (base)
 OData Codegen honors `BaseType` by emitting a real Java `extends` clause, so a
 `Flight` *is a* `PlanItem` and inherits its fields, keys, and query constants.
 
+Complex types can also declare a `BaseType` — TripPin has
+`EventLocation` and `AirportLocation` both extending `Location`. These are
+generated with the same `extends` relationship, so a `Location`-typed field can
+hold any of its subtypes.
+
 ### CSDL Metadata (`$metadata`)
 
 Every OData service publishes its schema at `/$metadata`. It is written in
@@ -265,17 +270,17 @@ the core value proposition of OData Codegen.
 
 ## How OData Codegen maps OData → Java
 
-| OData concept            | Generated Java                                      |
-|-------------------------|----------------------------------------------------|
-| Entity Type             | `final class Person implements ODataEntityType`    |
-| Entity Set              | `client.people()` collection request               |
-| Key                     | `client.peopleByUserName(...)` entity request     |
-| Property (constant)     | `Person.FIRST_NAME` (`StringProperty<Person>`)     |
-| `$filter`               | `.filter(Person.FIRST_NAME.equalTo("Scott"))`      |
-| Navigation Property     | `Person.TRIPS` (`NavProperty<Person, Trip>`)       |
-| Nested `$expand`        | `.expand(Person.TRIPS.select(...).top(5))`         |
-| `$select` / `$orderby`  | `.select(...)` / `.orderBy(...)`                   |
-| Errors (4xx/5xx)        | `NotFoundException`, `RateLimitException`, ...     |
+| OData concept          | Generated Java                                  |
+|------------------------|-------------------------------------------------|
+| Entity Type            | `final class Person implements ODataEntityType` |
+| Entity Set             | `client.people()` collection request            |
+| Key                    | `client.peopleByUserName(...)` entity request   |
+| Property (constant)    | `Person.FIRST_NAME` (`StringProperty<Person>`)  |
+| `$filter`              | `.filter(Person.FIRST_NAME.equalTo("Scott"))`   |
+| Navigation Property    | `Person.TRIPS` (`NavProperty<Person, Trip>`)    |
+| Nested `$expand`       | `.expand(Person.TRIPS.select(...).top(5))`      |
+| `$select` / `$orderby` | `.select(...)` / `.orderBy(...)`                |
+| Errors (4xx/5xx)       | `NotFoundException`, `RateLimitException`, ...  |
 
 The generated client depends only on the small `odata-codegen-runtime`
 library; there is no reflection or runtime proxy magic.

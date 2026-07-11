@@ -22,11 +22,12 @@
 - **Generic `FilterExpression<E>`** — cross-entity filters are compile-time errors; base-type predicates type-check against subtypes
 - **`PropertyExpression<T>`** — unifies `$select` and `$orderby` across all property types
 
-**Entity Inheritance:**
+**Inheritance (Entity + Complex Type):**
 
 - Entity types with a `BaseType` emit a real Java `extends` clause (e.g. `Flight → PublicTransportation → PlanItem`)
+- Complex types with a `BaseType` also emit `extends` (e.g. `EventLocation → Location`, `AirportLocation → Location`)
 - `getKey()`, getters, `with*()` methods, and property constants resolve the full base-chain
-- `Builder` generated only for concrete top-level entities
+- `Builder` generated only for concrete top-level types; subtypes use `with*()` for copy-on-write
 
 **Entity Operations:**
 
@@ -73,15 +74,14 @@
 
 **Testing:**
 
-- **236 tests passing**
+- **239 tests passing**
 - Parser: 47 (TripPin + Northwind + OData Demo metadata)
-- Generator: integration (1) + compilation against runtime (1) + composite-key/collection-getter unit (3)
+- Generator: integration (1) + compilation against runtime (1) + composite-key/collection-getter unit (3) + complex-type inheritance unit (3)
 - Runtime: 116 (live TripPin & Northwind integration, query expression, context path, batch, exceptions, transport)
 - Generated client: 68 (TripPin, Northwind, OData Demo — including inheritance hierarchies)
 
 ### Known Limitations
 
-- Complex type inheritance skipped (entity inheritance is supported)
 - Abstract base entity types: generator emits `abstract class` but still generates `with*` methods that instantiate it (latent; no test metadata uses abstract types)
 - Cancellable streaming not yet implemented
 
@@ -89,4 +89,3 @@
 
 - Cancellable streaming support
 - Publish to Maven Central
-- Complex type inheritance

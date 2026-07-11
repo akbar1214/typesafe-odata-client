@@ -6,7 +6,7 @@ A type-safe OData v4 client generator for Java. Parses CSDL XML metadata and gen
 
 - **Type-safe query API** — Expression builders for `$filter`, `$select`, `$orderby`, `$expand` with compile-time validation
 - **Truly immutable entities** — All fields `final`; copy-on-write semantics
-- **Entity inheritance** — Subtypes emit real Java `extends` clauses; base-type query predicates type-check against subtypes (e.g. `Flight` is a `PlanItem`)
+- **Entity & complex-type inheritance** — Subtypes emit real Java `extends` clauses; base-type query predicates type-check against subtypes (e.g. `Flight` is a `PlanItem`, `EventLocation` is a `Location`)
 - **Nested `$expand`** — Type-safe `$expand=Trips($select=...;$filter=...;$top=...)` via `NavQuery`
 - **Pluggable HTTP** — `HttpTransport` interface; built-in JDK and Apache implementations
 - **Pluggable serialization** — `Serializer` interface; Jackson by default

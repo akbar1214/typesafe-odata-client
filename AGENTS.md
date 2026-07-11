@@ -260,6 +260,20 @@ CollectionPage<Person> people = client.people()
 
 **Reason:** OData allows `$expand=Trips($select=...;$filter=...;$top=...;$orderby=...)`. Exposing `NavQuery` lets users nest those options type-safely on the navigation target without string concatenation. `NavQuery.toODataExpand()` renders the full `Trips(...)` clause; `RequestGenerator` appends it to the `$expand` query option.
 
+### 19. Complex-Type Inheritance Generation
+
+**Decision:** Complex types that declare a `BaseType` in CSDL emit a Java `extends` clause, mirroring entity inheritance (decision 15) but adapted for keyless value types.
+
+**Reason:** Real services model value-type hierarchies — TripPin has `EventLocation extends Location` and `AirportLocation extends Location`. Without inheritance, generated subtypes would repeat every base property and lose the `is-a` relationship (so a `Location` field couldn't hold an `EventLocation`).
+
+**Approach:**
+- `ComplexTypeGenerator.findBase()` / `inheritedProperties()` walk the `baseType` chain (own props appended after inherited).
+- The subclass emits `extends BaseX`, `abstract` for `Abstract="true"` types, `protected final` fields for its own properties, and a `super(...)` call passing inherited properties in the Jackson all-args constructor.
+- Own getters only (inherited getters come from the parent); `toString()` covers the full resolved property list via the protected fields.
+- **`with*()` copy-on-write methods are generated for all concrete types** (including subtypes), referencing inherited properties by field name (not getter) so nullable `Optional<T>` getters aren't passed into the raw-typed constructor.
+- **`Builder` is generated only for concrete top-level types (`base == null && !abstractType`).** A static `builder()` in a subtype would clash with the inherited one — Java forbids hiding a static method with an incompatible return type (`EventLocation.Builder` vs `Location.Builder`). Subtypes use `with*()` instead.
+- `ComplexTypeGenerator.generate()` now takes the full `SchemaModel` (was just the namespace) so it can resolve the base type.
+
 ---
 
 ## Architecture
@@ -292,9 +306,10 @@ Run `mvn test` from the repo root. All modules build in one reactor; the runtime
 - **Generator integration tests:** Generate TripPin client, verify file structure and code content (`GeneratorIntegrationTest`, 1 test)
 - **Generator compilation tests:** Generate + compile TripPin client (with the `Event`/`Flight`/`PlanItem` inheritance hierarchy) against runtime JARs (`GeneratorCompilationTest`, 1 test)
 - **Entity generator unit tests:** Composite-key `getKey()`, collection getter emission (`EntityGeneratorCompositeKeyTest` 1, `EntityGeneratorCollectionGetterTest` 2)
-- **Runtime unit + integration tests (116):** `NorthwindIntegrationTest` (20), `ContextPathTest` (6), `JacksonSerializerTest` (2), `EntityOperationsHeaderTest` (1), `MultipartHelperTest` (10), `EntityOperationsFailureTest` (2), `EntityOperationsInterceptorChainTest` (1), `JdkHttpTransportTest` (1), `BatchRequestTest` (6), `TripPinIntegrationTest` (18), `ODataParsingTest` (6), `StringPropertyTest` (21), `NavPropertyExpandTest` (9), `CollectionPropertyTest` (2), `ODataExceptionTest` (7), `EntityOperationsCollectionParseTest` (4)
+- **Complex type generator unit tests:** Complex-type inheritance — `EventLocation extends Location`, `with*` + Builder generation (`ComplexTypeGeneratorInheritanceTest` 3)
+- **Runtime tests:** 116 (live TripPin & Northwind integration, query expression, context path, batch, exceptions, transport)
 - **Generated client tests (68):** `NorthwindGeneratedClientTest` (24), `ODataDemoGeneratedClientTest` (22, exercises `FeaturedProduct extends Product`, `Event`/`PlanItem`), `TripPinGeneratedClientTest` (22, exercises `Flight`/`PublicTransportation`/`PlanItem` hierarchy, type-safe + nested `$expand`)
-- **Total: 236 tests passing**
+- **Total: 239 tests passing**
 - **Future:** Cancellable streaming
 
 ---
@@ -319,7 +334,7 @@ Run `mvn test` from the repo root. All modules build in one reactor; the runtime
 
 9. **OData collection responses need JsonNode parsing.** Records with generic type parameters have type erasure issues with Jackson's `constructParametricType()`. Using `JsonNode` tree traversal + `mapper.convertValue(valueNode, listType)` is simpler and more reliable.
 
-10. **Complex type inheritance is hard to generate correctly.** Subclasses need `super()` calls for inherited properties, constructors must chain properly, and builders can't hide parent methods. **Entity** inheritance is now implemented (see decision 15) — the parser reads `BaseType` and `EntityGenerator` emits `extends`/`super()` chains. **Complex-type** inheritance is still a TODO (MVP gap).
+10. **Complex type inheritance is hard to generate correctly.** Subclasses need `super()` calls for inherited properties, constructors must chain properly, and a static `builder()` in a subtype clashes with the inherited `builder()` (static methods don't allow covariant return types, so `EventLocation.Builder` can't hide `Location.Builder`). **Entity** inheritance is implemented (see decision 15). **Complex-type** inheritance is now implemented too (see decision 19) — same `extends`/`super()` chain, but subtypes use `with*` for copy-on-write and the `Builder` is generated only for top-level concrete types to avoid the static-method clash.
 
 11. **ContextPath keys must be segment-local, not a flat list.** OData key predicates apply to the segment they key into: `People('scott')/Trips`. If keys are stored as a flat list and appended at the end, the URL becomes `People/Trips('scott')` — wrong. Each segment must own its keys. The `addKey()` method must modify the last segment, not a separate list.
 
@@ -416,3 +431,5 @@ Run `mvn test` from the repo root. All modules build in one reactor; the runtime
 52. **Inheritance generation: shared lifecycle fields belong only in the root class.** `contextPath`, `etag`, `unmappedFields`, `changedFields` were redeclared in every generated class, shadowing the parent's `final` copies (which the `super()` call initializes, leaving the subclass's copy uninitialized → "variable ... might not have been initialized"). Fix: declare these four fields only when `base == null`, make them `protected` so subclasses can read them, and guard the constructor assignments (`this.unmappedFields = ...`, `this.changedFields = ...`) with `if (base == null)` since the parent `super()` already sets them.
 
 53. **Abstract base entity types are not yet supported in generation.** The generator emits `public abstract class` for `Abstract="true"` types but still generates `with*` methods that call `new AbstractX(...)` — a compile error. No current test metadata uses abstract entity types, so this is latent. When needed, skip `with*`/constructor generation for abstract types (or generate them to return the type without instantiating). Complex-type inheritance (lesson 10) remains a TODO.
+
+54. **Complex-type inheritance implementation notes.** Mirrors entity inheritance but with two extra traps: (a) `baseSimpleName` must be derived from `complexType.baseType()` (the CSDL base reference), **not** `base.baseType()` — a resolved base type may itself have a `null` `baseType`, which throws `NullPointerException` in `Names.simpleNameFromFullName`. (b) A static `builder()` in a subtype clashes with the inherited `builder()` (no covariant return types for static methods), so the `Builder` is generated only for top-level concrete types and subtypes rely on `with*()`. (c) `with*` and `Builder` are both skipped for `Abstract="true"` complex types so no `new AbstractX(...)` is emitted. Verified by `ComplexTypeGeneratorInheritanceTest` (TripPin `EventLocation extends Location`).

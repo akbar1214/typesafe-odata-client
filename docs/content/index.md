@@ -5,7 +5,7 @@ Immutable entities, compile-time validated queries, pluggable HTTP._
 
 !!! success "Production-Ready Pipeline"
 
-    Parser, code generator, runtime, Maven plugin, and live integration tests against TripPin, Northwind, and OData Demo services — all working. **236 tests passing.**
+    Parser, code generator, runtime, Maven plugin, and live integration tests against TripPin, Northwind, and OData Demo services — all working. **239 tests passing.**
 
 ## Why OData Codegen
 
@@ -77,7 +77,7 @@ odata-codegen/
 
 ## Status
 
-- **236 tests passing** — Parser, generator, runtime, and live integration tests
+- **239 tests passing** — Parser, generator, runtime, and live integration tests
 - **Full pipeline** — CSDL → generated client → HTTP execution
 - **Multiple services tested** — TripPin, Northwind, and OData Demo (incl. inheritance hierarchies)
 - **Maven plugin working** — `odata-codegen:generate` goal in the `generate-sources` phase
