@@ -42,7 +42,8 @@ class ReservedWordsCompilationTest {
     @Test
     void reservedWordPropertyNamesCompile(@TempDir Path tempDir) throws Exception {
         Generator generator = new Generator(tempDir,
-                Map.of("ReservedWords", "com.example.reserved"));
+                Map.of("ReservedWords", "com.example.reserved",
+                       "ReservedWords.Shared", "com.example.reserved.shared"));
         generator.generate(reservedModel);
 
         // Verify field names are sanitized (reserved word + "_")
@@ -55,6 +56,19 @@ class ReservedWordsCompilationTest {
                 "Reserved word 'class' should become 'class_' field. Got:\n" + code);
         assertTrue(code.contains("@com.fasterxml.jackson.annotation.JsonProperty(\"class\")"),
                 "@JsonProperty should preserve the original CSDL name 'class'");
+
+        // Verify Object entity generates as Object_ (not Object, which collides with java.lang.Object)
+        File objectFile = tempDir.resolve("com/example/reserved/entity/Object_.java").toFile();
+        assertTrue(objectFile.exists(),
+                "Entity type 'Object' should produce Object_.java (not Object.java which collides with java.lang.Object)");
+        File objectFileBad = tempDir.resolve("com/example/reserved/entity/Object.java").toFile();
+        assertFalse(objectFileBad.exists(),
+                "Object.java should NOT be generated (collides with java.lang.Object)");
+
+        // Verify cross-namespace import uses the correct package (not Names.toPackageName fallback)
+        String entityCode = Files.readString(entityFile.toPath());
+        assertTrue(entityCode.contains("import com.example.reserved.shared.complex.SharedAddress"),
+                "Cross-namespace import should use schemaPackages mapping. Got:\n" + entityCode);
 
         // Compile to verify
         JavaCompiler compiler = ToolProvider.getSystemJavaCompiler();
@@ -113,7 +127,6 @@ class ReservedWordsCompilationTest {
                 tempDir.resolve("com/example/reserved/entity/Entity.java"));
 
         // Every reserved word should become "<word>_" as a field name
-        // and getters should be "get<Class>" / "with<Class>" (capitalized)
         String[] reservedWords = {
                 "class", "new", "return", "package", "import",
                 "abstract", "interface", "try", "catch", "throw",
@@ -133,6 +146,14 @@ class ReservedWordsCompilationTest {
             assertTrue(code.contains("@com.fasterxml.jackson.annotation.JsonProperty(\"" + word + "\")"),
                     "@JsonProperty for '" + word + "' should use original CSDL name");
         }
+
+        // Verify Object entity class name is sanitized to avoid java.lang.Object collision
+        File objectFile = tempDir.resolve("com/example/reserved/entity/Object_.java").toFile();
+        assertTrue(objectFile.exists(),
+                "Entity type 'Object' should produce Object_.java");
+        String objectCode = Files.readString(objectFile.toPath());
+        assertTrue(objectCode.contains("public final class Object_"),
+                "Class name should be Object_ not Object. Got:\n" + objectCode);
     }
 
     private List<File> findClasspathJars() {

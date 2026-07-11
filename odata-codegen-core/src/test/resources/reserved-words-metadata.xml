@@ -46,10 +46,27 @@
         <Property Name="requires" Type="Edm.String"/>
         <Property Name="exports" Type="Edm.String"/>
         <Property Name="native" Type="Edm.String"/>
+        <!-- Cross-namespace reference to ReservedWords.Shared.SharedAddress -->
+        <Property Name="address" Type="ReservedWords.Shared.SharedAddress"/>
+      </EntityType>
+      <EntityType Name="Object">
+        <Key>
+          <PropertyRef Name="Id"/>
+        </Key>
+        <Property Name="Id" Type="Edm.Int32" Nullable="false"/>
+        <Property Name="label" Type="Edm.String"/>
       </EntityType>
       <EntityContainer Name="Container">
         <EntitySet Name="Entities" EntityType="ReservedWords.Entity"/>
+        <EntitySet Name="Objects" EntityType="ReservedWords.Object"/>
       </EntityContainer>
+    </Schema>
+
+    <!-- Schema B: shared types for cross-namespace import test -->
+    <Schema Namespace="ReservedWords.Shared" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+      <ComplexType Name="SharedAddress">
+        <Property Name="Street" Type="Edm.String"/>
+      </ComplexType>
     </Schema>
   </edmx:DataServices>
 </edmx:Edmx>

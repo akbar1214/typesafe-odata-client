@@ -195,8 +195,20 @@ public final class Names {
             }
         }
         String result = sb.toString();
-        if (isReservedWord(result)) result = result + "_";
+        if (isReservedWord(result) || isJdkClassName(result)) result = result + "_";
         return result;
+    }
+
+    // JDK class names that would shadow java.lang.* if used as generated class names.
+    private static final java.util.Set<String> JDK_CLASS_NAMES = java.util.Set.of(
+            "Object", "String", "System", "Class", "Number", "Enum",
+            "Record", "Void", "Math", "Thread", "Throwable", "Error",
+            "Exception", "Runnable", "Comparable", "Iterable", "Override",
+            "Deprecated", "SuppressWarnings", "SafeVarargs", "FunctionalInterface"
+    );
+
+    private static boolean isJdkClassName(String name) {
+        return JDK_CLASS_NAMES.contains(name);
     }
 
     private static String sanitizeIdentifier(String name) {

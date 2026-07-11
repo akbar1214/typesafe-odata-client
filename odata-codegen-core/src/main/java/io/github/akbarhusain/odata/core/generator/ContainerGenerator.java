@@ -13,14 +13,20 @@ public class ContainerGenerator {
 
     private final String basePackage;
     private final Map<String, String> schemaPackages;
+    private final String defaultBasePackage;
 
     public ContainerGenerator(String basePackage) {
         this(basePackage, Map.of());
     }
 
     public ContainerGenerator(String basePackage, Map<String, String> schemaPackages) {
+        this(basePackage, schemaPackages, null);
+    }
+
+    public ContainerGenerator(String basePackage, Map<String, String> schemaPackages, String defaultBasePackage) {
         this.basePackage = basePackage;
         this.schemaPackages = schemaPackages;
+        this.defaultBasePackage = defaultBasePackage;
     }
 
     public String generate(ContainerModel container, SchemaModel schema) {
@@ -89,6 +95,7 @@ public class ContainerGenerator {
         if (namespace.isEmpty() || namespace.equals(schema.namespace())) {
             return basePackage;
         }
-        return schemaPackages.getOrDefault(namespace, Names.toPackageName(namespace));
+        return schemaPackages.getOrDefault(namespace,
+                defaultBasePackage != null ? defaultBasePackage : Names.toPackageName(namespace));
     }
 }

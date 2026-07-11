@@ -42,27 +42,27 @@ public class Generator {
     private void generateSchema(SchemaModel schema, String basePackage) throws IOException {
         log.info("Generating schema: {} -> {}", schema.namespace(), basePackage);
 
-        EntityGenerator entityGenerator = new EntityGenerator(basePackage, schemaPackages);
+        EntityGenerator entityGenerator = new EntityGenerator(basePackage, schemaPackages, defaultBasePackage);
         EnumGenerator enumGenerator = new EnumGenerator(basePackage);
-        ComplexTypeGenerator complexTypeGenerator = new ComplexTypeGenerator(basePackage, schemaPackages);
-        RequestGenerator requestGenerator = new RequestGenerator(basePackage, schemaPackages);
-        ContainerGenerator containerGenerator = new ContainerGenerator(basePackage, schemaPackages);
+        ComplexTypeGenerator complexTypeGenerator = new ComplexTypeGenerator(basePackage, schemaPackages, defaultBasePackage);
+        RequestGenerator requestGenerator = new RequestGenerator(basePackage, schemaPackages, defaultBasePackage);
+        ContainerGenerator containerGenerator = new ContainerGenerator(basePackage, schemaPackages, defaultBasePackage);
         SchemaInfoGenerator schemaInfoGenerator = new SchemaInfoGenerator(basePackage);
 
         for (EnumTypeModel enumType : schema.enumTypes()) {
             String code = enumGenerator.generate(enumType);
-            writeCode(basePackage + Names.packageNameSuffixEnum(), enumType.name(), code);
+            writeCode(basePackage + Names.packageNameSuffixEnum(), Names.enumClassName(enumType.name()), code);
         }
 
         for (ComplexTypeModel complexType : schema.complexTypes()) {
             String code = complexTypeGenerator.generate(complexType, schema);
-            writeCode(basePackage + Names.packageNameSuffixComplexType(), complexType.name(), code);
+            writeCode(basePackage + Names.packageNameSuffixComplexType(), Names.complexTypeClassName(complexType.name()), code);
         }
 
         List<String> entityNames = new ArrayList<>();
         for (EntityTypeModel entityType : schema.entityTypes()) {
             String entityCode = entityGenerator.generate(entityType, schema);
-            writeCode(basePackage + Names.packageNameSuffixEntity(), entityType.name(), entityCode);
+            writeCode(basePackage + Names.packageNameSuffixEntity(), Names.entityClassName(entityType.name()), entityCode);
 
             String entityRequestCode = requestGenerator.generateEntityRequest(entityType, schema);
             writeCode(basePackage + Names.packageNameSuffixEntityRequest(), Names.entityRequestClassName(entityType.name()), entityRequestCode);
@@ -75,7 +75,7 @@ public class Generator {
 
         for (ContainerModel container : schema.containers()) {
             String code = containerGenerator.generate(container, schema);
-            writeCode(basePackage + Names.packageNameSuffixContainer(), container.name(), code);
+            writeCode(basePackage + Names.packageNameSuffixContainer(), Names.containerClassName(container.name()), code);
         }
 
         String schemaInfoCode = schemaInfoGenerator.generate(schema);
