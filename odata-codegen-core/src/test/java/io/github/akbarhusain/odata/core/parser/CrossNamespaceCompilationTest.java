@@ -143,6 +143,45 @@ class CrossNamespaceCompilationTest {
         assertTrue(success, "Cross-namespace + TypeDefinition + Int64 enum code should compile. Errors:\n" + output);
     }
 
+    @Test
+    void basePackageUsedAsFallbackWhenSchemaPackagesEmpty(@TempDir Path tempDir) throws Exception {
+        // No schemaPackages, but basePackage is set — all schemas should use basePackage
+        Generator generator = new Generator(tempDir, Map.of(), "com.example.fallback");
+        generator.generate(crossNsModel);
+
+        // CrossNs.Main entities should be under com.example.fallback.entity
+        assertTrue(Files.exists(tempDir.resolve("com/example/fallback/entity/Person.java")),
+                "Person should be under com.example.fallback.entity when basePackage is the fallback");
+
+        // CrossNs.Shared types should also be under com.example.fallback (same fallback for all)
+        assertTrue(Files.exists(tempDir.resolve("com/example/fallback/complex/Address.java")),
+                "Address (CrossNs.Shared) should be under com.example.fallback.complex when basePackage is the fallback");
+        assertTrue(Files.exists(tempDir.resolve("com/example/fallback/entity/SharedTag.java")),
+                "SharedTag (CrossNs.Shared) should be under com.example.fallback.entity when basePackage is the fallback");
+    }
+
+    @Test
+    void schemaPackageOverridesBasePackage(@TempDir Path tempDir) throws Exception {
+        // basePackage = com.example.fallback, but explicit mapping for CrossNs.Shared
+        Map<String, String> schemaPackages = Map.of(
+                "CrossNs.Shared", "com.example.shared"
+        );
+        Generator generator = new Generator(tempDir, schemaPackages, "com.example.fallback");
+        generator.generate(crossNsModel);
+
+        // CrossNs.Main (not in map) falls back to basePackage
+        assertTrue(Files.exists(tempDir.resolve("com/example/fallback/entity/Person.java")),
+                "Person (CrossNs.Main) should use basePackage fallback");
+
+        // CrossNs.Shared (in map) uses the explicit mapping
+        assertTrue(Files.exists(tempDir.resolve("com/example/shared/complex/Address.java")),
+                "Address (CrossNs.Shared) should use the explicit schemaPackages mapping");
+        assertTrue(Files.exists(tempDir.resolve("com/example/shared/entity/SharedTag.java")),
+                "SharedTag (CrossNs.Shared) should use the explicit schemaPackages mapping");
+        assertFalse(Files.exists(tempDir.resolve("com/example/fallback/complex/Address.java")),
+                "Address should NOT be under basePackage when schemaPackages has an explicit mapping");
+    }
+
     private List<File> findClasspathJars() {
         String userHome = System.getProperty("user.home");
         Path mavenRepo = Path.of(userHome, ".m2", "repository");

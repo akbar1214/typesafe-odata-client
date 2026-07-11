@@ -19,16 +19,22 @@ public class Generator {
 
     private final Path outputDir;
     private final Map<String, String> schemaPackages = new HashMap<>();
+    private final String defaultBasePackage;
 
     public Generator(Path outputDir, Map<String, String> schemaPackages) {
+        this(outputDir, schemaPackages, null);
+    }
+
+    public Generator(Path outputDir, Map<String, String> schemaPackages, String defaultBasePackage) {
         this.outputDir = outputDir;
         this.schemaPackages.putAll(schemaPackages);
+        this.defaultBasePackage = defaultBasePackage;
     }
 
     public void generate(CsdlModel model) throws IOException {
         for (SchemaModel schema : model.schemas()) {
             String basePackage = schemaPackages.getOrDefault(schema.namespace(),
-                    Names.toPackageName(schema.namespace()));
+                    defaultBasePackage != null ? defaultBasePackage : Names.toPackageName(schema.namespace()));
             generateSchema(schema, basePackage);
         }
     }

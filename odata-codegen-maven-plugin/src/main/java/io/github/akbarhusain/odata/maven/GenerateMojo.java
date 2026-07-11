@@ -57,12 +57,8 @@ public class GenerateMojo extends AbstractMojo {
             Files.createDirectories(outputDir);
 
             Map<String, String> packages = new HashMap<>(schemaPackages);
-            if (basePackage != null && !packages.isEmpty()) {
-                // If basePackage is set but schemaPackages is empty, use basePackage for all schemas
-                // This is handled by the Generator's default behavior
-            }
 
-            Generator generator = new Generator(outputDir, packages);
+            Generator generator = new Generator(outputDir, packages, basePackage);
             generator.generate(model);
 
             // Add generated sources to Maven project
