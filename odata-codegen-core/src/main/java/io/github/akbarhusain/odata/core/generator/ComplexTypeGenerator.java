@@ -455,11 +455,11 @@ public class ComplexTypeGenerator {
     }
 
     private String navGetterName(NavigationPropertyModel nav) {
-        return "get" + Character.toUpperCase(nav.name().charAt(0)) + nav.name().substring(1);
+        return Names.navGetterMethod(nav.name());
     }
 
     private String navWithMethod(NavigationPropertyModel nav) {
-        return "with" + Character.toUpperCase(nav.name().charAt(0)) + nav.name().substring(1);
+        return Names.navWithMethod(nav.name());
     }
 
     private String navFieldInit(NavigationPropertyModel nav) {

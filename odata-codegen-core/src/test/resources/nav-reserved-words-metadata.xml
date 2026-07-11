@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<edmx:Edmx Version="4.0" xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx">
+  <edmx:DataServices>
+    <Schema Namespace="NavTest" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+      <EntityType Name="Source">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.Int32" Nullable="false"/>
+        <Property Name="Name" Type="Edm.String"/>
+        <NavigationProperty Name="class" Type="NavTest.Target" Partner="source"/>
+        <NavigationProperty Name="getClass" Type="NavTest.Target" Partner="source"/>
+      </EntityType>
+      <EntityType Name="Target">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.Int32" Nullable="false"/>
+        <NavigationProperty Name="source" Type="Collection(NavTest.Source)" Partner="class"/>
+      </EntityType>
+      <EntityContainer Name="Container">
+        <EntitySet Name="Sources" EntityType="NavTest.Source"/>
+        <EntitySet Name="Targets" EntityType="NavTest.Target"/>
+      </EntityContainer>
+    </Schema>
+  </edmx:DataServices>
+</edmx:Edmx>

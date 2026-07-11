@@ -107,6 +107,16 @@ public final class Names {
         return "with" + capitalize(sanitizeIdentifier(prop.name()));
     }
 
+    public static String navGetterMethod(String navName) {
+        String name = "get" + capitalize(sanitizeIdentifier(navName));
+        if (isObjectMethodName(name)) name = name + "_";
+        return name;
+    }
+
+    public static String navWithMethod(String navName) {
+        return "with" + capitalize(sanitizeIdentifier(navName));
+    }
+
     public static String builderMethodName(String entityName) {
         return "builder" + capitalize(entityName);
     }

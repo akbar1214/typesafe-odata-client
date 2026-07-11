@@ -60,10 +60,10 @@ public class EntityGenerator {
         List<PropertyModel> allProps = new ArrayList<>(inheritedProps);
         allProps.addAll(ownProps);
 
-        List<NavigationPropertyModel> allNavs = new ArrayList<>(inheritedNavProperties(entityType, schema));
+        List<NavigationPropertyModel> inheritedNavs = inheritedNavProperties(entityType, schema);
+        List<NavigationPropertyModel> allNavs = new ArrayList<>(inheritedNavs);
         allNavs.addAll(entityType.navigationProperties());
         List<NavigationPropertyModel> ownNavs = entityType.navigationProperties();
-        List<NavigationPropertyModel> inheritedNavs = inheritedNavProperties(entityType, schema);
 
         List<KeyModel> keys = resolvedKeys(entityType, schema);
 
@@ -87,9 +87,6 @@ public class EntityGenerator {
         imports.add("io.github.akbarhusain.odata.runtime.entity.EntityUtil");
         imports.add("io.github.akbarhusain.odata.runtime.serialization.DynamicPropertyConverter");
         imports.add("io.github.akbarhusain.odata.runtime.query.*");
-        if (openType && firstOpen) {
-            imports.add("com.fasterxml.jackson.annotation.JsonAnySetter");
-        }
 
         for (NavigationPropertyModel nav : allNavs) {
             String elementType = Names.unwrapCollectionType(nav.type());
@@ -139,11 +136,15 @@ public class EntityGenerator {
         }
         if (!entityType.navigationProperties().isEmpty()) sb.append("\n");
 
-        // JVM limit is 255 method parameters. @JsonCreator constructor needs:
-        // this + etag + allProps + allNavs = N+M+2
-        boolean wide = (allProps.size() + allNavs.size()) > 252;
-
-        // Fields — @JsonProperty on each field for wide entities, or used via @JsonCreator constructor
+        // JVM limit is 255 method parameters (long/double count as 2). The @JsonCreator
+        // constructor needs: this(implicit) + etag + allProps + allNavs. Each Edm.Int64 or
+        // Edm.Double or Edm.Decimal property counts as 2 JVM slots.
+        int paramCount = allProps.size() + allNavs.size();
+        for (PropertyModel p : allProps) {
+            String t = resolveTypeDefinition(p.edmType(), schema);
+            if ("Edm.Int64".equals(t) || "Edm.Double".equals(t)) paramCount++;
+        }
+        boolean wide = paramCount > 252;
         for (PropertyModel prop : ownProps) {
             String javaType = resolvePropertyJavaType(prop, schema, true);
             if (wide) {
@@ -176,9 +177,7 @@ public class EntityGenerator {
             // Wide entity: @JsonAnySetter with switch (no @JsonCreator constructor)
             sb.append("    ").append(entityType.abstractType() ? "protected" : "public").append(" ").append(className).append("() {\n");
             if (base == null) {
-                sb.append("        this.unmappedFields = ")
-                  .append(rootMutableMap ? "new java.util.HashMap<>()" : "java.util.Map.of()")
-                  .append(";\n");
+                sb.append("        this.unmappedFields = new java.util.HashMap<>();\n");
                 sb.append("        this.changedFields = new java.util.HashSet<>();\n");
             }
             sb.append("    }\n\n");
@@ -261,7 +260,7 @@ public class EntityGenerator {
                     sb.append("        this.unmappedFields = ")
                       .append(rootMutableMap ? "new java.util.HashMap<>()" : "java.util.Map.of()")
                       .append(";\n");
-                    sb.append("        this.changedFields = Set.of();\n");
+                    sb.append("        this.changedFields = new java.util.HashSet<>();\n");
                 }
                 sb.append("    }\n\n");
 
@@ -311,7 +310,7 @@ public class EntityGenerator {
                     sb.append("        this.unmappedFields = ")
                       .append(rootMutableMap ? "new java.util.HashMap<>()" : "java.util.Map.of()")
                       .append(";\n");
-                    sb.append("        this.changedFields = Set.of();\n");
+                    sb.append("        this.changedFields = new java.util.HashSet<>();\n");
                 }
                 sb.append("    }\n\n");
 
@@ -635,11 +634,11 @@ public class EntityGenerator {
     }
 
     private String navGetterName(NavigationPropertyModel nav) {
-        return "get" + Character.toUpperCase(nav.name().charAt(0)) + nav.name().substring(1);
+        return Names.navGetterMethod(nav.name());
     }
 
     private String navWithMethod(NavigationPropertyModel nav) {
-        return "with" + Character.toUpperCase(nav.name().charAt(0)) + nav.name().substring(1);
+        return Names.navWithMethod(nav.name());
     }
 
     private String navFieldInit(NavigationPropertyModel nav) {
@@ -677,19 +676,25 @@ public class EntityGenerator {
         sb.append("        e.etag = etag;\n");
         for (PropertyModel p : allProps) {
             String pfn = Names.toJavaFieldName(p.name());
-            sb.append("        e.").append(pfn).append(" = this.").append(pfn).append(";\n");
+            if (Names.isCollectionType(p.edmType())) {
+                sb.append("        e.").append(pfn).append(" = this.").append(pfn)
+                  .append(" == null ? null : List.copyOf(this.").append(pfn).append(");\n");
+            } else {
+                sb.append("        e.").append(pfn).append(" = this.").append(pfn).append(";\n");
+            }
         }
         for (NavigationPropertyModel n : allNavs) {
             String nfn = Names.toJavaFieldName(n.name());
-            sb.append("        e.").append(nfn).append(" = ");
             if (n.name().equals(nav.name())) {
-                sb.append("value");
+                sb.append("        e.").append(nfn).append(" = value;\n");
+            } else if (Names.isCollectionType(n.type())) {
+                sb.append("        e.").append(nfn).append(" = this.").append(nfn)
+                  .append(" == null ? null : List.copyOf(this.").append(nfn).append(");\n");
             } else {
-                sb.append("this.").append(nfn);
+                sb.append("        e.").append(nfn).append(" = this.").append(nfn).append(";\n");
             }
-            sb.append(";\n");
         }
-        sb.append("        e.unmappedFields = unmappedFields;\n");
+        sb.append("        e.unmappedFields = unmappedFields == null ? null : new java.util.HashMap<>(unmappedFields);\n");
         sb.append("        e.changedFields = EntityUtil.mergeChanged(changedFields, \"").append(nav.name()).append("\");\n");
         sb.append("        return e;\n");
         sb.append("    }\n\n");
@@ -783,19 +788,25 @@ public class EntityGenerator {
         sb.append("        e.etag = etag;\n");
         for (PropertyModel p : allProps) {
             String pfn = Names.toJavaFieldName(p.name());
-            sb.append("        e.").append(pfn).append(" = ");
             if (p.name().equals(prop.name())) {
-                sb.append("value");
+                sb.append("        e.").append(pfn).append(" = value;\n");
+            } else if (Names.isCollectionType(p.edmType())) {
+                sb.append("        e.").append(pfn).append(" = this.").append(pfn)
+                  .append(" == null ? null : List.copyOf(this.").append(pfn).append(");\n");
             } else {
-                sb.append("this.").append(pfn);
+                sb.append("        e.").append(pfn).append(" = this.").append(pfn).append(";\n");
             }
-            sb.append(";\n");
         }
         for (NavigationPropertyModel nav : allNavs) {
             String nfn = Names.toJavaFieldName(nav.name());
-            sb.append("        e.").append(nfn).append(" = this.").append(nfn).append(";\n");
+            if (Names.isCollectionType(nav.type())) {
+                sb.append("        e.").append(nfn).append(" = this.").append(nfn)
+                  .append(" == null ? null : List.copyOf(this.").append(nfn).append(");\n");
+            } else {
+                sb.append("        e.").append(nfn).append(" = this.").append(nfn).append(";\n");
+            }
         }
-        sb.append("        e.unmappedFields = unmappedFields;\n");
+        sb.append("        e.unmappedFields = unmappedFields == null ? null : new java.util.HashMap<>(unmappedFields);\n");
         sb.append("        e.changedFields = EntityUtil.mergeChanged(changedFields, \"").append(prop.name()).append("\");\n");
         sb.append("        return e;\n");
         sb.append("    }\n\n");
