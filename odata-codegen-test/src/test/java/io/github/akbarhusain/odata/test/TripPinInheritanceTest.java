@@ -52,9 +52,9 @@ class TripPinInheritanceTest {
         EventLocation event = new EventLocation("100 Main St", city, "Building A");
         AirportLocation airport = new AirportLocation("Airport Rd", city, null);
 
-        assertTrue(event instanceof Location, "EventLocation should be a Location");
-        assertTrue(airport instanceof Location, "AirportLocation should be a Location");
-        assertTrue(event instanceof ODataType, "EventLocation should implement ODataType");
+        assertInstanceOf(Location.class, event, "EventLocation should be a Location");
+        assertInstanceOf(Location.class, airport, "AirportLocation should be a Location");
+        assertInstanceOf(ODataType.class, event, "EventLocation should implement ODataType");
     }
 
     @Test
@@ -69,7 +69,7 @@ class TripPinInheritanceTest {
         assertEquals("Lander", loc.getCity().getName());
 
         // Own property is reachable after a downcast
-        assertTrue(loc instanceof EventLocation);
+        assertInstanceOf(EventLocation.class, loc);
         assertEquals("Building A", ((EventLocation) loc).getBuildingInfo().orElse(null));
     }
 
@@ -111,7 +111,7 @@ class TripPinInheritanceTest {
         assertNotNull(location, "Airport should have a Location");
 
         // AirportLocation is-a Location, so inherited properties are populated
-        assertTrue(location instanceof Location);
+        assertInstanceOf(Location.class, location);
         assertNotNull(location.getAddress(), "inherited Address should deserialize");
         assertNotNull(location.getCity(), "inherited City should deserialize");
         assertNotNull(location.getCity().getName(), "nested City.Name should deserialize");
@@ -124,16 +124,16 @@ class TripPinInheritanceTest {
         Flight flight = new Flight(
                 null, 1, "ABC123", null, null, null, "12A", "AA100");
 
-        assertTrue(flight instanceof PublicTransportation, "Flight is a PublicTransportation");
-        assertTrue(flight instanceof PlanItem, "Flight is a PlanItem");
-        assertTrue(flight instanceof ODataEntityType, "Flight is an ODataEntityType");
+        assertInstanceOf(PublicTransportation.class, flight, "Flight is a PublicTransportation");
+        assertInstanceOf(PlanItem.class, flight, "Flight is a PlanItem");
+        assertInstanceOf(ODataEntityType.class, flight, "Flight is an ODataEntityType");
     }
 
     @Test
     void entity_eventIsPlanItem() {
         Event event = new Event(null, 2, "EVT1", null, null, null, "Conference", null);
-        assertTrue(event instanceof PlanItem, "Event is a PlanItem");
-        assertTrue(event instanceof ODataEntityType);
+        assertInstanceOf(PlanItem.class, event, "Event is a PlanItem");
+        assertInstanceOf(ODataEntityType.class, event);
     }
 
     @Test
@@ -190,8 +190,8 @@ class TripPinInheritanceTest {
         items.add(flight);
         items.add(event);
         assertEquals(2, items.size());
-        assertTrue(items.get(0) instanceof Flight);
-        assertTrue(items.get(1) instanceof Event);
+        assertInstanceOf(Flight.class, items.get(0));
+        assertInstanceOf(Event.class, items.get(1));
         // All are addressable through the shared base getter
         assertEquals(10, items.get(0).getPlanItemId());
         assertEquals(11, items.get(1).getPlanItemId());

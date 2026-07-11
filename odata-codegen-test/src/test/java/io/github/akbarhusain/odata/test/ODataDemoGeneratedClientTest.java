@@ -235,7 +235,6 @@ class ODataDemoGeneratedClientTest {
         assertNotNull(page);
         assertFalse(page.currentPage().isEmpty());
         Person p = page.currentPage().get(0);
-        assertNotNull(p.getID());
         assertNotNull(p.getName().orElse(null));
     }
 
