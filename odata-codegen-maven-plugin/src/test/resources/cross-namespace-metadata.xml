@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<edmx:Edmx Version="4.0" xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx">
+  <edmx:DataServices>
+    <!-- Schema A: main schema with cross-namespace references -->
+    <Schema Namespace="CrossNs.Main" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+      <!-- P0-5: Int64 enum with values exceeding Integer.MAX_VALUE -->
+      <EnumType Name="BigFlags" UnderlyingType="Edm.Int64">
+        <Member Name="Small" Value="1"/>
+        <Member Name="Huge" Value="1099511627776"/>
+      </EnumType>
+
+      <!-- P0-4: TypeDefinition that resolves to Edm.String -->
+      <TypeDefinition Name="Email" UnderlyingType="Edm.String"/>
+
+      <EntityType Name="Person">
+        <Key>
+          <PropertyRef Name="Id"/>
+        </Key>
+        <Property Name="Id" Type="Edm.Int32" Nullable="false"/>
+        <Property Name="Name" Type="Edm.String"/>
+      <!-- P0-3: cross-namespace reference to Shared.Address -->
+      <Property Name="Home" Type="CrossNs.Shared.Address"/>
+      <!-- P0-3: cross-namespace navigation property to Shared.SharedTag -->
+      <NavigationProperty Name="Tag" Type="CrossNs.Shared.SharedTag"/>
+      <!-- P0-4: reference to TypeDefinition -->
+      <Property Name="ContactEmail" Type="CrossNs.Main.Email"/>
+      <!-- P0-5: Int64 enum property -->
+      <Property Name="Flags" Type="CrossNs.Main.BigFlags"/>
+    </EntityType>
+
+    <EntityContainer Name="Container">
+      <EntitySet Name="People" EntityType="CrossNs.Main.Person"/>
+      <EntitySet Name="SharedTags" EntityType="CrossNs.Shared.SharedTag"/>
+    </EntityContainer>
+  </Schema>
+
+  <!-- Schema B: shared types (different namespace → different package) -->
+  <Schema Namespace="CrossNs.Shared" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+    <ComplexType Name="Address">
+      <Property Name="Street" Type="Edm.String"/>
+      <Property Name="City" Type="Edm.String"/>
+    </ComplexType>
+
+    <EntityType Name="SharedTag">
+      <Key>
+        <PropertyRef Name="Code"/>
+      </Key>
+      <Property Name="Code" Type="Edm.String" Nullable="false"/>
+    </EntityType>
+  </Schema>
+  </edmx:DataServices>
+</edmx:Edmx>

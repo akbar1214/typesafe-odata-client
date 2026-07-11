@@ -21,7 +21,9 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 @Mojo(name = "generate", defaultPhase = LifecyclePhase.GENERATE_SOURCES)
@@ -40,7 +42,7 @@ public class GenerateMojo extends AbstractMojo {
     private String basePackage;
 
     @Parameter
-    private Map<String, String> schemaPackages = new HashMap<>();
+    private List<SchemaMapping> schemaPackages = new ArrayList<>();
 
     @Parameter(defaultValue = "${project}", readonly = true, required = true)
     private MavenProject project;
@@ -56,7 +58,10 @@ public class GenerateMojo extends AbstractMojo {
             Path outputDir = outputDirectory.toPath();
             Files.createDirectories(outputDir);
 
-            Map<String, String> packages = new HashMap<>(schemaPackages);
+            Map<String, String> packages = new HashMap<>();
+            for (SchemaMapping mapping : schemaPackages) {
+                packages.put(mapping.getNamespace(), mapping.getPackageName());
+            }
 
             Generator generator = new Generator(outputDir, packages, basePackage);
             generator.generate(model);
