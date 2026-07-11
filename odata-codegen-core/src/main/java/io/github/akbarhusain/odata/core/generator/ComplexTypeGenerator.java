@@ -18,15 +18,22 @@ public class ComplexTypeGenerator {
     private final String basePackage;
     private final Map<String, String> schemaPackages;
     private final String defaultBasePackage;
+    private final List<SchemaModel> allSchemas;
+    private List<SchemaModel> effectiveSchemas;
 
     public ComplexTypeGenerator(String basePackage, Map<String, String> schemaPackages) {
-        this(basePackage, schemaPackages, null);
+        this(basePackage, schemaPackages, null, List.of());
     }
 
     public ComplexTypeGenerator(String basePackage, Map<String, String> schemaPackages, String defaultBasePackage) {
+        this(basePackage, schemaPackages, defaultBasePackage, List.of());
+    }
+
+    public ComplexTypeGenerator(String basePackage, Map<String, String> schemaPackages, String defaultBasePackage, List<SchemaModel> allSchemas) {
         this.basePackage = basePackage;
         this.schemaPackages = schemaPackages;
         this.defaultBasePackage = defaultBasePackage;
+        this.allSchemas = allSchemas;
     }
 
     public ComplexTypeGenerator(String basePackage) {
@@ -34,6 +41,7 @@ public class ComplexTypeGenerator {
     }
 
     public String generate(ComplexTypeModel complexType, SchemaModel schema) {
+        effectiveSchemas = allSchemas.isEmpty() ? List.of(schema) : allSchemas;
         String pkg = basePackage + Names.packageNameSuffixComplexType();
         String className = Names.complexTypeClassName(complexType.name());
         ComplexTypeModel base = findBase(complexType, schema);
@@ -439,7 +447,7 @@ public class ComplexTypeGenerator {
 
     private String navJavaType(NavigationPropertyModel nav, SchemaModel schema) {
         String unwrapped = Names.unwrapCollectionType(nav.type());
-        String elementClassName = Names.simpleNameFromFullName(unwrapped);
+        String elementClassName = Names.resolvedClassName(unwrapped, effectiveSchemas);
         if (Names.isCollectionType(nav.type())) {
             return "List<" + elementClassName + ">";
         }
@@ -507,19 +515,8 @@ public class ComplexTypeGenerator {
 
     private void addNavImports(NavigationPropertyModel nav, Set<String> imports, SchemaModel schema) {
         String edmType = Names.unwrapCollectionType(nav.type());
-        String edmSimpleName = Names.simpleNameFromFullName(edmType);
-        String className;
-        String suffix;
-        if (schema.entityTypes().stream().anyMatch(e -> e.name().equals(edmSimpleName))) {
-            suffix = Names.packageNameSuffixEntity();
-            className = Names.entityClassName(edmSimpleName);
-        } else if (schema.complexTypes().stream().anyMatch(c -> c.name().equals(edmSimpleName))) {
-            suffix = Names.packageNameSuffixComplexType();
-            className = Names.complexTypeClassName(edmSimpleName);
-        } else {
-            suffix = Names.packageNameSuffixEntity();
-            className = Names.entityClassName(edmSimpleName);
-        }
+        String suffix = Names.resolvedSuffix(edmType, effectiveSchemas);
+        String className = Names.resolvedClassName(edmType, effectiveSchemas);
         imports.add(basePackageForType(edmType, schema) + suffix + "." + className);
     }
 
@@ -573,7 +570,7 @@ public class ComplexTypeGenerator {
         if (Names.isPrimitiveType(resolved)) {
             return Names.edmTypeToSimpleJavaType(resolved);
         }
-        return Names.complexTypeClassName(Names.simpleNameFromFullName(resolved));
+        return Names.resolvedClassName(resolved, effectiveSchemas);
     }
 
     private void addPropertyImports(PropertyModel prop, Set<String> imports, SchemaModel schema) {
@@ -584,28 +581,21 @@ public class ComplexTypeGenerator {
             if (Names.isPrimitiveType(resolvedElement)) {
                 String javaType = Names.edmTypeToSimpleJavaType(resolvedElement);
                 if (javaType.startsWith("java.")) imports.add(javaType);
-            } else if (isEnumType(resolvedElement, schema)) {
-                String pkg = basePackageForType(resolvedElement, schema);
-                imports.add(pkg + Names.packageNameSuffixEnum() + "." + Names.enumClassName(Names.simpleNameFromFullName(resolvedElement)));
             } else {
                 String pkg = basePackageForType(resolvedElement, schema);
-                imports.add(pkg + Names.packageNameSuffixComplexType() + "." + Names.complexTypeClassName(Names.simpleNameFromFullName(resolvedElement)));
+                imports.add(pkg + Names.resolvedSuffix(resolvedElement, effectiveSchemas) + "." + Names.resolvedClassName(resolvedElement, effectiveSchemas));
             }
         } else if (Names.isPrimitiveType(edmType)) {
             String javaType = Names.edmTypeToSimpleJavaType(edmType);
             if (javaType.startsWith("java.")) imports.add(javaType);
-        } else if (isEnumType(edmType, schema)) {
-            String pkg = basePackageForType(edmType, schema);
-            imports.add(pkg + Names.packageNameSuffixEnum() + "." + Names.enumClassName(Names.simpleNameFromFullName(edmType)));
         } else {
             String pkg = basePackageForType(edmType, schema);
-            imports.add(pkg + Names.packageNameSuffixComplexType() + "." + Names.complexTypeClassName(Names.simpleNameFromFullName(edmType)));
+            imports.add(pkg + Names.resolvedSuffix(edmType, effectiveSchemas) + "." + Names.resolvedClassName(edmType, effectiveSchemas));
         }
     }
 
     private boolean isEnumType(String edmType, SchemaModel schema) {
-        String simpleName = Names.simpleNameFromFullName(edmType);
-        return schema.enumTypes().stream().anyMatch(e -> e.name().equals(simpleName));
+        return Names.resolveTypeKind(edmType, effectiveSchemas) == Names.TypeKind.ENUM;
     }
 
     // P0-4: Resolve TypeDefinition to its underlying Edm type (recursively)

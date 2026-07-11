@@ -6,6 +6,7 @@ import io.github.akbarhusain.odata.core.model.CsdlModel.NavigationPropertyModel;
 import io.github.akbarhusain.odata.core.model.CsdlModel.PropertyModel;
 import io.github.akbarhusain.odata.core.model.CsdlModel.SchemaModel;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
@@ -15,22 +16,30 @@ public class RequestGenerator {
     private final String basePackage;
     private final Map<String, String> schemaPackages;
     private final String defaultBasePackage;
+    private final List<SchemaModel> allSchemas;
+    private List<SchemaModel> effectiveSchemas;
 
     public RequestGenerator(String basePackage) {
         this(basePackage, Map.of());
     }
 
     public RequestGenerator(String basePackage, Map<String, String> schemaPackages) {
-        this(basePackage, schemaPackages, null);
+        this(basePackage, schemaPackages, null, List.of());
     }
 
     public RequestGenerator(String basePackage, Map<String, String> schemaPackages, String defaultBasePackage) {
+        this(basePackage, schemaPackages, defaultBasePackage, List.of());
+    }
+
+    public RequestGenerator(String basePackage, Map<String, String> schemaPackages, String defaultBasePackage, List<SchemaModel> allSchemas) {
         this.basePackage = basePackage;
         this.schemaPackages = schemaPackages;
         this.defaultBasePackage = defaultBasePackage;
+        this.allSchemas = allSchemas;
     }
 
     public String generateEntityRequest(EntityTypeModel entityType, SchemaModel schema) {
+        effectiveSchemas = allSchemas.isEmpty() ? List.of(schema) : allSchemas;
         String pkg = basePackage + Names.packageNameSuffixEntityRequest();
         String className = Names.entityRequestClassName(entityType.name());
         String entityClassName = Names.entityClassName(entityType.name());
@@ -180,6 +189,7 @@ public class RequestGenerator {
     }
 
     public String generateCollectionRequest(EntityTypeModel entityType, SchemaModel schema) {
+        effectiveSchemas = allSchemas.isEmpty() ? List.of(schema) : allSchemas;
         String pkg = basePackage + Names.packageNameSuffixCollectionRequest();
         String className = Names.collectionRequestClassName(entityType.name());
         String entityClassName = Names.entityClassName(entityType.name());
@@ -490,7 +500,6 @@ public class RequestGenerator {
     }
 
     private boolean isComplexTypeNav(NavigationPropertyModel nav, SchemaModel schema) {
-        String edmSimpleName = Names.simpleNameFromFullName(Names.unwrapCollectionType(nav.type()));
-        return schema.complexTypes().stream().anyMatch(c -> c.name().equals(edmSimpleName));
+        return Names.resolveTypeKind(nav.type(), allSchemas) == Names.TypeKind.COMPLEX;
     }
 }

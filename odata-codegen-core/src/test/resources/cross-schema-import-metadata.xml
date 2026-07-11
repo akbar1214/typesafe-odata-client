@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<edmx:Edmx Version="4.0" xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx">
+  <edmx:DataServices>
+    <Schema Namespace="Shared" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+      <ComplexType Name="Address">
+        <Property Name="Street" Type="Edm.String"/>
+        <Property Name="City" Type="Edm.String"/>
+      </ComplexType>
+      <ComplexType Name="ContactInfo">
+        <Property Name="Email" Type="Edm.String"/>
+        <Property Name="Phone" Type="Edm.String"/>
+        <Property Name="Address" Type="Shared.Address"/>
+      </ComplexType>
+    </Schema>
+
+    <Schema Namespace="CompanyNS" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+      <EntityType Name="Company">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.Int32" Nullable="false"/>
+        <Property Name="HQ" Type="Shared.ContactInfo"/>
+        <NavigationProperty Name="MainOffice" Type="Shared.Address"/>
+      </EntityType>
+      <EntityContainer Name="CompanyContainer">
+        <EntitySet Name="Companies" EntityType="CompanyNS.Company"/>
+      </EntityContainer>
+    </Schema>
+
+    <Schema Namespace="PersonNS" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+      <EntityType Name="Person">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.Int32" Nullable="false"/>
+        <Property Name="Home" Type="Shared.Address"/>
+        <Property Name="Contact" Type="Shared.ContactInfo"/>
+        <NavigationProperty Name="Mailing" Type="Shared.Address"/>
+      </EntityType>
+      <EntityContainer Name="PersonContainer">
+        <EntitySet Name="People" EntityType="PersonNS.Person"/>
+      </EntityContainer>
+    </Schema>
+  </edmx:DataServices>
+</edmx:Edmx>

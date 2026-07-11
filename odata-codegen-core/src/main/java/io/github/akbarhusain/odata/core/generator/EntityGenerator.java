@@ -18,15 +18,22 @@ public class EntityGenerator {
     private final String basePackage;
     private final Map<String, String> schemaPackages;
     private final String defaultBasePackage;
+    private final List<SchemaModel> allSchemas;
+    private List<SchemaModel> effectiveSchemas;
 
     public EntityGenerator(String basePackage, Map<String, String> schemaPackages) {
-        this(basePackage, schemaPackages, null);
+        this(basePackage, schemaPackages, null, List.of());
     }
 
     public EntityGenerator(String basePackage, Map<String, String> schemaPackages, String defaultBasePackage) {
+        this(basePackage, schemaPackages, defaultBasePackage, List.of());
+    }
+
+    public EntityGenerator(String basePackage, Map<String, String> schemaPackages, String defaultBasePackage, List<SchemaModel> allSchemas) {
         this.basePackage = basePackage;
         this.schemaPackages = schemaPackages;
         this.defaultBasePackage = defaultBasePackage;
+        this.allSchemas = allSchemas;
     }
 
     public EntityGenerator(String basePackage) {
@@ -34,6 +41,7 @@ public class EntityGenerator {
     }
 
     public String generate(EntityTypeModel entityType, SchemaModel schema) {
+        effectiveSchemas = allSchemas.isEmpty() ? List.of(schema) : allSchemas;
         String pkg = basePackage + Names.packageNameSuffixEntity();
         String className = Names.entityClassName(entityType.name());
         EntityTypeModel base = findBase(entityType, schema);
@@ -90,18 +98,9 @@ public class EntityGenerator {
             String elementType = Names.unwrapCollectionType(nav.type());
             String edmSimpleName = Names.simpleNameFromFullName(elementType);
             if (!isBuiltinType(edmSimpleName)) {
-                String navTargetClass;
-                String suffix;
-                if (schema.complexTypes().stream().anyMatch(c -> c.name().equals(edmSimpleName))) {
-                    suffix = Names.packageNameSuffixComplexType();
-                    navTargetClass = Names.complexTypeClassName(edmSimpleName);
-                } else if (schema.entityTypes().stream().anyMatch(e -> e.name().equals(edmSimpleName))) {
-                    suffix = Names.packageNameSuffixEntity();
-                    navTargetClass = Names.entityClassName(edmSimpleName);
-                } else {
-                    suffix = Names.packageNameSuffixEntity();
-                    navTargetClass = Names.entityClassName(edmSimpleName);
-                }
+                Names.TypeKind kind = Names.resolveTypeKind(elementType, effectiveSchemas);
+                String suffix = Names.resolvedSuffix(elementType, effectiveSchemas);
+                String navTargetClass = Names.resolvedClassName(elementType, effectiveSchemas);
                 imports.add(basePackageForType(elementType, schema) + suffix + "." + navTargetClass);
             }
         }
@@ -481,15 +480,7 @@ public class EntityGenerator {
     private String generateNavPropertyConstant(NavigationPropertyModel nav, String className, SchemaModel schema) {
         boolean isCollection = Names.isCollectionType(nav.type());
         String unwrapped = Names.unwrapCollectionType(nav.type());
-        String edmSimpleName = Names.simpleNameFromFullName(unwrapped);
-        String elementClassName;
-        if (schema.complexTypes().stream().anyMatch(c -> c.name().equals(edmSimpleName))) {
-            elementClassName = Names.complexTypeClassName(edmSimpleName);
-        } else if (schema.entityTypes().stream().anyMatch(e -> e.name().equals(edmSimpleName))) {
-            elementClassName = Names.entityClassName(edmSimpleName);
-        } else {
-            elementClassName = Names.entityClassName(edmSimpleName);
-        }
+        String elementClassName = Names.resolvedClassName(unwrapped, effectiveSchemas);
         String constantName = Names.toConstantName(nav.name());
 
         if (isCollection) {
@@ -538,15 +529,7 @@ public class EntityGenerator {
 
     private String navJavaType(NavigationPropertyModel nav, SchemaModel schema) {
         String unwrapped = Names.unwrapCollectionType(nav.type());
-        String edmSimpleName = Names.simpleNameFromFullName(unwrapped);
-        String elementClassName;
-        if (schema.complexTypes().stream().anyMatch(c -> c.name().equals(edmSimpleName))) {
-            elementClassName = Names.complexTypeClassName(edmSimpleName);
-        } else if (schema.entityTypes().stream().anyMatch(e -> e.name().equals(edmSimpleName))) {
-            elementClassName = Names.entityClassName(edmSimpleName);
-        } else {
-            elementClassName = Names.entityClassName(edmSimpleName);
-        }
+        String elementClassName = Names.resolvedClassName(unwrapped, effectiveSchemas);
         if (Names.isCollectionType(nav.type())) {
             return "List<" + elementClassName + ">";
         }
@@ -729,10 +712,7 @@ public class EntityGenerator {
                 default -> javaType;
             };
         }
-        if (isEnumType(resolved, schema)) {
-            return Names.enumClassName(Names.simpleNameFromFullName(resolved));
-        }
-        return Names.complexTypeClassName(Names.simpleNameFromFullName(resolved));
+        return Names.resolvedClassName(resolved, effectiveSchemas);
     }
 
     private String resolveClassNameForConstant(String edmType, SchemaModel schema) {
@@ -740,13 +720,7 @@ public class EntityGenerator {
         if (Names.isPrimitiveType(resolved)) {
             return Names.edmTypeToSimpleJavaType(resolved);
         }
-        if (isEnumType(resolved, schema)) {
-            return Names.enumClassName(Names.simpleNameFromFullName(resolved));
-        }
-        if (schema.complexTypes().stream().anyMatch(c -> c.name().equals(Names.simpleNameFromFullName(resolved)))) {
-            return Names.complexTypeClassName(Names.simpleNameFromFullName(resolved));
-        }
-        return Names.entityClassName(Names.simpleNameFromFullName(resolved));
+        return Names.resolvedClassName(resolved, effectiveSchemas);
     }
 
     private String getNumberJavaType(String edmType) {
@@ -764,8 +738,7 @@ public class EntityGenerator {
     }
 
     private boolean isEnumType(String edmType, SchemaModel schema) {
-        String simpleName = Names.simpleNameFromFullName(edmType);
-        return schema.enumTypes().stream().anyMatch(e -> e.name().equals(simpleName));
+        return Names.resolveTypeKind(edmType, effectiveSchemas) == Names.TypeKind.ENUM;
     }
 
     // P0-4: Resolve TypeDefinition to its underlying Edm type (recursively)
@@ -806,22 +779,16 @@ public class EntityGenerator {
             if (Names.isPrimitiveType(resolvedElement)) {
                 String javaType = Names.edmTypeToSimpleJavaType(resolvedElement);
                 if (javaType.startsWith("java.")) imports.add(javaType);
-            } else if (isEnumType(resolvedElement, schema)) {
-                String pkg = basePackageForType(resolvedElement, schema);
-                imports.add(pkg + Names.packageNameSuffixEnum() + "." + Names.simpleNameFromFullName(resolvedElement));
             } else {
                 String pkg = basePackageForType(resolvedElement, schema);
-                imports.add(pkg + Names.packageNameSuffixComplexType() + "." + Names.complexTypeClassName(Names.simpleNameFromFullName(resolvedElement)));
+                imports.add(pkg + Names.resolvedSuffix(resolvedElement, effectiveSchemas) + "." + Names.resolvedClassName(resolvedElement, effectiveSchemas));
             }
         } else if (Names.isPrimitiveType(edmType)) {
             String javaType = Names.edmTypeToSimpleJavaType(edmType);
             if (javaType.startsWith("java.")) imports.add(javaType);
-        } else if (isEnumType(edmType, schema)) {
-            String pkg = basePackageForType(edmType, schema);
-            imports.add(pkg + Names.packageNameSuffixEnum() + "." + Names.enumClassName(Names.simpleNameFromFullName(edmType)));
         } else {
             String pkg = basePackageForType(edmType, schema);
-            imports.add(pkg + Names.packageNameSuffixComplexType() + "." + Names.complexTypeClassName(Names.simpleNameFromFullName(edmType)));
+            imports.add(pkg + Names.resolvedSuffix(edmType, effectiveSchemas) + "." + Names.resolvedClassName(edmType, effectiveSchemas));
         }
     }
 }

@@ -1,6 +1,9 @@
 package io.github.akbarhusain.odata.core.generator;
 
 import io.github.akbarhusain.odata.core.model.CsdlModel.PropertyModel;
+import io.github.akbarhusain.odata.core.model.CsdlModel.SchemaModel;
+
+import java.util.List;
 
 public final class Names {
 
@@ -257,5 +260,39 @@ public final class Names {
 
     private static boolean isObjectMethodName(String name) {
         return OBJECT_METHOD_NAMES.contains(name);
+    }
+
+    public enum TypeKind { ENTITY, COMPLEX, ENUM, UNKNOWN }
+
+    public static TypeKind resolveTypeKind(String edmType, List<SchemaModel> allSchemas) {
+        String simpleName = simpleNameFromFullName(edmType);
+        String namespace = namespaceFromFullName(edmType);
+        for (SchemaModel s : allSchemas) {
+            if (namespace.isEmpty() || s.namespace().equals(namespace)) {
+                if (s.entityTypes().stream().anyMatch(e -> e.name().equals(simpleName))) return TypeKind.ENTITY;
+                if (s.complexTypes().stream().anyMatch(c -> c.name().equals(simpleName))) return TypeKind.COMPLEX;
+                if (s.enumTypes().stream().anyMatch(e -> e.name().equals(simpleName))) return TypeKind.ENUM;
+            }
+        }
+        return TypeKind.UNKNOWN;
+    }
+
+    public static String resolvedClassName(String edmType, List<SchemaModel> allSchemas) {
+        String simpleName = simpleNameFromFullName(edmType);
+        return switch (resolveTypeKind(edmType, allSchemas)) {
+            case ENTITY -> entityClassName(simpleName);
+            case COMPLEX -> complexTypeClassName(simpleName);
+            case ENUM -> enumClassName(simpleName);
+            case UNKNOWN -> entityClassName(simpleName);
+        };
+    }
+
+    public static String resolvedSuffix(String edmType, List<SchemaModel> allSchemas) {
+        return switch (resolveTypeKind(edmType, allSchemas)) {
+            case ENTITY -> packageNameSuffixEntity();
+            case COMPLEX -> packageNameSuffixComplexType();
+            case ENUM -> packageNameSuffixEnum();
+            case UNKNOWN -> packageNameSuffixEntity();
+        };
     }
 }

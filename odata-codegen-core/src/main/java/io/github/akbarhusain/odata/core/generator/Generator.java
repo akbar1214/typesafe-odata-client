@@ -35,17 +35,17 @@ public class Generator {
         for (SchemaModel schema : model.schemas()) {
             String basePackage = schemaPackages.getOrDefault(schema.namespace(),
                     defaultBasePackage != null ? defaultBasePackage : Names.toPackageName(schema.namespace()));
-            generateSchema(schema, basePackage);
+            generateSchema(schema, basePackage, model.schemas());
         }
     }
 
-    private void generateSchema(SchemaModel schema, String basePackage) throws IOException {
+    private void generateSchema(SchemaModel schema, String basePackage, List<SchemaModel> allSchemas) throws IOException {
         log.info("Generating schema: {} -> {}", schema.namespace(), basePackage);
 
-        EntityGenerator entityGenerator = new EntityGenerator(basePackage, schemaPackages, defaultBasePackage);
+        EntityGenerator entityGenerator = new EntityGenerator(basePackage, schemaPackages, defaultBasePackage, allSchemas);
         EnumGenerator enumGenerator = new EnumGenerator(basePackage);
-        ComplexTypeGenerator complexTypeGenerator = new ComplexTypeGenerator(basePackage, schemaPackages, defaultBasePackage);
-        RequestGenerator requestGenerator = new RequestGenerator(basePackage, schemaPackages, defaultBasePackage);
+        ComplexTypeGenerator complexTypeGenerator = new ComplexTypeGenerator(basePackage, schemaPackages, defaultBasePackage, allSchemas);
+        RequestGenerator requestGenerator = new RequestGenerator(basePackage, schemaPackages, defaultBasePackage, allSchemas);
         ContainerGenerator containerGenerator = new ContainerGenerator(basePackage, schemaPackages, defaultBasePackage);
         SchemaInfoGenerator schemaInfoGenerator = new SchemaInfoGenerator(basePackage);
 
