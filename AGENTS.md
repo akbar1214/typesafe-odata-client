@@ -291,6 +291,20 @@ CollectionPage<Person> people = client.people()
 
 **Known limitation:** `setMedia`/`set<Prop>` mutate server state; the live generated-client tests only exercise reads. Uploads are covered by the runtime mock-transport test (`EntityOperationsMediaTest`) and the generator-content test (`RequestGeneratorMediaTest`).
 
+### 21. `$apply` Aggregation / Transformations (incl. `$compute`) via `ApplyExpression`
+
+**Decision:** Generated collection requests gain `apply(ApplyExpression)` and `apply(String raw)` methods that emit the OData v4 `$apply` system query option. `ApplyExpression` is a runtime interface with a fluent `ApplyBuilder` (`groupBy`, `aggregate`, `compute`, `filter`, `orderBy`, `top`, `skip`) and a raw escape hatch `ApplyExpression.of("...")`.
+
+**Reason:** OData v4 `$apply` performs server-side aggregation and transformations — `groupby((Category))/aggregate(Price with sum as Total)`, `compute(Price mul 2 as DoublePrice)`, etc. `$compute` is **not** a standalone query option; it is a transformation *inside* `$apply`, so it is exposed via `ApplyBuilder.compute(...)`. `$search` was already generated as a raw `search(String)` option. Hand-writing `$apply` strings is error-prone (slash-separated transformations, nested parentheses); a typed builder catches malformed pipelines at compile time and reuses `FilterExpression`/`PropertyExpression` for type-safe `filter`/`groupBy` clauses.
+
+**Approach:**
+- `ApplyExpression.toODataApply()` renders slash-separated transformations; `RawApplyExpression` is the record implementation behind `ApplyExpression.of(raw)`.
+- `ApplyBuilder` appends each transformation; `groupBy` accepts either `String...` or `PropertyExpression<?>...` (uses `getEdmName()`); `filter` accepts either a raw `String` or a typed `FilterExpression<E>`.
+- `RequestGenerator.generateCollectionRequest` stores `applyExpr` (the rendered string), emits it as `ctx.addQuery("$apply", applyExpr)` in `buildContext()`, and carries it through `copy()`.
+- `ContextPath.encodeQueryParam()` already preserves `/`, `(`, `)`, `,` so the slash-separated `$apply` value survives URL encoding (verified by reading `ContextPath` — no change needed).
+
+**Known limitation:** No live integration test exercises `$apply` — TripPin, Northwind, and OData Demo do not implement aggregation. Coverage is the runtime `ApplyExpressionTest` (8, builder output) plus the generator-content `RequestGeneratorApplyTest` (3, asserts the generated `apply` methods and `$apply` query emission). `GeneratorCompilationTest` confirms the generated client (with `apply`) still compiles against the runtime.
+
 ---
 
 ## Architecture
@@ -326,9 +340,9 @@ Run `mvn test` from the repo root. All modules build in one reactor; the runtime
 - **Complex type generator unit tests:** Complex-type inheritance — `EventLocation extends Location`, `with*` + Builder generation (`ComplexTypeGeneratorInheritanceTest` 3)
 - **Entity generator abstract-type unit tests:** Abstract entity generation — abstract base declares no `with*()`, concrete subtype extends it + has `with*()`, and the pair compiles (`EntityGeneratorAbstractTest` 3)
 - **Request generator media-stream tests:** `HasStream` entity + `Edm.Stream` named property generate `stream*`/`set*` request methods (`RequestGeneratorMediaTest` 3)
-- **Runtime tests:** 119 (live TripPin & Northwind integration, query expression, context path, batch, exceptions, transport, **media `$value` stream/put via mock transport** — `EntityOperationsMediaTest` 3)
+- **Runtime tests:** 127 (live TripPin & Northwind integration, query expression, context path, batch, exceptions, transport, **media `$value` stream/put via mock transport** — `EntityOperationsMediaTest` 3, **`$apply` builder** — `ApplyExpressionTest` 8)
 - **Generated client tests (82):** `NorthwindGeneratedClientTest` (24), `ODataDemoGeneratedClientTest` (23, exercises `FeaturedProduct extends Product`, `Customer`/`Employee extends Person`, `Event`/`PlanItem`), `TripPinGeneratedClientTest` (22, exercises `Flight`/`PublicTransportation`/`PlanItem` hierarchy, type-safe + nested `$expand`), `TripPinInheritanceTest` (11, exercises generated **complex-type** inheritance `EventLocation`/`AirportLocation extends Location` + **entity** inheritance `Flight → PublicTransportation → PlanItem`, `Event → PlanItem`: `instanceof`/polymorphic assignment, subtype `with*` copy-on-write preserving inherited fields, base `builder()` scoping, live `AirportLocation` deserialization), `ODataDemoMediaTest` (2, live media streams: `Advertisement` `HasStream` via `streamMedia()` at `.../Advertisements(id)/$value`, `PersonDetail.Photo` `Edm.Stream` named stream via `streamPhoto()` at `.../PersonDetails(id)/Photo`)
-- **Total: 262 tests passing**
+- **Total: 273 tests passing**
 - **Future:** Cancellable streaming
 
 ---
@@ -454,3 +468,5 @@ Run `mvn test` from the repo root. All modules build in one reactor; the runtime
 54. **Complex-type inheritance implementation notes.** Mirrors entity inheritance but with two extra traps: (a) `baseSimpleName` must be derived from `complexType.baseType()` (the CSDL base reference), **not** `base.baseType()` — a resolved base type may itself have a `null` `baseType`, which throws `NullPointerException` in `Names.simpleNameFromFullName`. (b) A static `builder()` in a subtype clashes with the inherited `builder()` (no covariant return types for static methods), so the `Builder` is generated only for top-level concrete types and subtypes rely on `with*()`. (c) `with*` and `Builder` are both skipped for `Abstract="true"` complex types so no `new AbstractX(...)` is emitted. Verified by `ComplexTypeGeneratorInheritanceTest` (TripPin `EventLocation extends Location`).
 
 55. **Edm.Guid keys must be unquoted in URLs.** `ContextPath.formatValue()` previously wrapped every `String` key in single quotes, producing `Advertisements('guid')` — OData Demo rejects this with HTTP 400 ("Error in query syntax") and also rejects the `guid'...'` literal. The service's own `@odata.mediaReadLink` uses the bare form `Advertisements(<guid>)/$value`. Fixed by detecting UUID-shaped `String` keys in `formatValue()` and emitting them unquoted. Verified end-to-end by `ODataDemoMediaTest` (the only Guid-key entity in the test metadata is `Advertisement`).
+
+56. **`GeneratorCompilationTest` only resolves the runtime from the installed `.m2` jar (the sibling `target/classes` fallback is dead).** The test builds its compile classpath from `findClasspathJars()` (walks `.m2`) and *also* prepends `../odata-codegen-runtime/target/classes` — but Maven runs tests with the repo root as cwd, so `../odata-codegen-runtime` points above the repo and never exists. Therefore the `.m2` runtime jar is the only source, and it must be current. If you add classes to the runtime, `mvn install` the runtime (or run a full `clean install` reactor) **before** `odata-codegen-core` tests, or `GeneratorCompilationTest` fails with `cannot find symbol` for the new types. This bit when `ApplyExpression`/`ApplyBuilder`/`RawApplyExpression` were added to the runtime but the `.m2` jar was stale.

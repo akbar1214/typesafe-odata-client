@@ -149,6 +149,9 @@ public class PersonCollectionRequest {
     public PersonCollectionRequest count() { ... }
     public PersonCollectionRequest expand(NavProperty<?, ?>... navs) { ... }
     public PersonCollectionRequest expand(NavProperty.NavQuery<?>... queries) { ... }
+    public PersonCollectionRequest search(String term) { ... }         // $search
+    public PersonCollectionRequest apply(ApplyExpression expr) { ... }  // $apply (aggregation / $compute)
+    public PersonCollectionRequest apply(String raw) { ... }           // $apply (raw)
 }
 ```
 

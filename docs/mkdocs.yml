@@ -18,6 +18,7 @@ nav:
     - Filter with Type-Safe Expressions: how-to/filter.md
     - Select and Order Results: how-to/select-order.md
     - Expand Navigation Properties: how-to/expand.md
+    - Aggregate with $apply: how-to/aggregate.md
     - Use Pagination: how-to/pagination.md
     - Perform CRUD Operations: how-to/crud.md
     - Work with Media Streams: how-to/media.md

@@ -7,6 +7,7 @@ Each guide solves a specific problem. Pick the one you need.
 | [Filter with Type-Safe Expressions](filter.md) | `$filter` with compile-time safety |
 | [Select and Order Results](select-order.md) | `$select` and `$orderby` |
 | [Expand Navigation Properties](expand.md) | `$expand` related entities |
+| [Aggregate with $apply](aggregate.md) | `$apply` server-side aggregation, `$compute`, `$search` |
 | [Use Pagination](pagination.md) | `$skip`/`$top` and server-driven paging |
 | [Perform CRUD Operations](crud.md) | Create, read, update, delete |
 | [Work with Media Streams](media.md) | `HasStream` entities and `Edm.Stream` named properties |

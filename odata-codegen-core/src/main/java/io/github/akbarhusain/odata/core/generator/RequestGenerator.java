@@ -197,7 +197,8 @@ public class RequestGenerator {
         sb.append("    private Integer topValue;\n");
         sb.append("    private Integer skipValue;\n");
         sb.append("    private boolean countRequested;\n");
-        sb.append("    private String searchTerm;\n\n");
+        sb.append("    private String searchTerm;\n");
+        sb.append("    private String applyExpr;\n\n");
 
         sb.append("    public ").append(className).append("(Context context, ContextPath contextPath) {\n");
         sb.append("        this.context = context;\n");
@@ -264,6 +265,19 @@ public class RequestGenerator {
         sb.append("        return next;\n");
         sb.append("    }\n\n");
 
+        // $apply (aggregation / transformations, including $compute)
+        sb.append("    public ").append(className).append(" apply(ApplyExpression expr) {\n");
+        sb.append("        ").append(className).append(" next = copy();\n");
+        sb.append("        next.applyExpr = expr.toODataApply();\n");
+        sb.append("        return next;\n");
+        sb.append("    }\n\n");
+
+        sb.append("    public ").append(className).append(" apply(String raw) {\n");
+        sb.append("        ").append(className).append(" next = copy();\n");
+        sb.append("        next.applyExpr = ApplyExpression.of(raw).toODataApply();\n");
+        sb.append("        return next;\n");
+        sb.append("    }\n\n");
+
         // Execution methods
         sb.append("    public ContextPath buildContext() {\n");
         sb.append("        ContextPath ctx = contextPath;\n");
@@ -290,6 +304,9 @@ public class RequestGenerator {
         sb.append("        }\n");
         sb.append("        if (searchTerm != null) {\n");
         sb.append("            ctx = ctx.addQuery(\"$search\", searchTerm);\n");
+        sb.append("        }\n");
+        sb.append("        if (applyExpr != null) {\n");
+        sb.append("            ctx = ctx.addQuery(\"$apply\", applyExpr);\n");
         sb.append("        }\n");
         sb.append("        return ctx;\n");
         sb.append("    }\n\n");
@@ -340,6 +357,7 @@ public class RequestGenerator {
         sb.append("        c.skipValue = skipValue;\n");
         sb.append("        c.countRequested = countRequested;\n");
         sb.append("        c.searchTerm = searchTerm;\n");
+        sb.append("        c.applyExpr = applyExpr;\n");
         sb.append("        return c;\n");
         sb.append("    }\n");
 

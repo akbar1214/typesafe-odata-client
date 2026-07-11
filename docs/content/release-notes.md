@@ -47,6 +47,8 @@
 - `$orderby`: Sort results
 - `$top`/`$skip`: Pagination
 - `$count`: Result counting
+- `$search`: Free-text search (`search(String)`)
+- `$apply`: Server-side aggregation and transformations (incl. `$compute`) via a fluent `ApplyExpression` builder — `groupBy`, `aggregate`, `compute`, `filter`, `orderBy`, `top`, `skip`
 
 **HTTP Transport:**
 
@@ -75,10 +77,10 @@
 
 **Testing:**
 
-- **262 tests passing**
+- **273 tests passing**
 - Parser: 47 (TripPin + Northwind + OData Demo metadata)
-- Generator: integration (1) + compilation against runtime (1) + composite-key/collection-getter unit (3) + complex-type inheritance unit (3) + abstract-entity unit (3) + media-stream unit (3)
-- Runtime: 119 (live TripPin & Northwind integration, query expression, context path, batch, exceptions, transport, media `$value` stream/put via mock transport)
+- Generator: integration (1) + compilation against runtime (1) + composite-key/collection-getter unit (3) + complex-type inheritance unit (3) + abstract-entity unit (3) + media-stream unit (3) + `$apply` unit (3)
+- Runtime: 127 (live TripPin & Northwind integration, query expression, context path, batch, exceptions, transport, media `$value` stream/put via mock transport, `$apply` builder)
 - Generated client: 82 (TripPin, Northwind, OData Demo — including inheritance hierarchies and live media-stream reads)
 
 ### Known Limitations
