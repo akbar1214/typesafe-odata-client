@@ -35,23 +35,23 @@ public final class BooleanProperty<E> implements PropertyExpression<Boolean> {
         return (OrderExpression<Boolean>) expr;
     }
 
-    public FilterExpression equalTo(boolean value) {
+    public FilterExpression<E> equalTo(boolean value) {
         return new RawFilterExpression(edmName + " eq " + value);
     }
 
-    public FilterExpression isTrue() {
+    public FilterExpression<E> isTrue() {
         return new RawFilterExpression(edmName + " eq true");
     }
 
-    public FilterExpression isFalse() {
+    public FilterExpression<E> isFalse() {
         return new RawFilterExpression(edmName + " eq false");
     }
 
-    public FilterExpression isNull() {
+    public FilterExpression<E> isNull() {
         return new RawFilterExpression(edmName + " eq null");
     }
 
-    public FilterExpression isNotNull() {
+    public FilterExpression<E> isNotNull() {
         return new RawFilterExpression(edmName + " ne null");
     }
 }

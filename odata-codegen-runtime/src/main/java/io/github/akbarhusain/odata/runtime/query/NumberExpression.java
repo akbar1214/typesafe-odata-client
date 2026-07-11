@@ -32,27 +32,27 @@ public class NumberExpression<N, E> implements OrderExpression<N> {
         return (OrderExpression<N>) expr;
     }
 
-    public FilterExpression equalTo(N value) {
+    public FilterExpression<E> equalTo(N value) {
         return new RawFilterExpression(expression + " eq " + formatValue(value));
     }
 
-    public FilterExpression notEqualTo(N value) {
+    public FilterExpression<E> notEqualTo(N value) {
         return new RawFilterExpression(expression + " ne " + formatValue(value));
     }
 
-    public FilterExpression greaterThan(N value) {
+    public FilterExpression<E> greaterThan(N value) {
         return new RawFilterExpression(expression + " gt " + formatValue(value));
     }
 
-    public FilterExpression greaterThanOrEqualTo(N value) {
+    public FilterExpression<E> greaterThanOrEqualTo(N value) {
         return new RawFilterExpression(expression + " ge " + formatValue(value));
     }
 
-    public FilterExpression lessThan(N value) {
+    public FilterExpression<E> lessThan(N value) {
         return new RawFilterExpression(expression + " lt " + formatValue(value));
     }
 
-    public FilterExpression lessThanOrEqualTo(N value) {
+    public FilterExpression<E> lessThanOrEqualTo(N value) {
         return new RawFilterExpression(expression + " le " + formatValue(value));
     }
 
@@ -76,11 +76,11 @@ public class NumberExpression<N, E> implements OrderExpression<N> {
         return new NumberExpression<>("(" + expression + " mod " + formatValue(value) + ")", entityType);
     }
 
-    public FilterExpression isNull() {
+    public FilterExpression<E> isNull() {
         return new RawFilterExpression(expression + " eq null");
     }
 
-    public FilterExpression isNotNull() {
+    public FilterExpression<E> isNotNull() {
         return new RawFilterExpression(expression + " ne null");
     }
 

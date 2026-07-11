@@ -44,35 +44,35 @@ public final class DateTimeProperty<E> implements PropertyExpression<String> {
     }
 
     // OData datetime comparisons - values are NOT quoted
-    public FilterExpression equalTo(String value) {
+    public FilterExpression<E> equalTo(String value) {
         return new RawFilterExpression(edmName + " eq " + value);
     }
 
-    public FilterExpression notEqualTo(String value) {
+    public FilterExpression<E> notEqualTo(String value) {
         return new RawFilterExpression(edmName + " ne " + value);
     }
 
-    public FilterExpression greaterThan(String value) {
+    public FilterExpression<E> greaterThan(String value) {
         return new RawFilterExpression(edmName + " gt " + value);
     }
 
-    public FilterExpression greaterThanOrEqualTo(String value) {
+    public FilterExpression<E> greaterThanOrEqualTo(String value) {
         return new RawFilterExpression(edmName + " ge " + value);
     }
 
-    public FilterExpression lessThan(String value) {
+    public FilterExpression<E> lessThan(String value) {
         return new RawFilterExpression(edmName + " lt " + value);
     }
 
-    public FilterExpression lessThanOrEqualTo(String value) {
+    public FilterExpression<E> lessThanOrEqualTo(String value) {
         return new RawFilterExpression(edmName + " le " + value);
     }
 
-    public FilterExpression isNull() {
+    public FilterExpression<E> isNull() {
         return new RawFilterExpression(edmName + " eq null");
     }
 
-    public FilterExpression isNotNull() {
+    public FilterExpression<E> isNotNull() {
         return new RawFilterExpression(edmName + " ne null");
     }
 }

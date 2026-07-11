@@ -1,11 +1,11 @@
 package io.github.akbarhusain.odata.runtime.query;
 
-public interface FilterExpression extends Expression<Boolean> {
-    FilterExpression and(FilterExpression other);
-    FilterExpression or(FilterExpression other);
-    FilterExpression not();
+public interface FilterExpression<E> extends Expression<Boolean> {
+    FilterExpression<E> and(FilterExpression<E> other);
+    FilterExpression<E> or(FilterExpression<E> other);
+    FilterExpression<E> not();
 
-    static FilterExpression of(String raw) {
-        return new RawFilterExpression(raw);
+    static <E> FilterExpression<E> of(String raw) {
+        return new RawFilterExpression<>(raw);
     }
 }

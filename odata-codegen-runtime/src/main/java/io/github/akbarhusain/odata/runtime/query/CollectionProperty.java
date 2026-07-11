@@ -16,16 +16,16 @@ public final class CollectionProperty<E, T> extends NavProperty<E, T> {
 
     public Class<T> getElementType() { return elementType; }
 
-    public FilterExpression any(Function<FilterableElement<T>, FilterExpression> predicate) {
+    public FilterExpression<E> any(Function<FilterableElement<T>, FilterExpression<T>> predicate) {
         FilterableElement<T> element = new FilterableElement<>();
-        FilterExpression result = predicate.apply(element);
-        return new RawFilterExpression(edmName + "/any(x: " + result.toODataExpression() + ")");
+        FilterExpression<T> result = predicate.apply(element);
+        return new RawFilterExpression<>(edmName + "/any(x: " + result.toODataExpression() + ")");
     }
 
-    public FilterExpression all(Function<FilterableElement<T>, FilterExpression> predicate) {
+    public FilterExpression<E> all(Function<FilterableElement<T>, FilterExpression<T>> predicate) {
         FilterableElement<T> element = new FilterableElement<>();
-        FilterExpression result = predicate.apply(element);
-        return new RawFilterExpression(edmName + "/all(x: " + result.toODataExpression() + ")");
+        FilterExpression<T> result = predicate.apply(element);
+        return new RawFilterExpression<>(edmName + "/all(x: " + result.toODataExpression() + ")");
     }
 
     public static class FilterableElement<T> {

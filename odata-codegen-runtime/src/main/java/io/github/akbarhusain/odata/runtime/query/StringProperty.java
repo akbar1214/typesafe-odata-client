@@ -36,28 +36,28 @@ public final class StringProperty<E> implements PropertyExpression<String> {
     }
 
     // Equality operators
-    public FilterExpression equalTo(String value) {
+    public FilterExpression<E> equalTo(String value) {
         return new RawFilterExpression(edmName + " eq '" + escape(value) + "'");
     }
 
-    public FilterExpression notEqualTo(String value) {
+    public FilterExpression<E> notEqualTo(String value) {
         return new RawFilterExpression(edmName + " ne '" + escape(value) + "'");
     }
 
     // String-specific operators
-    public FilterExpression contains(String value) {
+    public FilterExpression<E> contains(String value) {
         return new RawFilterExpression("contains(" + edmName + ",'" + escape(value) + "')");
     }
 
-    public FilterExpression startsWith(String value) {
+    public FilterExpression<E> startsWith(String value) {
         return new RawFilterExpression("startswith(" + edmName + ",'" + escape(value) + "')");
     }
 
-    public FilterExpression endsWith(String value) {
+    public FilterExpression<E> endsWith(String value) {
         return new RawFilterExpression("endswith(" + edmName + ",'" + escape(value) + "')");
     }
 
-    public FilterExpression matchesPattern(String regex) {
+    public FilterExpression<E> matchesPattern(String regex) {
         return new RawFilterExpression("matchesPattern(" + edmName + ",'" + escape(regex) + "')");
     }
 
@@ -91,11 +91,11 @@ public final class StringProperty<E> implements PropertyExpression<String> {
     }
 
     // Null checks
-    public FilterExpression isNull() {
+    public FilterExpression<E> isNull() {
         return new RawFilterExpression(edmName + " eq null");
     }
 
-    public FilterExpression isNotNull() {
+    public FilterExpression<E> isNotNull() {
         return new RawFilterExpression(edmName + " ne null");
     }
 
