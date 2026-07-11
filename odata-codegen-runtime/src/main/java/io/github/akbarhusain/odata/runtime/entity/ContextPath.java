@@ -29,7 +29,7 @@ public record ContextPath(
             throw new IllegalStateException("Cannot add key without a segment");
         }
         Segment last = segments.get(segments.size() - 1);
-        Segment updated = new Segment(last.name(), append(last.keys(), new KeyValuePair(name, value)));
+        Segment updated = new Segment(last.name(), append(last.keys(), new KeyValuePair(name, value)), last.queries());
         List<Segment> newSegments = new ArrayList<>(segments);
         newSegments.set(newSegments.size() - 1, updated);
         return new ContextPath(basePath, List.copyOf(newSegments));

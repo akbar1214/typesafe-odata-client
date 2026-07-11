@@ -94,10 +94,10 @@ class EntityOperationsCollectionParseTest {
 
     @Test
     void parseCollectionWithNestedObjects() {
-        record Address(String City, String Country) {}
-        record PersonWithAddress(String UserName, Address Address) {}
+        record CityInfo(String name, String country) {}
+        record PersonWithCity(String UserName, CityInfo homeCity) {}
 
-        String json = "{\"value\":[{\"UserName\":\"scott\",\"Address\":{\"City\":\"Redmond\",\"Country\":\"USA\"}}]}";
+        String json = "{\"value\":[{\"UserName\":\"scott\",\"homeCity\":{\"name\":\"Redmond\",\"country\":\"USA\"}}]}";
 
         Context ctx = Context.builder()
                 .baseUrl("https://example.com")
@@ -105,11 +105,63 @@ class EntityOperationsCollectionParseTest {
                 .build();
 
         ContextPath path = ctx.basePath().addSegment("People");
-        CollectionPage<PersonWithAddress> page = EntityOperations.executeAndGetCollection(ctx, path, PersonWithAddress.class);
+        CollectionPage<PersonWithCity> page = EntityOperations.executeAndGetCollection(ctx, path, PersonWithCity.class);
 
         assertEquals(1, page.currentPage().size());
         assertEquals("scott", page.currentPage().get(0).UserName());
-        assertEquals("Redmond", page.currentPage().get(0).Address().City());
-        assertEquals("USA", page.currentPage().get(0).Address().Country());
+        assertEquals("Redmond", page.currentPage().get(0).homeCity().name());
+        assertEquals("USA", page.currentPage().get(0).homeCity().country());
+    }
+
+    // Transport that captures the last request for URL assertions
+    static class CapturingTransport implements HttpTransport {
+        HttpRequest lastRequest;
+
+        @Override
+        public CompletableFuture<HttpResponse> submit(HttpRequest request) {
+            this.lastRequest = request;
+            return CompletableFuture.completedFuture(new HttpResponse(200,
+                    Map.of("Content-Type", List.of("application/json")),
+                    ("{\"value\":[]}").getBytes(StandardCharsets.UTF_8)));
+        }
+
+        @Override
+        public CompletableFuture<java.io.InputStream> stream(HttpRequest request) {
+            throw new UnsupportedOperationException();
+        }
+    }
+
+    @Test
+    void searchQueryParamInUrl() {
+        CapturingTransport transport = new CapturingTransport();
+        Context ctx = Context.builder()
+                .baseUrl("https://example.com")
+                .transport(transport)
+                .build();
+
+        ContextPath path = ctx.basePath().addSegment("Products").addQuery("$search", "bike");
+        EntityOperations.executeAndGetCollection(ctx, path, Object.class);
+
+        String url = transport.lastRequest.url();
+        assertTrue(url.contains("$search="), "URL should contain $search param: " + url);
+        assertTrue(url.contains("bike"), "URL should contain search term: " + url);
+    }
+
+    @Test
+    void applyQueryParamInUrl() {
+        CapturingTransport transport = new CapturingTransport();
+        Context ctx = Context.builder()
+                .baseUrl("https://example.com")
+                .transport(transport)
+                .build();
+
+        ContextPath path = ctx.basePath().addSegment("Products")
+                .addQuery("$apply", "groupby((Category))/aggregate(Price with sum as Total)");
+        EntityOperations.executeAndGetCollection(ctx, path, Object.class);
+
+        String url = transport.lastRequest.url();
+        assertTrue(url.contains("$apply="), "URL should contain $apply param: " + url);
+        assertTrue(url.contains("groupby"), "URL should contain groupby: " + url);
+        assertTrue(url.contains("aggregate"), "URL should contain aggregate: " + url);
     }
 }

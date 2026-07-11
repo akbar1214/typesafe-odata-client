@@ -45,7 +45,7 @@ public class JacksonSerializer implements Serializer {
     @Override
     public <T> byte[] serialize(T value, Class<T> type) {
         try {
-            return MAPPER.writeValueAsBytes(value);
+            return MAPPER.writerFor(type).writeValueAsBytes(value);
         } catch (JsonProcessingException e) {
             throw new io.github.akbarhusain.odata.runtime.exception.ODataException(
                     "Serialization failed: " + e.getMessage(), e);

@@ -62,4 +62,39 @@ class ContextPathTest {
 
         assertEquals(BASE + "/OrderDetails(OrderId=1,ProductName='A%26B%3FC')", path.toUrl());
     }
+
+    @Test
+    void addQueryOnEmptySegmentsCreatesTrailingQuerySegment() {
+        ContextPath path = new ContextPath(BASE)
+                .addQuery("$top", "5");
+
+        assertEquals(BASE + "?$top=5", path.toUrl());
+    }
+
+    @Test
+    void addQueryOnEmptySegmentsThenAddKeyPreservesQueryParam() {
+        // addQuery() creates an empty-named segment with queries. addKey() must
+        // preserve the existing queries when creating the updated segment (otherwise
+        // the query param is silently dropped). Keys on a name-less segment are
+        // not rendered in toUrl() (no name to attach key parentheses to).
+        ContextPath path = new ContextPath(BASE)
+                .addQuery("$filter", "Name eq 'test'")
+                .addKey("Id", 1);
+
+        String url = path.toUrl();
+        assertTrue(url.contains("$filter=Name"), "URL should contain $filter query param: " + url);
+    }
+
+    @Test
+    void addQueryOnEmptySegmentsThenAddQueryChainsCorrectly() {
+        ContextPath path = new ContextPath(BASE)
+                .addQuery("$top", "5")
+                .addQuery("$skip", "10");
+
+        String url = path.toUrl();
+        assertTrue(url.contains("$top=5"), "URL should contain $top=5: " + url);
+        assertTrue(url.contains("$skip=10"), "URL should contain $skip=10: " + url);
+        // Both query params should appear
+        assertEquals(BASE + "?$top=5&$skip=10", url);
+    }
 }
