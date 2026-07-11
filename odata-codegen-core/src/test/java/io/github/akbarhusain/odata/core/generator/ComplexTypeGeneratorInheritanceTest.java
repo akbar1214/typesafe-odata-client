@@ -79,7 +79,7 @@ class ComplexTypeGeneratorInheritanceTest {
         assertTrue(withIdx >= 0, "Own with* method should be generated");
         int bodyEnd = code.indexOf("    }\n\n", withIdx);
         String body = code.substring(withIdx, bodyEnd);
-        assertTrue(body.contains("new EventLocation(address, city, value"),
+        assertTrue(body.contains("new EventLocation(this.address, this.city, value"),
                 "with* should reconstruct via the all-args constructor including inherited fields");
 
         // Inherited with* is also generated and threads its own value alongside inherited fields
@@ -88,7 +88,7 @@ class ComplexTypeGeneratorInheritanceTest {
         int withAddrIdx = code.indexOf("public EventLocation withAddress(String value)");
         int addrBodyEnd = code.indexOf("    }\n\n", withAddrIdx);
         String addrBody = code.substring(withAddrIdx, addrBodyEnd);
-        assertTrue(addrBody.contains("new EventLocation(value, city, buildingInfo"),
+        assertTrue(addrBody.contains("new EventLocation(value, this.city, this.buildingInfo"),
                 "Inherited with* should pass value for the changed prop and inherited fields by name");
     }
 

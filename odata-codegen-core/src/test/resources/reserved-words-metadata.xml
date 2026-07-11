@@ -39,6 +39,7 @@
         <Property Name="while" Type="Edm.String"/>
         <Property Name="if" Type="Edm.String"/>
         <Property Name="else" Type="Edm.String"/>
+        <Property Name="value" Type="Edm.String"/>
         <Property Name="final" Type="Edm.String"/>
         <Property Name="static" Type="Edm.String"/>
         <Property Name="void" Type="Edm.String"/>

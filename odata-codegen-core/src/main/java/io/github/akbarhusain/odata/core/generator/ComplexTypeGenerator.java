@@ -339,11 +339,11 @@ public class ComplexTypeGenerator {
             if (p.name().equals(prop.name())) {
                 sb.append("value");
             } else {
-                sb.append(Names.toJavaFieldName(p.name()));
+                sb.append("this.").append(Names.toJavaFieldName(p.name()));
             }
         }
         for (NavigationPropertyModel nav : allNavs) {
-            sb.append(", ").append(Names.toJavaFieldName(nav.name()));
+            sb.append(", this.").append(Names.toJavaFieldName(nav.name()));
         }
         if (hierarchyHasOpen) {
             sb.append(", this.unmappedFields");
@@ -495,14 +495,14 @@ public class ComplexTypeGenerator {
         sb.append("        return new ").append(className).append("(");
         for (int i = 0; i < allProps.size(); i++) {
             if (i > 0) sb.append(", ");
-            sb.append(Names.toJavaFieldName(allProps.get(i).name()));
+            sb.append("this.").append(Names.toJavaFieldName(allProps.get(i).name()));
         }
         for (NavigationPropertyModel n : allNavs) {
             sb.append(", ");
             if (n.name().equals(nav.name())) {
                 sb.append("value");
             } else {
-                sb.append(Names.toJavaFieldName(n.name()));
+                sb.append("this.").append(Names.toJavaFieldName(n.name()));
             }
         }
         if (hierarchyHasOpen) {

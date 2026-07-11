@@ -576,14 +576,14 @@ public class EntityGenerator {
           .append("(").append(javaType).append(" value) {\n");
         sb.append("        return new ").append(className).append("(contextPath, etag");
         for (PropertyModel p : allProps) {
-            sb.append(", ").append(Names.toJavaFieldName(p.name()));
+            sb.append(", this.").append(Names.toJavaFieldName(p.name()));
         }
         for (NavigationPropertyModel n : allNavs) {
             sb.append(", ");
             if (n.name().equals(nav.name())) {
                 sb.append("value");
             } else {
-                sb.append(Names.toJavaFieldName(n.name()));
+                sb.append("this.").append(Names.toJavaFieldName(n.name()));
             }
         }
         sb.append(", unmappedFields, EntityUtil.mergeChanged(changedFields, \"").append(nav.name()).append("\"));\n");
@@ -673,11 +673,11 @@ public class EntityGenerator {
             if (p.name().equals(prop.name())) {
                 sb.append("value");
             } else {
-                sb.append(Names.toJavaFieldName(p.name()));
+                sb.append("this.").append(Names.toJavaFieldName(p.name()));
             }
         }
         for (NavigationPropertyModel nav : allNavs) {
-            sb.append(", ").append(Names.toJavaFieldName(nav.name()));
+            sb.append(", this.").append(Names.toJavaFieldName(nav.name()));
         }
         sb.append(", unmappedFields, EntityUtil.mergeChanged(changedFields, \"").append(prop.name()).append("\"));\n");
         sb.append("    }\n\n");
