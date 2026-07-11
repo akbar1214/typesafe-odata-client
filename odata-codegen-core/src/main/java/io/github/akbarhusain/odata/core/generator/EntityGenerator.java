@@ -44,6 +44,11 @@ public class EntityGenerator {
 
         List<KeyModel> keys = resolvedKeys(entityType, schema);
 
+        // OpenType dynamic-property support: capture undeclared JSON fields into unmappedFields.
+        boolean openType = openTypeResolved(entityType, schema);
+        boolean firstOpen = openType && (base == null || !openTypeResolved(base, schema));
+        boolean rootMutableMap = base == null && subtreeHasOpen(entityType, schema);
+
         Set<String> ownPropNames = new HashSet<>();
         for (PropertyModel p : ownProps) {
             ownPropNames.add(p.name());
@@ -63,6 +68,7 @@ public class EntityGenerator {
         imports.add("io.github.akbarhusain.odata.runtime.entity.ODataEntityType");
         imports.add("io.github.akbarhusain.odata.runtime.entity.ContextPath");
         imports.add("io.github.akbarhusain.odata.runtime.entity.EntityUtil");
+        imports.add("io.github.akbarhusain.odata.runtime.serialization.DynamicPropertyConverter");
         imports.add("io.github.akbarhusain.odata.runtime.query.*");
 
         for (NavigationPropertyModel nav : entityType.navigationProperties()) {
@@ -148,7 +154,9 @@ public class EntityGenerator {
             sb.append("        this.").append(fn).append(" = ").append(fieldInit(prop)).append(";\n");
         }
         if (base == null) {
-            sb.append("        this.unmappedFields = java.util.Map.of();\n");
+            sb.append("        this.unmappedFields = ")
+              .append(rootMutableMap ? "new java.util.HashMap<>()" : "java.util.Map.of()")
+              .append(";\n");
             sb.append("        this.changedFields = Set.of();\n");
         }
         sb.append("    }\n\n");
@@ -213,9 +221,33 @@ public class EntityGenerator {
         sb.append("        return Optional.ofNullable(etag);\n");
         sb.append("    }\n\n");
 
+        if (openType) {
+            sb.append("    @com.fasterxml.jackson.annotation.JsonAnyGetter\n");
+        }
         sb.append("    @Override\n    public java.util.Map<String, Object> getUnmappedFields() {\n");
-        sb.append("        return unmappedFields;\n");
+        sb.append("        return ").append(openType ? "Collections.unmodifiableMap(unmappedFields)" : "unmappedFields").append(";\n");
         sb.append("    }\n\n");
+
+        // OpenType: capture undeclared JSON fields (dynamic properties) into unmappedFields.
+        // Generated only at the topmost open type in the chain to avoid duplicate any-setters.
+        if (firstOpen) {
+            sb.append("    @com.fasterxml.jackson.annotation.JsonAnySetter\n");
+            sb.append("    protected void putDynamicProperty(String name, Object value) {\n");
+            sb.append("        if (name != null && !name.startsWith(\"@\")) {\n");
+            sb.append("            unmappedFields.put(name, value);\n");
+            sb.append("        }\n");
+            sb.append("    }\n\n");
+
+            sb.append("    public Optional<Object> getDynamicProperty(String name) {\n");
+            sb.append("        return Optional.ofNullable(unmappedFields.get(name));\n");
+            sb.append("    }\n\n");
+
+            sb.append("    public <T> Optional<T> getDynamicProperty(String name, Class<T> type) {\n");
+            sb.append("        Object v = unmappedFields.get(name);\n");
+            sb.append("        return v == null ? Optional.empty()\n");
+            sb.append("                : Optional.of(io.github.akbarhusain.odata.runtime.serialization.DynamicPropertyConverter.convert(v, type));\n");
+            sb.append("    }\n\n");
+        }
 
         sb.append("    @Override\n    public ContextPath getContextPath() {\n");
         sb.append("        return contextPath;\n");
@@ -261,6 +293,31 @@ public class EntityGenerator {
 
         sb.append("}\n");
         return sb.toString();
+    }
+
+    // True if this type or any ancestor declares OpenType="true" (OpenType propagates to subtypes).
+    private boolean openTypeResolved(EntityTypeModel entityType, SchemaModel schema) {
+        if (entityType.openType()) {
+            return true;
+        }
+        EntityTypeModel base = findBase(entityType, schema);
+        return base != null && openTypeResolved(base, schema);
+    }
+
+    private EntityTypeModel rootOf(EntityTypeModel entityType, SchemaModel schema) {
+        EntityTypeModel base = findBase(entityType, schema);
+        return base == null ? entityType : rootOf(base, schema);
+    }
+
+    // True if any type in the hierarchy rooted at this type is open (so the root must hold a
+    // mutable unmappedFields map that @JsonAnySetter can populate for the open subtype).
+    private boolean subtreeHasOpen(EntityTypeModel root, SchemaModel schema) {
+        for (EntityTypeModel et : schema.entityTypes()) {
+            if (rootOf(et, schema).name().equals(root.name()) && openTypeResolved(et, schema)) {
+                return true;
+            }
+        }
+        return openTypeResolved(root, schema);
     }
 
     private EntityTypeModel findBase(EntityTypeModel entityType, SchemaModel schema) {

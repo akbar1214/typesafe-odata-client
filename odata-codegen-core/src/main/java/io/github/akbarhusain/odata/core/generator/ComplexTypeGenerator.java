@@ -30,6 +30,11 @@ public class ComplexTypeGenerator {
         List<PropertyModel> allProps = new ArrayList<>(inheritedProps);
         allProps.addAll(ownProps);
 
+        // OpenType dynamic-property support: capture undeclared JSON fields into unmappedFields.
+        boolean openType = openTypeResolved(complexType, schema);
+        boolean firstOpen = openType && (base == null || !openTypeResolved(base, schema));
+        boolean rootMutableMap = base == null && subtreeHasOpen(complexType, schema);
+
         StringBuilder sb = new StringBuilder();
         sb.append("package ").append(pkg).append(";\n\n");
 
@@ -37,6 +42,10 @@ public class ComplexTypeGenerator {
         imports.add("java.util.Optional");
         imports.add("io.github.akbarhusain.odata.runtime.entity.ODataType");
         imports.add("io.github.akbarhusain.odata.runtime.entity.ContextPath");
+        if (openType) {
+            imports.add("java.util.Collections");
+            imports.add("io.github.akbarhusain.odata.runtime.serialization.DynamicPropertyConverter");
+        }
         if (base != null) {
             imports.add(pkg + "." + baseSimpleName);
         }
@@ -62,6 +71,9 @@ public class ComplexTypeGenerator {
             sb.append("    protected final ").append(javaType).append(" ")
               .append(Names.toJavaFieldName(prop.name())).append(";\n");
         }
+        if (base == null && subtreeHasOpen(complexType, schema)) {
+            sb.append("    protected final java.util.Map<String, Object> unmappedFields;\n");
+        }
         sb.append("\n");
 
         // Constructor with Jackson annotations for deserialization
@@ -86,6 +98,9 @@ public class ComplexTypeGenerator {
         for (PropertyModel prop : ownProps) {
             String fn = Names.toJavaFieldName(prop.name());
             sb.append("        this.").append(fn).append(" = ").append(fn).append(";\n");
+        }
+        if (rootMutableMap) {
+            sb.append("        this.unmappedFields = new java.util.HashMap<>();\n");
         }
         sb.append("    }\n\n");
 
@@ -126,10 +141,34 @@ public class ComplexTypeGenerator {
         sb.append("        return \"").append(schema.namespace()).append(".").append(complexType.name()).append("\";\n");
         sb.append("    }\n\n");
 
+        if (openType) {
+            sb.append("    @com.fasterxml.jackson.annotation.JsonAnyGetter\n");
+        }
         sb.append("    @Override\n");
         sb.append("    public java.util.Map<String, Object> getUnmappedFields() {\n");
-        sb.append("        return java.util.Map.of();\n");
+        sb.append("        return ").append(openType ? "Collections.unmodifiableMap(unmappedFields)" : "java.util.Map.of()").append(";\n");
         sb.append("    }\n\n");
+
+        // OpenType: capture undeclared JSON fields (dynamic properties) into unmappedFields.
+        // Generated only at the topmost open type in the chain to avoid duplicate any-setters.
+        if (firstOpen) {
+            sb.append("    @com.fasterxml.jackson.annotation.JsonAnySetter\n");
+            sb.append("    protected void putDynamicProperty(String name, Object value) {\n");
+            sb.append("        if (name != null && !name.startsWith(\"@\")) {\n");
+            sb.append("            unmappedFields.put(name, value);\n");
+            sb.append("        }\n");
+            sb.append("    }\n\n");
+
+            sb.append("    public Optional<Object> getDynamicProperty(String name) {\n");
+            sb.append("        return Optional.ofNullable(unmappedFields.get(name));\n");
+            sb.append("    }\n\n");
+
+            sb.append("    public <T> Optional<T> getDynamicProperty(String name, Class<T> type) {\n");
+            sb.append("        Object v = unmappedFields.get(name);\n");
+            sb.append("        return v == null ? Optional.empty()\n");
+            sb.append("                : Optional.of(io.github.akbarhusain.odata.runtime.serialization.DynamicPropertyConverter.convert(v, type));\n");
+            sb.append("    }\n\n");
+        }
 
         sb.append("    @Override\n");
         sb.append("    public ContextPath getContextPath() {\n");
@@ -207,6 +246,30 @@ public class ComplexTypeGenerator {
         sb.append(");\n");
         sb.append("        }\n");
         sb.append("    }\n\n");
+    }
+
+    // True if this type or any ancestor declares OpenType="true" (propagates to subtypes).
+    private boolean openTypeResolved(ComplexTypeModel complexType, SchemaModel schema) {
+        if (complexType.openType()) {
+            return true;
+        }
+        ComplexTypeModel base = findBase(complexType, schema);
+        return base != null && openTypeResolved(base, schema);
+    }
+
+    private ComplexTypeModel rootOf(ComplexTypeModel complexType, SchemaModel schema) {
+        ComplexTypeModel base = findBase(complexType, schema);
+        return base == null ? complexType : rootOf(base, schema);
+    }
+
+    // True if any type in the hierarchy rooted here is open (root must hold a mutable map).
+    private boolean subtreeHasOpen(ComplexTypeModel root, SchemaModel schema) {
+        for (ComplexTypeModel ct : schema.complexTypes()) {
+            if (rootOf(ct, schema).name().equals(root.name()) && openTypeResolved(ct, schema)) {
+                return true;
+            }
+        }
+        return openTypeResolved(root, schema);
     }
 
     private ComplexTypeModel findBase(ComplexTypeModel complexType, SchemaModel schema) {

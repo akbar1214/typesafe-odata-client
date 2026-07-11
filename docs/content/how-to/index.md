@@ -11,6 +11,7 @@ Each guide solves a specific problem. Pick the one you need.
 | [Use Pagination](pagination.md) | `$skip`/`$top` and server-driven paging |
 | [Perform CRUD Operations](crud.md) | Create, read, update, delete |
 | [Work with Media Streams](media.md) | `HasStream` entities and `Edm.Stream` named properties |
+| [Work with OpenType Dynamic Properties](open-type.md) | Capture undeclared JSON fields on `OpenType="true"` types |
 | [Handle ETags and Concurrency](etag.md) | Optimistic concurrency with ETags |
 | [Manage Navigation Links ($ref)](ref.md) | Add/remove entity relationships |
 | [Add Authentication](auth.md) | OAuth2, API keys, custom auth |

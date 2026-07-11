@@ -98,6 +98,42 @@ public final class Flight extends PublicTransportation {
 }
 ```
 
+## OpenType (Dynamic Properties)
+
+A CSDL type marked `OpenType="true"` (or inheriting openness from a base type) may
+carry JSON fields that are not declared in the metadata. The generated class captures
+those into a `unmappedFields` map and exposes them:
+
+```java
+// CSDL: <EntityType Name="Person" OpenType="true">
+public class Person implements ODataEntityType {
+    // ... declared final fields, builder, with*() ...
+
+    // Generated for OpenType types (and subtypes of an open base):
+    @com.fasterxml.jackson.annotation.JsonAnySetter
+    protected void putDynamicProperty(String name, Object value) { ... }
+
+    @com.fasterxml.jackson.annotation.JsonAnyGetter
+    @Override
+    public Map<String, Object> getUnmappedFields() { ... }   // unmodifiable view
+
+    public Optional<Object> getDynamicProperty(String name) { ... }
+
+    // Typed coercion of the stored Jackson value into your class (nested objects -> POJOs,
+    // numbers coerce, e.g. Integer -> Long). Throws IllegalArgumentException on mismatch.
+    public <T> Optional<T> getDynamicProperty(String name, Class<T> type) { ... }
+}
+```
+
+Notes:
+- `@odata.*` control fields (`@odata.id`, `@odata.editLink`, ...) are filtered out and
+  never land in `unmappedFields`.
+- `getUnmappedFields()` returns an unmodifiable view; dynamic properties are also
+  re-serialized (POST/PATCH) via the `@JsonAnyGetter`, so they round-trip.
+- Openness propagates down the inheritance chain. An open subtype of a non-open base
+  captures dynamic props into the base's `unmappedFields` (which is initialized mutable
+  only when the hierarchy contains an open type).
+
 ## Request Classes
 
 ### Entity Request

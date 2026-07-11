@@ -5,7 +5,7 @@ Immutable entities, compile-time validated queries, pluggable HTTP._
 
 !!! success "Production-Ready Pipeline"
 
-    Parser, code generator, runtime, Maven plugin, and live integration tests against TripPin, Northwind, and OData Demo services — all working. **273 tests passing.**
+    Parser, code generator, runtime, Maven plugin, and live integration tests against TripPin, Northwind, and OData Demo services — all working. **285 tests passing.**
 
 ## Why OData Codegen
 
@@ -19,6 +19,7 @@ Most OData clients for Java force you into string-based queries, mutable entitie
 * **Zero runtime overhead** — Code generated at build time. No reflection, no proxies, no magic.
 * **Entity inheritance** — Subtypes emit real Java `extends` clauses; base-type query predicates type-check against subtypes.
 * **Media streams** — `HasStream` entities and `Edm.Stream` named properties get `stream*` / `set*` accessors on the entity request.
+* **OpenType dynamic properties** — `OpenType="true"` types capture unknown JSON fields into `unmappedFields` and round-trip them on writes.
 
 ## Quick Example
 
@@ -78,7 +79,7 @@ odata-codegen/
 
 ## Status
 
-- **273 tests passing** — Parser, generator, runtime, and live integration tests
+- **285 tests passing** — Parser, generator, runtime, and live integration tests
 - **Full pipeline** — CSDL → generated client → HTTP execution
 - **Multiple services tested** — TripPin, Northwind, and OData Demo (incl. inheritance hierarchies)
 - **Maven plugin working** — `odata-codegen:generate` goal in the `generate-sources` phase

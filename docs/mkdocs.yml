@@ -22,6 +22,7 @@ nav:
     - Use Pagination: how-to/pagination.md
     - Perform CRUD Operations: how-to/crud.md
     - Work with Media Streams: how-to/media.md
+    - OpenType Dynamic Properties: how-to/open-type.md
     - Handle ETags and Concurrency: how-to/etag.md
     - Manage Navigation Links ($ref): how-to/ref.md
     - Add Authentication: how-to/auth.md

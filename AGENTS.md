@@ -305,6 +305,22 @@ CollectionPage<Person> people = client.people()
 
 **Known limitation:** No live integration test exercises `$apply` — TripPin, Northwind, and OData Demo do not implement aggregation. Coverage is the runtime `ApplyExpressionTest` (8, builder output) plus the generator-content `RequestGeneratorApplyTest` (3, asserts the generated `apply` methods and `$apply` query emission). `GeneratorCompilationTest` confirms the generated client (with `apply`) still compiles against the runtime.
 
+### 22. OpenType Dynamic Properties via `@JsonAnySetter`/`@JsonAnyGetter`
+
+**Decision:** Entities and complex types declared `OpenType="true"` (or inheriting openness from a base) capture undeclared JSON fields into `unmappedFields` on deserialization, expose them via `getUnmappedFields()` / `getDynamicProperty(String)`, and round-trip them on serialization.
+
+**Reason:** OData open types may carry dynamic properties not present in the CSDL — a service can return extra JSON fields (TripPin `Person`/`Event`/`Location`, OData Demo `Category`). Previously these were **silently dropped**: the `@JsonCreator` constructor lists only declared props, there was no any-setter, `FAIL_ON_UNKNOWN_PROPERTIES` is `false`, and `unmappedFields` was hard-coded to `Map.of()`. `getUnmappedFields()` always returned `{}` despite existing on the `ODataType` interface.
+
+**Approach:**
+- `openTypeResolved(type)` walks the base chain — a type is open if it or any ancestor is open (OpenType propagates to subtypes per the OData spec).
+- The **root** class (`base == null`) initializes `unmappedFields` to a mutable `new HashMap<>()` when `subtreeHasOpen(root)` (any type in its hierarchy is open); otherwise it keeps the zero-alloc `Map.of()`. Non-open hierarchies are completely unchanged (no extra allocation, no annotations).
+- A `@JsonAnySetter protected void putDynamicProperty(String,Object)` is generated **only at the topmost open type** in the chain (`firstOpen`) — `protected` (not `private`) so open subtypes inherit the single any-setter (Jackson rejects multiple any-setters). It filters out `@`-prefixed OData control annotations (`@odata.id`, `@odata.editLink`, ...).
+- `getUnmappedFields()` gets `@JsonAnyGetter` and returns `Collections.unmodifiableMap(unmappedFields)` for every open-resolved type (so it survives override chains and re-serializes dynamic props on POST/PATCH).
+- The same logic is mirrored in `ComplexTypeGenerator` (open complex types: TripPin `Location`/`EventLocation`/`AirportLocation`).
+- A typed overload `getDynamicProperty(String name, Class<T> type)` coerces the stored Jackson "natural" value into the caller's type via `DynamicPropertyConverter.convert(...)` (Jackson `ObjectMapper.convertValue`), so nested objects become POJOs and numbers coerce (e.g. `Integer` → `Long`). `convertValue` is the correct tool because the value is an in-memory Jackson object — there are no JSON bytes to re-parse, and the pluggable `Serializer` cannot operate on it. Conversion failures throw `IllegalArgumentException` with the property name.
+
+**Known limitations:** (a) Complex-type `with*()`/`Builder` reconstruct via the all-args `@JsonCreator` constructor, which starts a fresh empty `unmappedFields` — dynamic props are **not** preserved across a complex-type copy-on-write (entities preserve them via the internal constructor). (b) Dynamic values are typed as raw `Object` (Jackson's natural binding: `String`/`Number`/`Boolean`/`List`/`Map`); there is no schema-driven coercion. (c) `Edm.GeographyPoint` still maps to `Object`.
+
 ---
 
 ## Architecture
@@ -340,9 +356,10 @@ Run `mvn test` from the repo root. All modules build in one reactor; the runtime
 - **Complex type generator unit tests:** Complex-type inheritance — `EventLocation extends Location`, `with*` + Builder generation (`ComplexTypeGeneratorInheritanceTest` 3)
 - **Entity generator abstract-type unit tests:** Abstract entity generation — abstract base declares no `with*()`, concrete subtype extends it + has `with*()`, and the pair compiles (`EntityGeneratorAbstractTest` 3)
 - **Request generator media-stream tests:** `HasStream` entity + `Edm.Stream` named property generate `stream*`/`set*` request methods (`RequestGeneratorMediaTest` 3)
+- **Open-type generator tests:** Generated entity/complex-type captures undeclared JSON fields into `unmappedFields`; open subtype of non-open base captures via inherited root map (`OpenTypeGeneratorTest` 4)
 - **Runtime tests:** 127 (live TripPin & Northwind integration, query expression, context path, batch, exceptions, transport, **media `$value` stream/put via mock transport** — `EntityOperationsMediaTest` 3, **`$apply` builder** — `ApplyExpressionTest` 8)
-- **Generated client tests (82):** `NorthwindGeneratedClientTest` (24), `ODataDemoGeneratedClientTest` (23, exercises `FeaturedProduct extends Product`, `Customer`/`Employee extends Person`, `Event`/`PlanItem`), `TripPinGeneratedClientTest` (22, exercises `Flight`/`PublicTransportation`/`PlanItem` hierarchy, type-safe + nested `$expand`), `TripPinInheritanceTest` (11, exercises generated **complex-type** inheritance `EventLocation`/`AirportLocation extends Location` + **entity** inheritance `Flight → PublicTransportation → PlanItem`, `Event → PlanItem`: `instanceof`/polymorphic assignment, subtype `with*` copy-on-write preserving inherited fields, base `builder()` scoping, live `AirportLocation` deserialization), `ODataDemoMediaTest` (2, live media streams: `Advertisement` `HasStream` via `streamMedia()` at `.../Advertisements(id)/$value`, `PersonDetail.Photo` `Edm.Stream` named stream via `streamPhoto()` at `.../PersonDetails(id)/Photo`)
-- **Total: 273 tests passing**
+- **Generated client tests (90):** `NorthwindGeneratedClientTest` (24), `ODataDemoGeneratedClientTest` (23, exercises `FeaturedProduct extends Product`, `Customer`/`Employee extends Person`, `Event`/`PlanItem`), `TripPinGeneratedClientTest` (22, exercises `Flight`/`PublicTransportation`/`PlanItem` hierarchy, type-safe + nested `$expand`), `TripPinInheritanceTest` (11, exercises generated **complex-type** inheritance `EventLocation`/`AirportLocation extends Location` + **entity** inheritance `Flight → PublicTransportation → PlanItem`, `Event → PlanItem`: `instanceof`/polymorphic assignment, subtype `with*` copy-on-write preserving inherited fields, base `builder()` scoping, live `AirportLocation` deserialization), `ODataDemoMediaTest` (2, live media streams: `Advertisement` `HasStream` via `streamMedia()` at `.../Advertisements(id)/$value`, `PersonDetail.Photo` `Edm.Stream` named stream via `streamPhoto()` at `.../PersonDetails(id)/Photo`), `OpenTypeDynamicPropertyTest` (8, deserialization captures dynamic props into `unmappedFields`/`getDynamicProperty`, typed `getDynamicProperty(String, Class)` coercion to a POJO/number, round-trips on serialize, filters `@odata.*` control fields)
+- **Total: 285 tests passing**
 - **Future:** Cancellable streaming
 
 ---

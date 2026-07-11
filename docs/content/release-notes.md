@@ -38,6 +38,7 @@
 - `$ref`: Add/remove navigation links
 - `$batch`: Batch multiple operations in a single request
 - **Media streams** — `HasStream="true"` entities get `streamMedia()` / `setMedia(InputStream[, etag])` at `.../<EntitySet>(key)/$value`; `Edm.Stream` named properties get `stream<Prop>()` / `set<Prop>(InputStream[, etag])` at `.../<EntitySet>(key)/<PropertyName>`
+- **OpenType dynamic properties** — `OpenType="true"` entities/complex types capture undeclared JSON fields into `unmappedFields` (exposed via `getUnmappedFields()` / `getDynamicProperty(String)`) and round-trip them on serialize; `@odata.*` control fields are filtered out
 
 **Query Operations:**
 
@@ -77,11 +78,11 @@
 
 **Testing:**
 
-- **273 tests passing**
+- **285 tests passing**
 - Parser: 47 (TripPin + Northwind + OData Demo metadata)
-- Generator: integration (1) + compilation against runtime (1) + composite-key/collection-getter unit (3) + complex-type inheritance unit (3) + abstract-entity unit (3) + media-stream unit (3) + `$apply` unit (3)
+- Generator: integration (1) + compilation against runtime (1) + composite-key/collection-getter unit (3) + complex-type inheritance unit (3) + abstract-entity unit (3) + media-stream unit (3) + `$apply` unit (3) + open-type unit (4)
 - Runtime: 127 (live TripPin & Northwind integration, query expression, context path, batch, exceptions, transport, media `$value` stream/put via mock transport, `$apply` builder)
-- Generated client: 82 (TripPin, Northwind, OData Demo — including inheritance hierarchies and live media-stream reads)
+- Generated client: 90 (TripPin, Northwind, OData Demo — including inheritance hierarchies, live media-stream reads, and OpenType dynamic-property capture + typed `getDynamicProperty(String, Class)`)
 
 ### Known Limitations
 
