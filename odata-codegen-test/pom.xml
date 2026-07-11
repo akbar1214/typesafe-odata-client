@@ -53,7 +53,10 @@
                         <configuration>
                             <metadataFile>${project.parent.basedir}/odata-codegen-core/src/test/resources/trippin-metadata.xml</metadataFile>
                             <schemaPackages>
-                                <Microsoft.OData.SampleService.Models.TripPin>com.example.trippin</Microsoft.OData.SampleService.Models.TripPin>
+                                <schema>
+                                    <namespace>Microsoft.OData.SampleService.Models.TripPin</namespace>
+                                    <packageName>com.example.trippin</packageName>
+                                </schema>
                             </schemaPackages>
                         </configuration>
                     </execution>
@@ -66,8 +69,14 @@
                         <configuration>
                             <metadataFile>${project.basedir}/src/test/resources/northwind-metadata.xml</metadataFile>
                             <schemaPackages>
-                                <NorthwindModel>com.example.northwind</NorthwindModel>
-                                <ODataWebV4.Northwind.Model>com.example.northwind</ODataWebV4.Northwind.Model>
+                                <schema>
+                                    <namespace>NorthwindModel</namespace>
+                                    <packageName>com.example.northwind</packageName>
+                                </schema>
+                                <schema>
+                                    <namespace>ODataWebV4.Northwind.Model</namespace>
+                                    <packageName>com.example.northwind</packageName>
+                                </schema>
                             </schemaPackages>
                         </configuration>
                     </execution>
@@ -80,7 +89,10 @@
                         <configuration>
                             <metadataFile>${project.basedir}/src/test/resources/odata-demo-metadata.xml</metadataFile>
                             <schemaPackages>
-                                <ODataDemo>com.example.odata</ODataDemo>
+                                <schema>
+                                    <namespace>ODataDemo</namespace>
+                                    <packageName>com.example.odata</packageName>
+                                </schema>
                             </schemaPackages>
                         </configuration>
                     </execution>
