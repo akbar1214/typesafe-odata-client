@@ -10,6 +10,7 @@ import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
 
+import static com.example.northwind.entity.Customer.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 class NorthwindGeneratedClientTest {
@@ -152,7 +153,7 @@ class NorthwindGeneratedClientTest {
     @Test
     void filterCustomersByCountry() {
         CollectionPage<Customer> page = client.customers()
-                .filter(Customer.COUNTRY.equalTo("Germany"))
+                .filter(COUNTRY.equalTo("Germany"))
                 .top(3)
                 .get();
 
@@ -213,5 +214,75 @@ class NorthwindGeneratedClientTest {
         for (Order o : page.currentPage()) {
             assertTrue(o.getOrderDate().isPresent());
         }
+    }
+
+    @Test
+    void expandSingleNavProperty() {
+        CollectionPage<Order> page = client.orders()
+                .expand(Order.CUSTOMER)
+                .top(1)
+                .get();
+        assertFalse(page.currentPage().isEmpty());
+        Order order = page.currentPage().get(0);
+        assertNotNull(order.getCustomerID());
+    }
+
+    @Test
+    void expandMultipleNavProperties() {
+        CollectionPage<Order> page = client.orders()
+                .expand(Order.CUSTOMER, Order.EMPLOYEE)
+                .top(1)
+                .get();
+        assertFalse(page.currentPage().isEmpty());
+        Order order = page.currentPage().get(0);
+        assertNotNull(order.getCustomerID());
+    }
+
+    @Test
+    void expandCollectionNavProperty() {
+        CollectionPage<Product> page = client.products()
+                .expand(Product.ORDER_DETAILS)
+                .top(1)
+                .get();
+        assertFalse(page.currentPage().isEmpty());
+        Product product = page.currentPage().get(0);
+        assertNotNull(product.getProductName());
+    }
+
+    @Test
+    void expandWithNestedSelect() {
+        CollectionPage<Order> page = client.orders()
+                .expand(Order.CUSTOMER.select(
+                        COMPANY_NAME,
+                        CITY))
+                .top(1)
+                .get();
+        assertFalse(page.currentPage().isEmpty());
+        Order order = page.currentPage().get(0);
+        assertNotNull(order.getCustomerID());
+    }
+
+    @Test
+    void expandOnProduct() {
+        CollectionPage<Product> page = client.products()
+                .expand(Product.CATEGORY, Product.SUPPLIER)
+                .top(1)
+                .get();
+        assertFalse(page.currentPage().isEmpty());
+        Product product = page.currentPage().get(0);
+        assertNotNull(product.getProductName());
+    }
+
+    @Test
+    void expandWithNestedFilterOnOrderDetails() {
+        CollectionPage<Order> page = client.orders()
+                .expand(Order.ORDER_DETAILS.filter(
+                        new io.github.akbarhusain.odata.runtime.query.NumberProperty<>(
+                                "Quantity", null).greaterThan(10)))
+                .top(1)
+                .get();
+        assertFalse(page.currentPage().isEmpty());
+        Order order = page.currentPage().get(0);
+        assertNotNull(order.getCustomerID());
     }
 }

@@ -3,12 +3,14 @@ package io.github.akbarhusain.odata.test;
 import com.example.trippin.container.DefaultContainer;
 import com.example.trippin.entity.Person;
 import com.example.trippin.entity.Trip;
+import com.example.trippin.entity.Photo;
 import com.example.trippin.enums.PersonGender;
 import io.github.akbarhusain.odata.runtime.entity.Context;
 import io.github.akbarhusain.odata.runtime.entity.ContextPath;
 import io.github.akbarhusain.odata.runtime.http.JdkHttpTransport;
 import io.github.akbarhusain.odata.runtime.client.EntityOperations;
 import io.github.akbarhusain.odata.runtime.paging.CollectionPage;
+import io.github.akbarhusain.odata.runtime.query.NavProperty;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
@@ -211,5 +213,95 @@ class TripPinGeneratedClientTest {
             // The important thing is that the generated client API compiles and runs
             System.out.println("TripPin rejected create: " + e.getMessage());
         }
+    }
+
+    @Test
+    void expandSingleNavProperty() {
+        CollectionPage<Person> page = client.people()
+                .expand(Person.PHOTO)
+                .top(1)
+                .get();
+        Person person = page.currentPage().get(0);
+        assertNotNull(person);
+        assertNotNull(person.getUserName());
+    }
+
+    @Test
+    void expandCollectionNavProperty() {
+        CollectionPage<Person> page = client.people()
+                .expand(Person.TRIPS)
+                .top(1)
+                .get();
+        Person person = page.currentPage().get(0);
+        assertNotNull(person);
+        assertNotNull(person.getUserName());
+    }
+
+    @Test
+    void expandMultipleNavProperties() {
+        CollectionPage<Person> page = client.people()
+                .expand(Person.TRIPS, Person.FRIENDS)
+                .top(1)
+                .get();
+        Person person = page.currentPage().get(0);
+        assertNotNull(person);
+        assertNotNull(person.getUserName());
+    }
+
+    @Test
+    void expandWithNestedSelect() {
+        CollectionPage<Person> page = client.people()
+                .expand(Person.TRIPS.select(Trip.NAME, Trip.DESCRIPTION))
+                .top(1)
+                .get();
+        Person person = page.currentPage().get(0);
+        assertNotNull(person);
+        assertNotNull(person.getUserName());
+    }
+
+    @Test
+    void expandWithNestedFilter() {
+        CollectionPage<Person> page = client.people()
+                .expand(Person.TRIPS.filter(Trip.BUDGET.greaterThan(5000f)))
+                .top(1)
+                .get();
+        Person person = page.currentPage().get(0);
+        assertNotNull(person);
+        assertNotNull(person.getUserName());
+    }
+
+    @Test
+    void expandWithNestedOrderBy() {
+        CollectionPage<Person> page = client.people()
+                .expand(Person.TRIPS.orderBy(Trip.NAME))
+                .top(1)
+                .get();
+        Person person = page.currentPage().get(0);
+        assertNotNull(person);
+        assertNotNull(person.getUserName());
+    }
+
+    @Test
+    void expandWithNestedTop() {
+        CollectionPage<Person> page = client.people()
+                .expand(Person.TRIPS.top(2))
+                .top(1)
+                .get();
+        Person person = page.currentPage().get(0);
+        assertNotNull(person);
+        assertNotNull(person.getUserName());
+    }
+
+    @Test
+    void expandWithNestedSelectAndFilter() {
+        CollectionPage<Person> page = client.people()
+                .expand(Person.TRIPS
+                        .select(Trip.NAME, Trip.DESCRIPTION)
+                        .filter(Trip.BUDGET.greaterThan(5000f)))
+                .top(1)
+                .get();
+        Person person = page.currentPage().get(0);
+        assertNotNull(person);
+        assertNotNull(person.getUserName());
     }
 }

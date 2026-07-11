@@ -281,6 +281,88 @@ class NorthwindIntegrationTest {
     }
 
     @Test
+    void expandWithNestedSelect() throws Exception {
+        ContextPath path = northwindContext.basePath()
+                .addSegment("Orders")
+                .addQuery("$expand", "Customer($select=CompanyName,City)")
+                .addQuery("$top", "1");
+
+        HttpResponse response = EntityOperations.executeSync(
+                northwindContext,
+                io.github.akbarhusain.odata.runtime.http.HttpMethod.GET,
+                path, null, null);
+
+        assertEquals(200, response.statusCode());
+
+        JsonNode root = mapper.readTree(response.body());
+        JsonNode order = root.get("value").get(0);
+        assertTrue(order.has("Customer"), "Order should have expanded Customer");
+        JsonNode customer = order.get("Customer");
+        assertTrue(customer.has("CompanyName"), "Customer should have CompanyName");
+        assertTrue(customer.has("City"), "Customer should have City");
+    }
+
+    @Test
+    void expandMultipleNavProperties() throws Exception {
+        ContextPath path = northwindContext.basePath()
+                .addSegment("Orders")
+                .addQuery("$expand", "Customer,Employee")
+                .addQuery("$top", "1");
+
+        HttpResponse response = EntityOperations.executeSync(
+                northwindContext,
+                io.github.akbarhusain.odata.runtime.http.HttpMethod.GET,
+                path, null, null);
+
+        assertEquals(200, response.statusCode());
+
+        JsonNode root = mapper.readTree(response.body());
+        JsonNode order = root.get("value").get(0);
+        assertTrue(order.has("Customer"), "Order should have expanded Customer");
+        assertTrue(order.has("Employee"), "Order should have expanded Employee");
+    }
+
+    @Test
+    void expandCollectionNavProperty() throws Exception {
+        ContextPath path = northwindContext.basePath()
+                .addSegment("Orders")
+                .addQuery("$expand", "Order_Details")
+                .addQuery("$top", "1");
+
+        HttpResponse response = EntityOperations.executeSync(
+                northwindContext,
+                io.github.akbarhusain.odata.runtime.http.HttpMethod.GET,
+                path, null, null);
+
+        assertEquals(200, response.statusCode());
+
+        JsonNode root = mapper.readTree(response.body());
+        JsonNode order = root.get("value").get(0);
+        assertTrue(order.has("Order_Details"), "Order should have expanded Order_Details");
+        assertTrue(order.get("Order_Details").isArray(), "Order_Details should be an array");
+    }
+
+    @Test
+    void expandOnProductWithCategoryAndSupplier() throws Exception {
+        ContextPath path = northwindContext.basePath()
+                .addSegment("Products")
+                .addQuery("$expand", "Category,Supplier")
+                .addQuery("$top", "1");
+
+        HttpResponse response = EntityOperations.executeSync(
+                northwindContext,
+                io.github.akbarhusain.odata.runtime.http.HttpMethod.GET,
+                path, null, null);
+
+        assertEquals(200, response.statusCode());
+
+        JsonNode root = mapper.readTree(response.body());
+        JsonNode product = root.get("value").get(0);
+        assertTrue(product.has("Category"), "Product should have expanded Category");
+        assertTrue(product.has("Supplier"), "Product should have expanded Supplier");
+    }
+
+    @Test
     void filterOrdersByDate() throws Exception {
         ContextPath path = northwindContext.basePath()
                 .addSegment("Orders")

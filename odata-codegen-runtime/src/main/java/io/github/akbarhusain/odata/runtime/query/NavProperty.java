@@ -3,10 +3,10 @@ package io.github.akbarhusain.odata.runtime.query;
 import java.util.ArrayList;
 import java.util.List;
 
-public final class NavProperty<E, T> {
-    private final String edmName;
-    private final Class<E> entityType;
-    private final Class<T> navType;
+public class NavProperty<E, T> {
+    protected final String edmName;
+    protected final Class<E> entityType;
+    protected final Class<T> navType;
 
     public NavProperty(String edmName, Class<E> entityType, Class<T> navType) {
         this.edmName = edmName;
@@ -54,6 +54,32 @@ public final class NavProperty<E, T> {
         List<String> orderings,
         String topOption
     ) {
+        public NavQuery<T> select(StringProperty<? super T>... properties) {
+            List<String> newSelects = new ArrayList<>(this.selects);
+            for (var prop : properties) {
+                newSelects.add(prop.getEdmName());
+            }
+            return new NavQuery<>(edmName, newSelects, filters, orderings, topOption);
+        }
+
+        public NavQuery<T> filter(FilterExpression predicate) {
+            List<String> newFilters = new ArrayList<>(this.filters);
+            newFilters.add(predicate.toODataExpression());
+            return new NavQuery<>(edmName, selects, newFilters, orderings, topOption);
+        }
+
+        public NavQuery<T> orderBy(OrderExpression<?>... expressions) {
+            List<String> newOrderings = new ArrayList<>(this.orderings);
+            for (var expr : expressions) {
+                newOrderings.add(expr.getODataPath());
+            }
+            return new NavQuery<>(edmName, selects, filters, newOrderings, topOption);
+        }
+
+        public NavQuery<T> top(int count) {
+            return new NavQuery<>(edmName, selects, filters, orderings, "$top=" + count);
+        }
+
         public String toODataExpand() {
             StringBuilder sb = new StringBuilder(edmName);
             List<String> options = new ArrayList<>();

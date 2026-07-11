@@ -2,9 +2,7 @@ package io.github.akbarhusain.odata.runtime.query;
 
 import java.util.function.Function;
 
-public final class CollectionProperty<E, T> {
-    private final String edmName;
-    private final Class<E> entityType;
+public final class CollectionProperty<E, T> extends NavProperty<E, T> {
     private final Class<T> elementType;
 
     public CollectionProperty(String edmName, Class<E> entityType) {
@@ -12,13 +10,11 @@ public final class CollectionProperty<E, T> {
     }
 
     public CollectionProperty(String edmName, Class<E> entityType, Class<T> elementType) {
-        this.edmName = edmName;
-        this.entityType = entityType;
+        super(edmName, entityType, elementType);
         this.elementType = elementType;
     }
 
-    public String getEdmName() { return edmName; }
-    public Class<E> getEntityType() { return entityType; }
+    public Class<T> getElementType() { return elementType; }
 
     public FilterExpression any(Function<FilterableElement<T>, FilterExpression> predicate) {
         FilterableElement<T> element = new FilterableElement<>();
