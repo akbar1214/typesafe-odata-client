@@ -88,19 +88,22 @@ public class EntityGenerator {
 
         for (NavigationPropertyModel nav : allNavs) {
             String elementType = Names.unwrapCollectionType(nav.type());
-            String elementClassName = Names.simpleNameFromFullName(elementType);
-            if (!isBuiltinType(elementClassName)) {
+            String edmSimpleName = Names.simpleNameFromFullName(elementType);
+            if (!isBuiltinType(edmSimpleName)) {
+                String navTargetClass;
                 String suffix;
-                if (schema.complexTypes().stream().anyMatch(c -> c.name().equals(elementClassName))) {
+                if (schema.complexTypes().stream().anyMatch(c -> c.name().equals(edmSimpleName))) {
                     suffix = Names.packageNameSuffixComplexType();
+                    navTargetClass = Names.complexTypeClassName(edmSimpleName);
                 } else {
                     suffix = Names.packageNameSuffixEntity();
+                    navTargetClass = Names.entityClassName(edmSimpleName);
                 }
-                imports.add(basePackageForType(elementType, schema) + suffix + "." + elementClassName);
+                imports.add(basePackageForType(elementType, schema) + suffix + "." + navTargetClass);
             }
         }
 
-        for (PropertyModel prop : entityType.properties()) {
+        for (PropertyModel prop : allProps) {
             addPropertyImports(prop, imports, schema);
         }
         if (base != null) {
@@ -790,7 +793,7 @@ public class EntityGenerator {
             if (javaType.startsWith("java.")) imports.add(javaType);
         } else if (isEnumType(edmType, schema)) {
             String pkg = basePackageForType(edmType, schema);
-            imports.add(pkg + Names.packageNameSuffixEnum() + "." + Names.simpleNameFromFullName(edmType));
+            imports.add(pkg + Names.packageNameSuffixEnum() + "." + Names.enumClassName(Names.simpleNameFromFullName(edmType)));
         } else {
             String pkg = basePackageForType(edmType, schema);
             imports.add(pkg + Names.packageNameSuffixComplexType() + "." + Names.complexTypeClassName(Names.simpleNameFromFullName(edmType)));
