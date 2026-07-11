@@ -8,7 +8,7 @@ package io.github.akbarhusain.odata.runtime.query;
  *   OrderDate ge 1998-01-01T00:00:00Z
  *   not: OrderDate ge '1998-01-01T00:00:00Z'
  */
-public final class DateTimeProperty<E> implements OrderExpression<String> {
+public final class DateTimeProperty<E> implements PropertyExpression<String> {
     private final String edmName;
     private final Class<E> entityType;
 

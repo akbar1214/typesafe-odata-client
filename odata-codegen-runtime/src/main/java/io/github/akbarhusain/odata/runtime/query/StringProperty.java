@@ -1,6 +1,6 @@
 package io.github.akbarhusain.odata.runtime.query;
 
-public final class StringProperty<E> implements OrderExpression<String> {
+public final class StringProperty<E> implements PropertyExpression<String> {
     private final String edmName;
     private final Class<E> entityType;
 

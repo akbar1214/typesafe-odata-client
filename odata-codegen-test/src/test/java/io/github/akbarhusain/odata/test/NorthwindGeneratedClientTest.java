@@ -289,9 +289,7 @@ class NorthwindGeneratedClientTest {
     @Test
     void expandWithNestedFilterOnOrderDetails() {
         CollectionPage<Order> page = client.orders()
-                .expand(Order.ORDER_DETAILS.filter(
-                        new io.github.akbarhusain.odata.runtime.query.NumberProperty<>(
-                                "Quantity", null).greaterThan(10)))
+                .expand(Order.ORDER_DETAILS.filter(Order_Detail.QUANTITY.greaterThan((short) 10)))
                 .top(1)
                 .get();
         assertFalse(page.currentPage().isEmpty());

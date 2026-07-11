@@ -1,6 +1,6 @@
 package io.github.akbarhusain.odata.runtime.query;
 
-public final class EnumProperty<E, V extends Enum<V>> implements OrderExpression<V> {
+public final class EnumProperty<E, V extends Enum<V>> implements PropertyExpression<V> {
     private final String edmName;
     private final Class<E> entityType;
     private final Class<V> enumType;

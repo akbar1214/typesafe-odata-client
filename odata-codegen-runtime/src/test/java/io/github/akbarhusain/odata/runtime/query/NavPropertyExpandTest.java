@@ -57,26 +57,11 @@ class NavPropertyExpandTest {
         StringProperty<Object> name = new StringProperty<>("Name", null);
         NumberProperty<Object, Integer> budget = new NumberProperty<>("Budget", null);
 
-        NavProperty.NavQuery<Object> selectAndFilter = nav.select(name);
-        NavProperty.NavQuery<Object> withFilter = new NavProperty.NavQuery<>(
-                selectAndFilter.edmName(),
-                selectAndFilter.selects(),
-                java.util.List.of(budget.greaterThan(5000).toODataExpression()),
-                selectAndFilter.orderings(),
-                selectAndFilter.topOption());
-        NavProperty.NavQuery<Object> withOrder = new NavProperty.NavQuery<>(
-                withFilter.edmName(),
-                withFilter.selects(),
-                withFilter.filters(),
-                java.util.List.of(name.getODataPath()),
-                withFilter.topOption());
-        NavProperty.NavQuery<Object> withTop = new NavProperty.NavQuery<>(
-                withOrder.edmName(),
-                withOrder.selects(),
-                withOrder.filters(),
-                withOrder.orderings(),
-                "$top=5");
-        assertEquals("Trips($select=Name;$filter=Budget gt 5000;$orderby=Name;$top=5)", withTop.toODataExpand());
+        NavProperty.NavQuery<Object> query = nav.select(name)
+                .filter(budget.greaterThan(5000))
+                .orderBy(name)
+                .top(5);
+        assertEquals("Trips($select=Name;$filter=Budget gt 5000;$orderby=Name;$top=5)", query.toODataExpand());
     }
 
     @Test

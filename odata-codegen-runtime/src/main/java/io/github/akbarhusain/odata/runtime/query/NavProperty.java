@@ -18,7 +18,7 @@ public class NavProperty<E, T> {
     public Class<E> getEntityType() { return entityType; }
     public Class<T> getNavType() { return navType; }
 
-    public NavQuery<T> select(OrderExpression<?>... properties) {
+    public NavQuery<T> select(PropertyExpression<?>... properties) {
         List<String> selects = new ArrayList<>();
         for (var prop : properties) {
             selects.add(prop.getEdmName());
@@ -54,7 +54,7 @@ public class NavProperty<E, T> {
         List<String> orderings,
         String topOption
     ) {
-        public NavQuery<T> select(OrderExpression<?>... properties) {
+        public NavQuery<T> select(PropertyExpression<?>... properties) {
             List<String> newSelects = new ArrayList<>(this.selects);
             for (var prop : properties) {
                 newSelects.add(prop.getEdmName());

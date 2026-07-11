@@ -112,11 +112,20 @@ class GeneratorCompilationTest {
                 "slf4j-api"
         );
 
-        return artifactIds.stream()
+        List<File> classpath = artifactIds.stream()
                 .map(id -> findJar(mavenRepo, id))
                 .filter(p -> p != null)
                 .map(Path::toFile)
-                .toList();
+                .collect(java.util.ArrayList::new, java.util.ArrayList::add, java.util.ArrayList::addAll);
+
+        // Prefer freshly-built runtime classes from the sibling module when present
+        // (helps incremental builds where the installed .m2 jar is stale).
+        Path siblingClasses = Path.of("..", "odata-codegen-runtime", "target", "classes");
+        if (java.nio.file.Files.isReadable(siblingClasses)) {
+            classpath.add(0, siblingClasses.toFile());
+        }
+
+        return classpath;
     }
 
     private Path findJar(Path mavenRepo, String artifactId) {

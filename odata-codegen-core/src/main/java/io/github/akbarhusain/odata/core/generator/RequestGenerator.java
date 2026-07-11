@@ -164,7 +164,7 @@ public class RequestGenerator {
         sb.append("    }\n\n");
 
         // Type-safe select
-        sb.append("    public ").append(className).append(" select(OrderExpression<?>... properties) {\n");
+        sb.append("    public ").append(className).append(" select(PropertyExpression<?>... properties) {\n");
         sb.append("        ").append(className).append(" next = copy();\n");
         sb.append("        for (var p : properties) next.selects.add(p.getEdmName());\n");
         sb.append("        return next;\n");

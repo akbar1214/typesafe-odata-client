@@ -1,6 +1,6 @@
 package io.github.akbarhusain.odata.runtime.query;
 
-public final class BooleanProperty<E> implements OrderExpression<Boolean> {
+public final class BooleanProperty<E> implements PropertyExpression<Boolean> {
     private final String edmName;
     private final Class<E> entityType;
 
