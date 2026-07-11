@@ -2,6 +2,7 @@ package io.github.akbarhusain.odata.runtime.internal;
 
 import io.github.akbarhusain.odata.runtime.batch.BatchOperation;
 import io.github.akbarhusain.odata.runtime.batch.BatchResult;
+import io.github.akbarhusain.odata.runtime.batch.Changeset;
 
 import java.nio.charset.StandardCharsets;
 import java.util.*;
@@ -13,11 +14,57 @@ public class MultipartHelper {
     private static final String CRLF = "\r\n";
     private static final Pattern STATUS_LINE_PATTERN = Pattern.compile("HTTP/\\d\\.\\d\\s+(\\d{3})\\s*(.*)");
     private static final Pattern HEADER_PATTERN = Pattern.compile("^([\\w-]+):\\s*(.*)");
+    private static final Pattern BOUNDARY_PATTERN = Pattern.compile("boundary=([^;\\s]+)");
 
     private MultipartHelper() {}
 
     public static String generateBoundary() {
         return "batch_" + UUID.randomUUID().toString().replace("-", "");
+    }
+
+    public static String generateChangesetBoundary() {
+        return "changeset_" + UUID.randomUUID().toString().replace("-", "");
+    }
+
+    public static byte[] encodeBatchRequest(String boundary, List<Object> entries) {
+        StringBuilder sb = new StringBuilder();
+
+        for (Object entry : entries) {
+            sb.append("--").append(boundary).append(CRLF);
+            if (entry instanceof Changeset cs) {
+                String csBoundary = generateChangesetBoundary();
+                sb.append("Content-Type: multipart/mixed; boundary=").append(csBoundary).append(CRLF);
+                sb.append(CRLF);
+                sb.append(new String(encodeChangeset(csBoundary, cs.operations()), StandardCharsets.UTF_8));
+            } else if (entry instanceof BatchOperation op) {
+                sb.append("Content-Type: application/http").append(CRLF);
+                sb.append("Content-Transfer-Encoding: binary").append(CRLF);
+                sb.append(CRLF);
+                encodeOperation(sb, op);
+            }
+            sb.append(CRLF);
+        }
+
+        sb.append("--").append(boundary).append("--").append(CRLF);
+        return sb.toString().getBytes(StandardCharsets.UTF_8);
+    }
+
+    public static byte[] encodeChangeset(String boundary, List<BatchOperation> operations) {
+        StringBuilder sb = new StringBuilder();
+
+        for (int i = 0; i < operations.size(); i++) {
+            BatchOperation op = operations.get(i);
+            sb.append("--").append(boundary).append(CRLF);
+            sb.append("Content-Type: application/http").append(CRLF);
+            sb.append("Content-Transfer-Encoding: binary").append(CRLF);
+            sb.append("Content-ID: ").append(i + 1).append(CRLF);
+            sb.append(CRLF);
+            encodeOperation(sb, op);
+            sb.append(CRLF);
+        }
+
+        sb.append("--").append(boundary).append("--").append(CRLF);
+        return sb.toString().getBytes(StandardCharsets.UTF_8);
     }
 
     public static byte[] encodeRequest(String boundary, List<BatchOperation> operations) {
@@ -59,26 +106,28 @@ public class MultipartHelper {
 
         String bodyStr = new String(body, StandardCharsets.UTF_8);
         List<BatchResult<?>> results = new ArrayList<>();
+        decodeParts(boundary, bodyStr, 0, bodyStr.length(), results);
+        return results;
+    }
 
+    private static int decodeParts(String boundary, String bodyStr, int startPos, int endPos, List<BatchResult<?>> results) {
         String delimiter = "--" + boundary;
         String endDelimiter = delimiter + "--";
 
-        // Find first occurrence of the delimiter
-        int currentPos = bodyStr.indexOf(delimiter);
-        if (currentPos < 0) {
-            return List.of();
+        int currentPos = bodyStr.indexOf(delimiter, startPos);
+        if (currentPos < 0 || currentPos >= endPos) {
+            return endPos;
         }
 
-        // Advance past the first delimiter
         currentPos += delimiter.length();
 
-        while (currentPos < bodyStr.length()) {
+        while (currentPos < endPos) {
             // Skip CRLF or LF after delimiter
-            if (currentPos + 1 < bodyStr.length()
+            if (currentPos + 1 < endPos
                     && bodyStr.charAt(currentPos) == '\r'
                     && bodyStr.charAt(currentPos + 1) == '\n') {
                 currentPos += 2;
-            } else if (currentPos < bodyStr.length()
+            } else if (currentPos < endPos
                     && bodyStr.charAt(currentPos) == '\n') {
                 currentPos += 1;
             }
@@ -90,14 +139,12 @@ public class MultipartHelper {
 
             // Find the next delimiter (start of next part or end delimiter)
             int nextDelimPos = bodyStr.indexOf(delimiter, currentPos);
-            if (nextDelimPos < 0) {
+            if (nextDelimPos < 0 || nextDelimPos > endPos) {
                 break;
             }
 
-            // Extract part content (from currentPos up to the next delimiter)
-            // The CRLF/LF before the delimiter is part of the delimiter boundary, not the content
+            // Extract part content
             int partEnd = nextDelimPos;
-            // Strip trailing CRLF or LF before the delimiter
             if (partEnd >= 2
                     && bodyStr.charAt(partEnd - 2) == '\r'
                     && bodyStr.charAt(partEnd - 1) == '\n') {
@@ -109,30 +156,19 @@ public class MultipartHelper {
 
             String part = bodyStr.substring(currentPos, partEnd);
             if (!part.isBlank()) {
-                BatchResult<?> result = decodePart(part);
-                if (result != null) {
-                    results.add(result);
-                }
+                decodePartOrNested(part, results);
             }
 
             // Move past the next delimiter
             currentPos = nextDelimPos + delimiter.length();
         }
 
-        return results;
+        return currentPos;
     }
 
-    private static BatchResult<?> decodePart(String part) {
-        // Part format:
-        // Content-Type: application/http\r\n
-        // Content-Transfer-Encoding: binary\r\n
-        // \r\n
-        // HTTP/1.1 200 OK\r\n
-        // Content-Type: application/json\r\n
-        // \r\n
-        // {body}
-
-        // Find blank line separating part headers from HTTP content
+    private static void decodePartOrNested(String part, List<BatchResult<?>> results) {
+        // Check if this part is itself a multipart/mixed (changeset)
+        // by looking at the part headers before the blank line
         int separatorIdx = part.indexOf(CRLF + CRLF);
         int separatorLen = 4;
         if (separatorIdx < 0) {
@@ -140,10 +176,45 @@ public class MultipartHelper {
             separatorLen = 2;
         }
         if (separatorIdx < 0) {
-            return null;
+            return;
         }
 
-        String httpBlock = part.substring(separatorIdx + separatorLen).strip();
+        String partHeaders = part.substring(0, separatorIdx);
+        String partContent = part.substring(separatorIdx + separatorLen);
+
+        // Check for nested multipart/mixed (changeset)
+        Matcher contentTypeMatcher = HEADER_PATTERN.matcher("");
+        for (String line : partHeaders.split("\\r?\\n")) {
+            contentTypeMatcher = HEADER_PATTERN.matcher(line);
+            if (contentTypeMatcher.matches() && "Content-Type".equalsIgnoreCase(contentTypeMatcher.group(1))) {
+                String ctValue = contentTypeMatcher.group(2);
+                Matcher boundaryMatcher = BOUNDARY_PATTERN.matcher(ctValue);
+                if (ctValue.contains("multipart/mixed") && boundaryMatcher.find()) {
+                    String nestedBoundary = boundaryMatcher.group(1);
+                    // Recursively decode the nested multipart
+                    decodeParts(nestedBoundary, partContent, 0, partContent.length(), results);
+                    return;
+                }
+                break;
+            }
+        }
+
+        // Not a nested multipart — decode as a regular HTTP part.
+        // partContent contains: HTTP/1.1 200 OK\r\nHeaders\r\n\r\nBody
+        BatchResult<?> result = decodeSinglePart(partContent);
+        if (result != null) {
+            results.add(result);
+        }
+    }
+
+    private static BatchResult<?> decodeSinglePart(String httpBlock) {
+        // httpBlock format:
+        // HTTP/1.1 200 OK\r\n
+        // Response-Header: value\r\n
+        // \r\n
+        // {body}
+
+        httpBlock = httpBlock.strip();
         if (httpBlock.isEmpty()) {
             return null;
         }

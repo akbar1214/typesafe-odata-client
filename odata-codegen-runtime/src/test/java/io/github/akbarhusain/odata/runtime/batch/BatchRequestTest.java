@@ -4,6 +4,8 @@ import io.github.akbarhusain.odata.runtime.entity.Context;
 import io.github.akbarhusain.odata.runtime.entity.ContextPath;
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
+
 import static org.junit.jupiter.api.Assertions.*;
 
 class BatchRequestTest {
@@ -84,6 +86,54 @@ class BatchRequestTest {
 
         String relative = path.toRelativeUrl();
         assertEquals("People?$top=5", relative);
+    }
+
+    @Test
+    void addChangesetIncreasesSize() {
+        Context ctx = Context.builder()
+                .baseUrl("https://services.odata.org/V4/TripPinService")
+                .build();
+
+        Changeset cs = new Changeset(List.of(
+                BatchOperation.delete("People('olduser')"),
+                BatchOperation.post("People", "{\"UserName\":\"new\"}".getBytes())
+        ));
+
+        BatchRequest batch = ctx.batch()
+                .addChangeset(cs);
+
+        assertEquals(2, batch.size(), "Changeset with 2 ops should count as 2 operations");
+        assertFalse(batch.isEmpty());
+    }
+
+    @Test
+    void addChangesetIsCountedSeparatelyFromIndividualOps() {
+        Context ctx = Context.builder()
+                .baseUrl("https://services.odata.org/V4/TripPinService")
+                .build();
+
+        Changeset cs = new Changeset(List.of(
+                BatchOperation.post("People", "{\"UserName\":\"new\"}".getBytes())
+        ));
+
+        BatchRequest batch = ctx.batch()
+                .add(BatchOperation.get("People"))
+                .addChangeset(cs)
+                .add(BatchOperation.get("People('scott')"));
+
+        assertEquals(3, batch.size(), "1 standalone + 1 changeset op + 1 standalone = 3");
+    }
+
+    @Test
+    void addChangesetReturnsSameInstanceForFluentApi() {
+        Context ctx = Context.builder()
+                .baseUrl("https://services.odata.org/V4/TripPinService")
+                .build();
+
+        BatchRequest batch = ctx.batch();
+        Changeset cs = new Changeset(List.of(BatchOperation.get("People")));
+        BatchRequest returned = batch.addChangeset(cs);
+        assertSame(batch, returned);
     }
 
     @Test

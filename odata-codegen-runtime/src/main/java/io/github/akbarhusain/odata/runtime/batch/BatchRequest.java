@@ -17,33 +17,38 @@ import java.util.concurrent.CompletionException;
 
 public class BatchRequest {
     private final Context context;
-    private final List<BatchOperation> operations = new ArrayList<>();
+    private final List<Object> entries = new ArrayList<>();
 
     public BatchRequest(Context context) {
         this.context = context;
     }
 
     public BatchRequest add(BatchOperation operation) {
-        operations.add(operation);
+        entries.add(operation);
+        return this;
+    }
+
+    public BatchRequest addChangeset(Changeset changeset) {
+        entries.add(changeset);
         return this;
     }
 
     public int size() {
-        return operations.size();
+        return entries.stream().mapToInt(e -> e instanceof Changeset c ? c.size() : 1).sum();
     }
 
     public boolean isEmpty() {
-        return operations.isEmpty();
+        return entries.isEmpty();
     }
 
     public BatchResponse execute() {
-        if (operations.isEmpty()) {
+        if (entries.isEmpty()) {
             return new BatchResponse(List.of());
         }
 
         String boundary = MultipartHelper.generateBoundary();
-        List<BatchOperation> resolvedOps = resolveOperations(operations);
-        byte[] body = MultipartHelper.encodeRequest(boundary, resolvedOps);
+        resolveEntryUrls();
+        byte[] body = MultipartHelper.encodeBatchRequest(boundary, entries);
 
         ContextPath batchPath = context.basePath().addSegment("$batch");
 
@@ -74,13 +79,13 @@ public class BatchRequest {
     }
 
     public CompletableFuture<BatchResponse> executeAsync() {
-        if (operations.isEmpty()) {
+        if (entries.isEmpty()) {
             return CompletableFuture.completedFuture(new BatchResponse(List.of()));
         }
 
         String boundary = MultipartHelper.generateBoundary();
-        List<BatchOperation> resolvedOps = resolveOperations(operations);
-        byte[] body = MultipartHelper.encodeRequest(boundary, resolvedOps);
+        resolveEntryUrls();
+        byte[] body = MultipartHelper.encodeBatchRequest(boundary, entries);
 
         ContextPath batchPath = context.basePath().addSegment("$batch");
 
@@ -102,6 +107,37 @@ public class BatchRequest {
 
         return transport.submit(request)
                 .thenApply(response -> parseResponse(response, boundary));
+    }
+
+    private void resolveEntryUrls() {
+        String serviceRoot = context.baseUrl();
+        if (serviceRoot.endsWith("/")) {
+            serviceRoot = serviceRoot.substring(0, serviceRoot.length() - 1);
+        }
+        final String baseUrl = serviceRoot;
+
+        for (int i = 0; i < entries.size(); i++) {
+            Object entry = entries.get(i);
+            if (entry instanceof BatchOperation op) {
+                entries.set(i, resolveOperationUrl(op, baseUrl));
+            } else if (entry instanceof Changeset cs) {
+                List<BatchOperation> resolved = cs.operations().stream()
+                        .map(op -> resolveOperationUrl(op, baseUrl))
+                        .toList();
+                entries.set(i, new Changeset(resolved));
+            }
+        }
+    }
+
+    private static BatchOperation resolveOperationUrl(BatchOperation op, String baseUrl) {
+        String url = op.url();
+        if (!url.startsWith("http")) {
+            url = baseUrl + "/" + url;
+        }
+        if (op.body() != null && op.body().length > 0) {
+            return new BatchOperation(op.method(), url, op.headers(), op.body());
+        }
+        return new BatchOperation(op.method(), url, op.headers(), null);
     }
 
     private BatchResponse parseResponse(HttpResponse response, String boundary) {
@@ -150,22 +186,4 @@ public class BatchRequest {
         return result;
     }
 
-    private List<BatchOperation> resolveOperations(List<BatchOperation> ops) {
-        String serviceRoot = context.baseUrl();
-        if (serviceRoot.endsWith("/")) {
-            serviceRoot = serviceRoot.substring(0, serviceRoot.length() - 1);
-        }
-        final String baseUrl = serviceRoot;
-
-        return ops.stream().map(op -> {
-            String url = op.url();
-            if (!url.startsWith("http")) {
-                url = baseUrl + "/" + url;
-            }
-            if (op.body() != null && op.body().length > 0) {
-                return new BatchOperation(op.method(), url, op.headers(), op.body());
-            }
-            return new BatchOperation(op.method(), url, op.headers(), null);
-        }).toList();
-    }
 }

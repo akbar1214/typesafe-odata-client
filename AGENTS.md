@@ -52,9 +52,9 @@ A type-safe OData v4 client generator for Java. Parses CSDL XML metadata and gen
 
 **Reason:** Property constants share the same name as instance fields. Using camelCase creates name shadowing — the static constant `firstName` collides with the instance field `firstName` in the same class. UPPER_CASE follows Java constant naming conventions (like `Integer.MAX_VALUE`) and eliminates the collision entirely.
 
-### 4. Truly Immutable Entities
+### 4. Immutable-by-Contract with Copy-on-Write
 
-**Decision:** All generated entities use `final` fields and copy-on-write semantics.
+**Decision:** Generated entities use non-final `protected` fields but enforce immutability through copy-on-write `with*()` methods and immutable getters. This hybrid approach avoids the JVM 255-parameter limit for constructor-based deserialization.
 
 **Reason:** The reference implementation claims immutability but has:
 - `protected` non-final fields (due to JVM 256-arg constructor limit)
@@ -62,10 +62,15 @@ A type-safe OData v4 client generator for Java. Parses CSDL XML metadata and gen
 - `changedFields` set to `null` after `patch()` (NPE risk)
 
 **Our approach:**
-- All fields `final`
-- `with*()` methods return new instances (no `_copy()` needed)
-- `ChangedFields` is a separate `Set<String>` passed to constructor
-- No `@JacksonInject` coupling — model is annotation-free
+- Fields are `protected` (non-final) — allows no-args constructor for Builder/`with*()`
+- Jackson deserialization via `@JsonCreator` with `@JsonProperty` on each parameter (correct types)
+- For wide entities (>252 params): `@JsonAnySetter` switch instead of `@JsonCreator`
+- Public no-args constructor for Builder/`with*()` copy-on-write
+- Public setters for all own properties (used by Builder and `with*()`)
+- Getters return immutable views: `Collections.unmodifiableList()` for collections, `Optional` for nullable
+- `with*()` methods deep-copy collections (`List.copyOf`) and `unmappedFields` (`new HashMap<>`)
+- `ChangedFields` is a separate `Set<String>` tracked via `EntityUtil.mergeChanged()`
+- No `@JacksonInject` coupling — model is annotation-free except for `@JsonProperty`/`@JsonCreator`
 
 ### 5. Narrow HTTP Interface
 
@@ -307,19 +312,84 @@ CollectionPage<Person> people = client.people()
 
 ### 22. OpenType Dynamic Properties via `@JsonAnySetter`/`@JsonAnyGetter`
 
-**Decision:** Entities and complex types declared `OpenType="true"` (or inheriting openness from a base) capture undeclared JSON fields into `unmappedFields` on deserialization, expose them via `getUnmappedFields()` / `getDynamicProperty(String)`, and round-trip them on serialization.
+**Decision:** Entities and complex types declared `OpenType="true"` (or inheriting openness from a base) capture undeclared JSON fields into `unmappedFields` on deserialization, expose them via `getUnmappedFields()` / `getDynamicProperty(String)`, and round-trip them on serialization. Known properties go through `@JsonCreator` with correct types; only unknown properties pass through `@JsonAnySetter`.
 
-**Reason:** OData open types may carry dynamic properties not present in the CSDL — a service can return extra JSON fields (TripPin `Person`/`Event`/`Location`, OData Demo `Category`). Previously these were **silently dropped**: the `@JsonCreator` constructor lists only declared props, there was no any-setter, `FAIL_ON_UNKNOWN_PROPERTIES` is `false`, and `unmappedFields` was hard-coded to `Map.of()`. `getUnmappedFields()` always returned `{}` despite existing on the `ODataType` interface.
+**Reason:** OData open types may carry dynamic properties not present in the CSDL — a service can return extra JSON fields (TripPin `Person`/`Event`/`Location`, OData Demo `Category`). The `@JsonCreator` constructor handles known properties with full type safety; the `@JsonAnySetter` catches the rest.
 
 **Approach:**
-- `openTypeResolved(type)` walks the base chain — a type is open if it or any ancestor is open (OpenType propagates to subtypes per the OData spec).
-- The **root** class (`base == null`) initializes `unmappedFields` to a mutable `new HashMap<>()` when `subtreeHasOpen(root)` (any type in its hierarchy is open); otherwise it keeps the zero-alloc `Map.of()`. Non-open hierarchies are completely unchanged (no extra allocation, no annotations).
-- A `@JsonAnySetter protected void putDynamicProperty(String,Object)` is generated **only at the topmost open type** in the chain (`firstOpen`) — `protected` (not `private`) so open subtypes inherit the single any-setter (Jackson rejects multiple any-setters). It filters out `@`-prefixed OData control annotations (`@odata.id`, `@odata.editLink`, ...).
-- `getUnmappedFields()` gets `@JsonAnyGetter` and returns `Collections.unmodifiableMap(unmappedFields)` for every open-resolved type (so it survives override chains and re-serializes dynamic props on POST/PATCH).
-- The same logic is mirrored in `ComplexTypeGenerator` (open complex types: TripPin `Location`/`EventLocation`/`AirportLocation`).
-- A typed overload `getDynamicProperty(String name, Class<T> type)` coerces the stored Jackson "natural" value into the caller's type via `DynamicPropertyConverter.convert(...)` (Jackson `ObjectMapper.convertValue`), so nested objects become POJOs and numbers coerce (e.g. `Integer` → `Long`). `convertValue` is the correct tool because the value is an in-memory Jackson object — there are no JSON bytes to re-parse, and the pluggable `Serializer` cannot operate on it. Conversion failures throw `IllegalArgumentException` with the property name.
+- `openTypeResolved(type)` walks the base chain — a type is open if it or any ancestor is open.
+- The **root** class initializes `unmappedFields` to a mutable `new HashMap<>()` when `subtreeHasOpen(root)`; otherwise `Map.of()`.
+- A `@JsonAnySetter` is generated **only at the topmost open type** — filters out `@`-prefixed control annotations.
+- `@JsonAnyGetter` on `getUnmappedFields()` returns an unmodifiable view for round-trip serialization.
 
-**Known limitations:** (a) Complex-type `with*()`/`Builder` reconstruct via the all-args `@JsonCreator` constructor, which starts a fresh empty `unmappedFields` — dynamic props are **not** preserved across a complex-type copy-on-write (entities preserve them via the internal constructor). (b) Dynamic values are typed as raw `Object` (Jackson's natural binding: `String`/`Number`/`Boolean`/`List`/`Map`); there is no schema-driven coercion. (c) `Edm.GeographyPoint` still maps to `Object`.
+### 23. Batch Changeset Support
+
+**Decision:** `BatchRequest` supports grouped operations (`Changeset`) that the server executes atomically. Changesets are encoded as nested `multipart/mixed` boundaries with `Content-ID` headers per the OData v4 spec.
+
+**Reason:** Real OData services require transactional mutation: POST a Customer AND POST an Order in one atomic unit. Without changesets, users must implement their own rollback logic.
+
+**API:**
+```java
+Changeset cs = new Changeset(List.of(
+    BatchOperation.post("Customers", customerJson),
+    BatchOperation.post("Orders", orderJson)
+));
+
+BatchResponse response = context.batch()
+    .addChangeset(cs)
+    .add(BatchOperation.get("Customers"))
+    .execute();
+```
+- `Changeset` wraps `List<BatchOperation>`, immutable via `List.copyOf`.
+- Encoding nests changeset ops in a separate `multipart/mixed; boundary=...` with `Content-ID: 1`, `Content-ID: 2`, etc.
+- Decoding is recursive: `decodeParts()` detects nested `multipart/mixed` boundaries in the response and flattens all results.
+- `MultipartHelper.encodeChangeset()` / `encodeBatchRequest()` / `decodeParts()` / `decodePartOrNested()` support the nesting.
+- 7 new tests covering encode, decode, mixed entries, round-trip.
+
+**Known limitation:** Content-ID references (`$N` patterns in URLs within a changeset) are not yet resolved. Tracked as follow-up.
+
+### 24. Unified Entity Generation: `@JsonCreator` for Normal, `@JsonAnySetter` for Wide (>252 params)
+
+**Decision:** Entities use a hybrid approach:
+- **Normal entities** (≤252 params): `@JsonCreator` with `@JsonProperty` on each parameter — Jackson deserializes with full type safety.
+- **Wide entities** (>252 params): `@JsonProperty` on each field + `@JsonAnySetter` switch — avoids the JVM 255-parameter limit.
+- **All entities**: public no-args constructor + setters for Builder/`with*()` copy-on-write.
+- **All entities**: non-final `protected` fields (mutable setters, immutable-read via getters).
+
+**Reason:** The JVM limits constructors to 255 parameters. For most OData entities (10-50 properties) `@JsonCreator` is type-safe and efficient. For edge cases (>240 properties), field-level `@JsonProperty` + `@JsonAnySetter` avoids the limit entirely. The no-args constructor + setters unify both paths for Builder and `with*()`.
+
+**Details:**
+- `wide` threshold = 252 params (leaves margin, accounts for `long`/`double` double-counting)
+- Wide entities: `@PropertyName` on every field, `@JsonAnySetter public void setProperty(String key, Object value)` with a switch statement for known properties
+- Setters generated for `ownProps` only (inherited fields set via `this.fieldName` in `with*()`)
+- Builder created for root-level concrete entities only (subtypes use `with*()`)
+
+### 25. Copy-on-Write Defensive Copying in `with*()` Methods
+
+**Decision:** The `with*()` and nav-`with*()` methods defensively copy collection fields and `unmappedFields` to prevent shared mutable state between original and copy.
+
+**Reason:** Without defensive copies, two entities post-`with*` share the same `List` and `HashMap` internals. A mutation on one (e.g., via a setter) would affect the other, violating copy-on-write semantics.
+
+**Implementation:**
+- Collection-typed properties: `e.colors = this.colors == null ? null : List.copyOf(this.colors);`
+- Collection navs: `e.trips = this.trips == null ? null : List.copyOf(this.trips);`
+- `unmappedFields`: `e.unmappedFields = unmappedFields == null ? null : new java.util.HashMap<>(unmappedFields);`
+- `changedFields`: via `EntityUtil.mergeChanged()`
+
+### 26. Nav Property Getter/With-Method Name Sanitization
+
+**Decision:** Nav property getter and `with*` method names use `Names.navGetterMethod()` / `Names.navWithMethod()` which apply `sanitizeIdentifier` and `isObjectMethodName` checks (same as property getters — lesson 60).
+
+**Reason:** A nav property named `class` would produce `getClass()` which collides with `Object.getClass()` (final, can't override). The sanitizer produces `getClass_()` instead.
+
+**Implementation:**
+- `Names.navGetterMethod(navName)` = `isObjectMethodName(get<sanitized>) ? "getClass_" : "get<sanitized>"`
+- Applied in `EntityGenerator.navGetterName()` and `ComplexTypeGenerator.navGetterName()`
+- 3 new tests in `NavReservedWordTest`
+
+---
+
+## Architecture
 
 ---
 
@@ -358,10 +428,11 @@ Run `mvn test` from the repo root. All modules build in one reactor; the runtime
 - **Entity generator abstract-type unit tests:** Abstract entity generation — abstract base declares no `with*()`, concrete subtype extends it + has `with*()`, and the pair compiles (`EntityGeneratorAbstractTest` 3)
 - **Request generator tests:** Media-stream, `$apply` expression, composite-key (`RequestGeneratorMediaTest` 3, `RequestGeneratorApplyTest` 3, `RequestGeneratorKeyTest` 2)
 - **Open-type generator tests:** Generated entity/complex-type captures undeclared JSON fields into `unmappedFields`; open subtype of non-open base captures via inherited root map; non-open complex type doesn't reference unmappedFields (`OpenTypeGeneratorTest` 6)
-- **Runtime tests:** 166 (live TripPin & Northwind integration, query expression, context path, batch, exceptions, transport, **media `$value` stream/put via mock transport** — `EntityOperationsMediaTest` 3, **`$apply` builder** — `ApplyExpressionTest` 8, **collection parse** — `EntityOperationsCollectionParseTest` 6)
+- **Runtime tests:** 173 (live TripPin & Northwind integration, query expression, context path, batch, exceptions, transport, **media `$value` stream/put via mock transport** — `EntityOperationsMediaTest` 3, **`$apply` builder** — `ApplyExpressionTest` 8, **collection parse** — `EntityOperationsCollectionParseTest` 6, **batch changeset encode/decode/round-trip** — `MultipartHelperTest` 14, `BatchRequestTest` 10)
 - **Generated client tests (92):** `NorthwindGeneratedClientTest` (24), `ODataDemoGeneratedClientTest` (23, exercises `FeaturedProduct extends Product`, `Customer`/`Employee extends Person`, `Event`/`PlanItem`), `TripPinGeneratedClientTest` (24, exercises `Flight`/`PublicTransportation`/`PlanItem` hierarchy, type-safe + nested `$expand` with materialized getters), `TripPinInheritanceTest` (11, exercises generated **complex-type** inheritance `EventLocation`/`AirportLocation extends Location` + **entity** inheritance `Flight → PublicTransportation → PlanItem`, `Event → PlanItem`: `instanceof`/polymorphic assignment, subtype `with*` copy-on-write preserving inherited fields, base `builder()` scoping, live `AirportLocation` deserialization), `ODataDemoMediaTest` (2, live media streams: `Advertisement` `HasStream` via `streamMedia()` at `.../Advertisements(id)/$value`, `PersonDetail.Photo` `Edm.Stream` named stream via `streamPhoto()` at `.../PersonDetails(id)/Photo`), `OpenTypeDynamicPropertyTest` (8, deserialization captures dynamic props into `unmappedFields`/`getDynamicProperty`, typed `getDynamicProperty(String, Class)` coercion to a POJO/number, round-trips on serialize, filters `@odata.*` control fields)
-- **Total: 352 tests passing**
-- **Future:** Cancellable streaming
+- **Generator unit tests (16 new):** `WideEntityGeneratorTest` 8 (wide-entity `@JsonAnySetter` switch, mutable lifecycle fields, no-args constructor), `WithMethodCopyOnWriteTest` 5 (copy-on-write defensive copying of collections and unmappedFields), `NavReservedWordTest` 3 (nav getter/with-method sanitization for `class` and other Object-method collisions)
+- **Total: 369 tests passing** (106 core + 173 runtime + 5 maven + 92 test module)
+- **Future:** Cancellable streaming, Content-ID resolution in changesets
 
 ---
 
@@ -516,3 +587,13 @@ Run `mvn test` from the repo root. All modules build in one reactor; the runtime
 69. **Cross-schema type resolution must search ALL schemas, not just the current one.** Every type-kind lookup (`schema.complexTypes()`, `schema.entityTypes()`, `schema.enumTypes()`) only searched the current schema's types. When a nav target or property type lives in a different namespace (e.g., `Shared.Address` used in `CompanyNS`), it falls through to the default (entity suffix), producing wrong imports like `com.shared.entity.Address` instead of `com.shared.complex.Address`. Fix: added `Names.TypeKind` enum + `resolveTypeKind()` / `resolvedClassName()` / `resolvedSuffix()` utilities that search across all schemas. Each generator now stores `allSchemas` (from `CsdlModel.schemas()`), initializes `effectiveSchemas` in `generate()` (falls back to `List.of(schema)` for backward-compatible constructors), and all helper methods use `effectiveSchemas` for type-kind resolution. Applied to `EntityGenerator`, `ComplexTypeGenerator`, and `RequestGenerator`. Verified by `CrossSchemaImportComplexTypeInPropertyTest` (types from `Shared` schema used in `CompanyNS` and `PersonNS`).
 
 70. **`with*` method parameter `value` shadows field named `value`.** `generateWithMethod` and `generateNavWithMethod` in both `EntityGenerator` and `ComplexTypeGenerator` hardcode the parameter name `value` but reference other fields by bare name (e.g., `value` for the changed property, `fieldName` for others). If a CSDL property maps to Java field name `value` (a valid identifier, not a reserved word), the bare reference `value` in the `new` constructor call resolves to the parameter, not the field — causing incorrect data or compilation errors when the parameter type differs. Fix: prefix all field references in the `with*` body with `this.` (e.g., `this.fieldName`). Builder setter methods already used `this.`; the issue was only in entity/complex-type `with*` methods. Verified by adding `value` property to `reserved-words-metadata.xml` (compilation succeeds) and updating `ComplexTypeGeneratorInheritanceTest` assertions.
+
+71. **`ContextPath` only supports flat batch — changesets require recursive multipart encoding/decoding.** The original `MultipartHelper.decodeResponse` parsed parts in one pass with no nesting. Changesets emit `Content-Type: multipart/mixed; boundary=X` as a part header, with the changeset operations nested inside. `decodeParts()` recurses into these nested boundaries. `encodeBatchRequest()` wraps changeset operations in a nested boundary with `Content-ID` headers. Verified by 7 new tests.
+
+72. **Wide-entity `setProperty` default case can throw `UnsupportedOperationException` on immutable `Map.of()`.** The wide entity path always uses `@JsonAnySetter` with a switch statement. The default case writes unknown keys to `unmappedFields.put(key, value)`. But the no-args constructor initialized `unmappedFields` to `Map.of()` for non-open roots. Fixed: wide entities always initialize `unmappedFields` as a mutable `new HashMap<>()`, regardless of `rootMutableMap`. Verified by `WideEntityGeneratorTest` (asserts `new HashMap<>()` in no-args constructor).
+
+73. **Copy-on-write `with*()` must defensively copy collections and `unmappedFields`.** Original `with*()` methods assigned fields directly: `e.trips = this.trips` and `e.unmappedFields = unmappedFields`. This shared mutable state between original and copy — a violation of copy-on-write. Fix: `with*()` methods now emit `List.copyOf(this.field)` for collection-types and `new HashMap<>(unmappedFields)` for the dynamic-property map. Changed fields still go through `EntityUtil.mergeChanged()` which creates a new `HashSet`. Verified by `WithMethodCopyOnWriteTest` (5 tests checking defensive copies).
+
+74. **Nav property getter/with-method names must be sanitized with the same checks as property getters.** `EntityGenerator.navGetterName()` used raw `"get" + capitalize(nav.name())`, sidestepping `Names.getterMethod` which applies `sanitizeIdentifier` + `isObjectMethodName`. A nav named `class` produced `getClass()` — collision with `Object.getClass()` (final). Fix: added `Names.navGetterMethod(navName)` and `Names.navWithMethod(navName)` that apply the same checks. Both `EntityGenerator` and `ComplexTypeGenerator` use them. Verified by `NavReservedWordTest` (3 tests: `class` → `getClass_()`, `Class` → `getClass_()`, `withClass` is fine).
+
+75. **Wide-entity threshold must account for JVM `long`/`double` double-counting.** The JVM counts `long` and `double` method parameters as 2 slots each. The original threshold `> (allProps.size() + allNavs.size()) > 252` didn't account for this — an entity with 250 `Edm.Int64` props would trigger the 255 limit before reaching the wide threshold. Fix: `paramCount` starts at `allProps.size() + allNavs.size()` and adds +1 for each `Edm.Int64` or `Edm.Double` property. Verified by test (no regression — `LargeEntityCompilationTest` still passes).

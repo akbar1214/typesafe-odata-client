@@ -2,6 +2,26 @@
 
 Complete API reference for batch request support.
 
+## Changeset
+
+A group of operations executed atomically by the server. All operations in a changeset
+succeed or fail together.
+
+### Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `operations` | `List<BatchOperation>` | Operations in the changeset (immutable) |
+
+### Constructor
+
+```java
+Changeset cs = new Changeset(List.of(
+    BatchOperation.post("Customers", customerJson),
+    BatchOperation.post("Orders", orderJson)
+));
+```
+
 ## BatchOperation
 
 A single operation within a batch.
@@ -37,10 +57,32 @@ Collects operations and executes them as a single HTTP request.
 | Method | Returns | Description |
 |--------|---------|-------------|
 | `add(BatchOperation)` | `BatchRequest` | Add an operation (fluent) |
+| `addChangeset(Changeset)` | `BatchRequest` | Add an atomic changeset (fluent) |
 | `execute()` | `BatchResponse` | Execute synchronously |
 | `executeAsync()` | `CompletableFuture<BatchResponse>` | Execute asynchronously |
-| `size()` | `int` | Number of operations |
+| `size()` | `int` | Number of operations (flattened across changesets) |
 | `isEmpty()` | `boolean` | Whether no operations are queued |
+
+### Usage
+
+```java
+// Standalone operations
+context.batch()
+    .add(BatchOperation.get("People('scott')"))
+    .add(BatchOperation.get("Airlines"))
+    .execute();
+
+// With changeset (atomic mutations)
+Changeset cs = new Changeset(List.of(
+    BatchOperation.post("Customers", customerJson),
+    BatchOperation.patch("Orders(1)", orderUpdateJson, "W/\"etag\"")
+));
+
+context.batch()
+    .addChangeset(cs)
+    .add(BatchOperation.get("Customers"))
+    .execute();
+```
 
 ## BatchResponse
 
@@ -101,7 +143,7 @@ BatchRequest batch = context.batch();
 
 ## Multipart Format
 
-### Request Format
+### Request Format (Standalone Operations)
 
 ```
 POST /V4/TripPinService/$batch HTTP/1.1
@@ -114,6 +156,46 @@ Content-Transfer-Encoding: binary
 GET https://services.odata.org/V4/TripPinService/People('scottketchum') HTTP/1.1
 
 --{boundary}--
+```
+
+### Request Format (With Changeset)
+
+```
+POST /V4/TripPinService/$batch HTTP/1.1
+Content-Type: multipart/mixed; boundary=batch_1
+
+--batch_1
+Content-Type: multipart/mixed; boundary=cs_1
+
+--cs_1
+Content-Type: application/http
+Content-Transfer-Encoding: binary
+Content-ID: 1
+
+POST https://services.odata.org/V4/TripPinService/Customers HTTP/1.1
+Content-Type: application/json
+
+{"Name":"Acme"}
+
+--cs_1
+Content-Type: application/http
+Content-Transfer-Encoding: binary
+Content-ID: 2
+
+POST https://services.odata.org/V4/TripPinService/Orders HTTP/1.1
+Content-Type: application/json
+
+{"CustomerId":1}
+
+--cs_1--
+
+--batch_1
+Content-Type: application/http
+Content-Transfer-Encoding: binary
+
+GET https://services.odata.org/V4/TripPinService/Customers HTTP/1.1
+
+--batch_1--
 ```
 
 ### Response Format

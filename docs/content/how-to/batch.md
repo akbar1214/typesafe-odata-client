@@ -8,6 +8,7 @@ Send multiple OData operations in a single HTTP request with `$batch`.
 import io.github.akbarhusain.odata.runtime.batch.BatchOperation;
 import io.github.akbarhusain.odata.runtime.batch.BatchResponse;
 import io.github.akbarhusain.odata.runtime.batch.BatchResult;
+import io.github.akbarhusain.odata.runtime.batch.Changeset;
 
 Context ctx = Context.builder()
     .baseUrl("https://services.odata.org/V4/TripPinService")
@@ -25,6 +26,57 @@ BatchResult<?> trips = response.get(1);
 System.out.println(scott.statusCode());  // 200
 System.out.println(scott.getText());     // {"UserName":"scottketchum",...}
 ```
+
+## Atomic Changesets
+
+Group operations that must succeed or fail together:
+
+```java
+byte[] customerBody = ctx.serializer().serialize(newCustomer, Customer.class);
+byte[] orderBody = ctx.serializer().serialize(newOrder, Order.class);
+
+Changeset accountCreation = new Changeset(List.of(
+    BatchOperation.post("Customers", customerBody),
+    BatchOperation.post("Orders", orderBody)
+));
+
+BatchResponse response = ctx.batch()
+    .addChangeset(accountCreation)
+    .add(BatchOperation.get("Customers"))
+    .execute();
+```
+
+Changesets emit `Content-ID` headers for each operation and wrap them in a nested
+`multipart/mixed` boundary. The server processes the entire changeset atomically —
+either all operations succeed or all are rolled back.
+
+### Mixed with Standalone Operations
+
+```java
+Changeset cs = new Changeset(List.of(
+    BatchOperation.post("Customers", customerBody),
+    BatchOperation.patch("Orders(1)", orderUpdate, "W/\"etag\"")
+));
+
+// Query-type batch operations are always standalone (no changeset needed)
+BatchResponse response = ctx.batch()
+    .addChangeset(cs)
+    .add(BatchOperation.get("Customers"))
+    .add(BatchOperation.get("Orders"))
+    .execute();
+
+// Results are flattened in insertion order:
+// [0] = changeset POST Customer result
+// [1] = changeset PATCH Order result
+// [2] = standalone GET Customers result
+// [3] = standalone GET Orders result
+```
+
+### Known Limitation
+
+Changesets do not yet support `Content-ID` references within URLs
+(e.g., `POST Customers` → `PATCH $1/Contact`). Each operation must use an
+absolute or service-relative URL directly.
 
 ## Supported Operations
 
