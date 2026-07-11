@@ -2,6 +2,22 @@
 <edmx:Edmx Version="4.0" xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx">
   <edmx:DataServices>
     <Schema Namespace="ReservedWords" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+      <!-- Base entity with cross-namespace complex type property (inherited by Child) -->
+      <EntityType Name="Base">
+        <Key>
+          <PropertyRef Name="Id"/>
+        </Key>
+        <Property Name="Id" Type="Edm.Int32" Nullable="false"/>
+        <Property Name="address" Type="ReservedWords.Shared.SharedAddress"/>
+        <!-- Nav to reserved-word-named entity (Object) — import must be Object_ -->
+        <NavigationProperty Name="target" Type="ReservedWords.Object"/>
+      </EntityType>
+
+      <!-- Child inherits cross-namespace property + nav from Base -->
+      <EntityType Name="Child" BaseType="ReservedWords.Base">
+        <Property Name="name" Type="Edm.String"/>
+      </EntityType>
+
       <EntityType Name="Entity">
         <Key>
           <PropertyRef Name="Id"/>
@@ -47,7 +63,9 @@
         <Property Name="exports" Type="Edm.String"/>
         <Property Name="native" Type="Edm.String"/>
         <!-- Cross-namespace reference to ReservedWords.Shared.SharedAddress -->
-        <Property Name="address" Type="ReservedWords.Shared.SharedAddress"/>
+        <Property Name="address2" Type="ReservedWords.Shared.SharedAddress"/>
+        <!-- Nav to reserved-word-named entity (Object) — import must be Object_ -->
+        <NavigationProperty Name="link" Type="ReservedWords.Object"/>
       </EntityType>
       <EntityType Name="Object">
         <Key>
@@ -59,6 +77,8 @@
       <EntityContainer Name="Container">
         <EntitySet Name="Entities" EntityType="ReservedWords.Entity"/>
         <EntitySet Name="Objects" EntityType="ReservedWords.Object"/>
+        <EntitySet Name="Bases" EntityType="ReservedWords.Base"/>
+        <EntitySet Name="Children" EntityType="ReservedWords.Child"/>
       </EntityContainer>
     </Schema>
 

@@ -156,6 +156,113 @@ class ReservedWordsCompilationTest {
                 "Class name should be Object_ not Object. Got:\n" + objectCode);
     }
 
+    @Test
+    void reservedWordNavTargetImportIsSanitized(@TempDir Path tempDir) throws Exception {
+        Generator generator = new Generator(tempDir,
+                Map.of("ReservedWords", "com.example.reserved",
+                       "ReservedWords.Shared", "com.example.reserved.shared"));
+        generator.generate(reservedModel);
+
+        // Entity has a nav property "link" pointing to ReservedWords.Object
+        // The import should be ...entity.Object_, not ...entity.Object
+        File entityFile = tempDir.resolve("com/example/reserved/entity/Entity.java").toFile();
+        assertTrue(entityFile.exists(), "Entity.java should exist");
+        String code = Files.readString(entityFile.toPath());
+
+        assertTrue(code.contains("import com.example.reserved.entity.Object_"),
+                "Nav to reserved-word entity 'Object' must import Object_. Got:\n" + code);
+        assertFalse(code.contains("import com.example.reserved.entity.Object;"),
+                "Nav must NOT import raw 'Object' (collides with java.lang.Object)");
+
+        // Verify compilation succeeds — import must resolve
+        assertCompiles(tempDir);
+    }
+
+    @Test
+    void inheritedCrossNamespaceImportGenerated(@TempDir Path tempDir) throws Exception {
+        Generator generator = new Generator(tempDir,
+                Map.of("ReservedWords", "com.example.reserved",
+                       "ReservedWords.Shared", "com.example.reserved.shared"));
+        generator.generate(reservedModel);
+
+        // Child extends Base; Base has address (SharedAddress) and nav to Object
+        // Child should inherit both and generate correct imports
+        File childFile = tempDir.resolve("com/example/reserved/entity/Child.java").toFile();
+        assertTrue(childFile.exists(), "Child.java should exist");
+        String code = Files.readString(childFile.toPath());
+
+        // Inherited complex-type property from Base must have correct import
+        assertTrue(code.contains("import com.example.reserved.shared.complex.SharedAddress"),
+                "Child must import SharedAddress for inherited 'address' property. Got:\n" + code);
+
+        // Inherited nav to Object must have sanitized import
+        assertTrue(code.contains("import com.example.reserved.entity.Object_"),
+                "Child must import Object_ for inherited 'target' nav. Got:\n" + code);
+
+        // Verify compilation succeeds
+        assertCompiles(tempDir);
+    }
+
+    @Test
+    void allReservedWordTypesCompileTogether(@TempDir Path tempDir) throws Exception {
+        Generator generator = new Generator(tempDir,
+                Map.of("ReservedWords", "com.example.reserved",
+                       "ReservedWords.Shared", "com.example.reserved.shared"));
+        generator.generate(reservedModel);
+
+        // Verify all expected files exist
+        assertTrue(tempDir.resolve("com/example/reserved/entity/Entity.java").toFile().exists());
+        assertTrue(tempDir.resolve("com/example/reserved/entity/Object_.java").toFile().exists());
+        assertTrue(tempDir.resolve("com/example/reserved/entity/Base.java").toFile().exists());
+        assertTrue(tempDir.resolve("com/example/reserved/entity/Child.java").toFile().exists());
+        assertTrue(tempDir.resolve("com/example/reserved/shared/complex/SharedAddress.java").toFile().exists());
+
+        // Full compilation — catches any import or type resolution issues
+        assertCompiles(tempDir);
+    }
+
+    private void assertCompiles(Path tempDir) throws Exception {
+        JavaCompiler compiler = ToolProvider.getSystemJavaCompiler();
+        assertNotNull(compiler, "Java compiler not available");
+
+        StringWriter compilerOutput = new StringWriter();
+        PrintWriter compilerWriter = new PrintWriter(compilerOutput);
+
+        StandardJavaFileManager fileManager = compiler.getStandardFileManager(null, null, null);
+        List<File> classpath = findClasspathJars();
+        fileManager.setLocation(javax.tools.StandardLocation.CLASS_PATH, classpath);
+
+        List<File> javaFiles;
+        try (Stream<Path> paths = Files.walk(tempDir)) {
+            javaFiles = paths
+                    .filter(p -> p.toString().endsWith(".java"))
+                    .map(Path::toFile)
+                    .toList();
+        }
+
+        Iterable<? extends JavaFileObject> compilationUnits =
+                fileManager.getJavaFileObjects(javaFiles.toArray(new File[0]));
+
+        List<String> options = List.of(
+                "-d", tempDir.resolve("classes").toString(),
+                "-classpath", classpath.stream().map(File::getAbsolutePath)
+                        .collect(java.util.stream.Collectors.joining(File.pathSeparator)),
+                "-sourcepath", tempDir.toString()
+        );
+
+        JavaCompiler.CompilationTask task = compiler.getTask(
+                compilerWriter, fileManager, null, options, null, compilationUnits);
+
+        boolean success = task.call();
+        String output = compilerOutput.toString();
+
+        if (!success) {
+            System.err.println("Compilation output:\n" + output);
+        }
+
+        assertTrue(success, "Generated code should compile. Errors:\n" + output);
+    }
+
     private List<File> findClasspathJars() {
         String userHome = System.getProperty("user.home");
         Path mavenRepo = Path.of(userHome, ".m2", "repository");

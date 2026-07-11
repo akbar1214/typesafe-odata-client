@@ -34,7 +34,7 @@ Configure the `odata-codegen-maven-plugin` for code generation.
 | `metadataUrl` | String | Yes* | URL to CSDL metadata endpoint |
 | `metadataFile` | File | Yes* | Local path to CSDL metadata file |
 | `basePackage` | String | Yes | Base package for generated classes |
-| `schemaPackages` | Map | No | Schema-to-package mappings |
+| `schemaPackages` | List | No | Schema-to-package mappings (list of `<schema>` elements) |
 
 *Either `metadataUrl` or `metadataFile` is required.
 
@@ -56,10 +56,27 @@ When your metadata has multiple schemas, map them to different packages:
     <metadataUrl>https://services.odata.org/V4/TripPinService/$metadata</metadataUrl>
     <basePackage>com.example.trippin</basePackage>
     <schemaPackages>
-        <entry key="Microsoft.OData.SampleService.Models.TripPin">com.example.trippin.trippin</entry>
-        <entry key="com.example.shared">com.example.shared</entry>
+        <schema>
+            <namespace>Microsoft.OData.SampleService.Models.TripPin</namespace>
+            <packageName>com.example.trippin</packageName>
+        </schema>
     </schemaPackages>
 </configuration>
+```
+
+Multiple schemas:
+
+```xml
+<schemaPackages>
+    <schema>
+        <namespace>MyService.Models</namespace>
+        <packageName>com.example.myservice.models</packageName>
+    </schema>
+    <schema>
+        <namespace>MyService.Shared</namespace>
+        <packageName>com.example.myservice.shared</packageName>
+    </schema>
+</schemaPackages>
 ```
 
 ## Downloading Metadata
