@@ -20,6 +20,7 @@ nav:
     - Expand Navigation Properties: how-to/expand.md
     - Use Pagination: how-to/pagination.md
     - Perform CRUD Operations: how-to/crud.md
+    - Work with Media Streams: how-to/media.md
     - Handle ETags and Concurrency: how-to/etag.md
     - Manage Navigation Links ($ref): how-to/ref.md
     - Add Authentication: how-to/auth.md

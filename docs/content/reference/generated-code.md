@@ -115,6 +115,17 @@ public class PersonEntityRequest {
     // Navigation
     public TripCollectionRequest trips() { ... }
     public PersonCollectionRequest friends() { ... }
+
+    // Media streams (only when HasStream="true" or an Edm.Stream property exists)
+    // Media entity: bytes at .../<EntitySet>(key)/$value
+    public java.io.InputStream streamMedia() { ... }
+    public void setMedia(java.io.InputStream content) { ... }
+    public void setMedia(java.io.InputStream content, String etag) { ... }
+
+    // Named stream (Edm.Stream property "Photo"): bytes at .../<EntitySet>(key)/Photo
+    public java.io.InputStream streamPhoto() { ... }
+    public void setPhoto(java.io.InputStream content) { ... }
+    public void setPhoto(java.io.InputStream content, String etag) { ... }
 }
 ```
 

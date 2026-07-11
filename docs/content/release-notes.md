@@ -37,6 +37,7 @@
 - DELETE: Remove entities (with ETag / `If-Match` support)
 - `$ref`: Add/remove navigation links
 - `$batch`: Batch multiple operations in a single request
+- **Media streams** — `HasStream="true"` entities get `streamMedia()` / `setMedia(InputStream[, etag])` at `.../<EntitySet>(key)/$value`; `Edm.Stream` named properties get `stream<Prop>()` / `set<Prop>(InputStream[, etag])` at `.../<EntitySet>(key)/<PropertyName>`
 
 **Query Operations:**
 
@@ -74,18 +75,21 @@
 
 **Testing:**
 
-- **239 tests passing**
+- **262 tests passing**
 - Parser: 47 (TripPin + Northwind + OData Demo metadata)
-- Generator: integration (1) + compilation against runtime (1) + composite-key/collection-getter unit (3) + complex-type inheritance unit (3)
-- Runtime: 116 (live TripPin & Northwind integration, query expression, context path, batch, exceptions, transport)
-- Generated client: 68 (TripPin, Northwind, OData Demo — including inheritance hierarchies)
+- Generator: integration (1) + compilation against runtime (1) + composite-key/collection-getter unit (3) + complex-type inheritance unit (3) + abstract-entity unit (3) + media-stream unit (3)
+- Runtime: 119 (live TripPin & Northwind integration, query expression, context path, batch, exceptions, transport, media `$value` stream/put via mock transport)
+- Generated client: 82 (TripPin, Northwind, OData Demo — including inheritance hierarchies and live media-stream reads)
 
 ### Known Limitations
 
-- Abstract base entity types: generator emits `abstract class` but still generates `with*` methods that instantiate it (latent; no test metadata uses abstract types)
 - Cancellable streaming not yet implemented
+- `Edm.GeographyPoint` still maps to `Object` (OData Demo `Supplier.Location`)
+- OpenType entities expose dynamic properties only via `unmappedFields` (no typed accessor yet)
+- `ConcurrencyMode="Fixed"` is parsed but not yet used to drive ETag behavior beyond the existing `If-Match` support
 
 ### Future Milestones
 
 - Cancellable streaming support
+- Typed OpenType dynamic-property accessors
 - Publish to Maven Central

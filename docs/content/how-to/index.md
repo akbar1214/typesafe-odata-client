@@ -9,6 +9,7 @@ Each guide solves a specific problem. Pick the one you need.
 | [Expand Navigation Properties](expand.md) | `$expand` related entities |
 | [Use Pagination](pagination.md) | `$skip`/`$top` and server-driven paging |
 | [Perform CRUD Operations](crud.md) | Create, read, update, delete |
+| [Work with Media Streams](media.md) | `HasStream` entities and `Edm.Stream` named properties |
 | [Handle ETags and Concurrency](etag.md) | Optimistic concurrency with ETags |
 | [Manage Navigation Links ($ref)](ref.md) | Add/remove entity relationships |
 | [Add Authentication](auth.md) | OAuth2, API keys, custom auth |

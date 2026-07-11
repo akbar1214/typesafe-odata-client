@@ -105,5 +105,6 @@ client.peopleByUserName("scottketchum")
 
 ## What's Next
 
+- [Work with Media Streams](media.md) — `HasStream` entities and `Edm.Stream` named properties
 - [Handle ETags and Concurrency](etag.md) — Optimistic concurrency
 - [Manage Navigation Links ($ref)](ref.md) — Add/remove relationships
