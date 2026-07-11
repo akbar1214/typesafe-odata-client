@@ -120,6 +120,19 @@ class NorthwindGeneratedClientTest {
     }
 
     @Test
+    void selectNonStringProperties() {
+        CollectionPage<Order> page = client.orders()
+                .select(Order.ORDER_DATE, Order.SHIP_NAME)
+                .top(1)
+                .get();
+
+        assertFalse(page.currentPage().isEmpty());
+        Order order = page.currentPage().get(0);
+        assertNotNull(order.getOrderDate());
+        assertNotNull(order.getShipName());
+    }
+
+    @Test
     void countProducts() {
         CollectionPage<Product> page = client.products()
                 .count()
