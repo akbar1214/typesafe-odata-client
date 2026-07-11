@@ -2,6 +2,7 @@ package io.github.akbarhusain.odata.core.generator;
 
 import io.github.akbarhusain.odata.core.model.CsdlModel;
 import io.github.akbarhusain.odata.core.model.CsdlModel.ComplexTypeModel;
+import io.github.akbarhusain.odata.core.model.CsdlModel.NavigationPropertyModel;
 import io.github.akbarhusain.odata.core.model.CsdlModel.PropertyModel;
 import io.github.akbarhusain.odata.core.model.CsdlModel.SchemaModel;
 
@@ -37,6 +38,11 @@ public class ComplexTypeGenerator {
         List<PropertyModel> allProps = new ArrayList<>(inheritedProps);
         allProps.addAll(ownProps);
 
+        List<NavigationPropertyModel> ownNavs = complexType.navigationProperties();
+        List<NavigationPropertyModel> inheritedNavs = inheritedNavProperties(complexType, schema);
+        List<NavigationPropertyModel> allNavs = new ArrayList<>(inheritedNavs);
+        allNavs.addAll(ownNavs);
+
         // OpenType dynamic-property support: capture undeclared JSON fields into unmappedFields.
         boolean openType = openTypeResolved(complexType, schema);
         boolean firstOpen = openType && (base == null || !openTypeResolved(base, schema));
@@ -65,10 +71,13 @@ public class ComplexTypeGenerator {
                 hasCollection = true;
             }
         }
-        if (hasCollection || openType) {
+        for (NavigationPropertyModel nav : allNavs) {
+            addNavImports(nav, imports, schema);
+        }
+        if (hasCollection || openType || !allNavs.isEmpty()) {
             imports.add("java.util.Collections");
         }
-        if (hasCollection) {
+        if (hasCollection || !allNavs.isEmpty()) {
             imports.add("java.util.List");
         }
         for (String imp : imports) {
@@ -93,6 +102,12 @@ public class ComplexTypeGenerator {
             sb.append("    protected final ").append(javaType).append(" ")
               .append(Names.toJavaFieldName(prop.name())).append(";\n");
         }
+
+        // Navigation-property fields hold expanded ($expand) data deserialized from JSON.
+        for (NavigationPropertyModel nav : ownNavs) {
+            sb.append("    protected final ").append(navJavaType(nav, schema)).append(" ")
+              .append(Names.toJavaFieldName(nav.name())).append(";\n");
+        }
         if (base == null && subtreeHasOpen(complexType, schema)) {
             sb.append("    protected final java.util.Map<String, Object> unmappedFields;\n");
         }
@@ -105,7 +120,14 @@ public class ComplexTypeGenerator {
             PropertyModel prop = allProps.get(i);
             sb.append("            @com.fasterxml.jackson.annotation.JsonProperty(\"").append(prop.name()).append("\") ")
               .append(resolvePropertyJavaType(prop, schema)).append(" ").append(Names.toJavaFieldName(prop.name()));
-            if (i < allProps.size() - 1) sb.append(",");
+            if (i < allProps.size() - 1 || !allNavs.isEmpty()) sb.append(",");
+            sb.append("\n");
+        }
+        for (int i = 0; i < allNavs.size(); i++) {
+            NavigationPropertyModel nav = allNavs.get(i);
+            sb.append("            @com.fasterxml.jackson.annotation.JsonProperty(\"").append(nav.name()).append("\") ")
+              .append(navJavaType(nav, schema)).append(" ").append(Names.toJavaFieldName(nav.name()));
+            if (i < allNavs.size() - 1) sb.append(",");
             sb.append("\n");
         }
         sb.append("    ) {\n");
@@ -114,6 +136,9 @@ public class ComplexTypeGenerator {
             for (int i = 0; i < inheritedProps.size(); i++) {
                 if (i > 0) sb.append(", ");
                 sb.append(Names.toJavaFieldName(inheritedProps.get(i).name()));
+            }
+            for (int i = 0; i < inheritedNavs.size(); i++) {
+                sb.append(", ").append(Names.toJavaFieldName(inheritedNavs.get(i).name()));
             }
             sb.append(");\n");
         }
@@ -125,6 +150,10 @@ public class ComplexTypeGenerator {
             } else {
                 sb.append("        this.").append(fn).append(" = ").append(fn).append(";\n");
             }
+        }
+        for (NavigationPropertyModel nav : ownNavs) {
+            String fn = Names.toJavaFieldName(nav.name());
+            sb.append("        this.").append(fn).append(" = ").append(navFieldInit(nav)).append(";\n");
         }
         if (rootMutableMap) {
             sb.append("        this.unmappedFields = new java.util.HashMap<>();\n");
@@ -138,16 +167,25 @@ public class ComplexTypeGenerator {
                 PropertyModel prop = allProps.get(i);
                 sb.append("            ").append(resolvePropertyJavaType(prop, schema))
                   .append(" ").append(Names.toJavaFieldName(prop.name()));
-                if (i < allProps.size() - 1) sb.append(",");
+                if (i < allProps.size() - 1 || !allNavs.isEmpty()) sb.append(",");
                 sb.append("\n");
             }
-            if (allProps.size() > 0) sb.append(",\n");
-            sb.append("            java.util.Map<String, Object> unmappedFields) {\n");
+            for (int i = 0; i < allNavs.size(); i++) {
+                NavigationPropertyModel nav = allNavs.get(i);
+                sb.append("            ").append(navJavaType(nav, schema)).append(" ")
+                  .append(Names.toJavaFieldName(nav.name()));
+                if (i < allNavs.size() - 1) sb.append(",");
+                sb.append("\n");
+            }
+            sb.append(",\n            java.util.Map<String, Object> unmappedFields) {\n");
             if (base != null) {
                 sb.append("        super(");
                 for (int i = 0; i < inheritedProps.size(); i++) {
                     if (i > 0) sb.append(", ");
                     sb.append(Names.toJavaFieldName(inheritedProps.get(i).name()));
+                }
+                for (int i = 0; i < inheritedNavs.size(); i++) {
+                    sb.append(", ").append(Names.toJavaFieldName(inheritedNavs.get(i).name()));
                 }
                 sb.append(", unmappedFields);\n");
             }
@@ -159,6 +197,10 @@ public class ComplexTypeGenerator {
                 } else {
                     sb.append("        this.").append(fn).append(" = ").append(fn).append(";\n");
                 }
+            }
+            for (NavigationPropertyModel nav : ownNavs) {
+                String fn = Names.toJavaFieldName(nav.name());
+                sb.append("        this.").append(fn).append(" = ").append(navFieldInit(nav)).append(";\n");
             }
             if (base == null) {
                 sb.append("        this.unmappedFields = unmappedFields != null ? unmappedFields : java.util.Map.of();\n");
@@ -185,13 +227,21 @@ public class ComplexTypeGenerator {
             }
         }
 
+        // Navigation property getters — materialized expanded ($expand) data
+        for (NavigationPropertyModel nav : ownNavs) {
+            sb.append(generateNavGetter(nav, schema));
+        }
+
         // with*() copy-on-write methods — generated for all concrete complex types so that
         // subtypes can be modified immutably (the public all-args constructor is reused).
         // Inherited properties are referenced by field name (protected) to avoid wrapping
         // nullable getters' Optional<T> in the raw-typed constructor.
         if (!complexType.abstractType()) {
             for (PropertyModel prop : allProps) {
-                sb.append(generateWithMethod(prop, allProps, className, hierarchyHasOpen, schema));
+                sb.append(generateWithMethod(prop, allProps, allNavs, className, schema));
+            }
+            for (NavigationPropertyModel nav : allNavs) {
+                sb.append(generateNavWithMethod(nav, allProps, allNavs, className, schema));
             }
         }
 
@@ -199,7 +249,7 @@ public class ComplexTypeGenerator {
         // with*() for copy-on-write (mirrors the entity design: a static builder() in a
         // subtype would clash with the inherited builder() due to different Builder types).
         if (base == null && !complexType.abstractType()) {
-            generateBuilder(sb, allProps, className, rootMutableMap, schema);
+            generateBuilder(sb, allProps, ownNavs, className, rootMutableMap, schema);
         }
 
         // ODataType interface
@@ -261,7 +311,7 @@ public class ComplexTypeGenerator {
         return sb.toString();
     }
 
-    private String generateWithMethod(PropertyModel prop, List<PropertyModel> allProps, String className, boolean openType, SchemaModel schema) {
+    private String generateWithMethod(PropertyModel prop, List<PropertyModel> allProps, List<NavigationPropertyModel> allNavs, String className, SchemaModel schema) {
         String javaType = resolvePropertyJavaType(prop, schema);
         String fn = Names.toJavaFieldName(prop.name());
 
@@ -278,15 +328,15 @@ public class ComplexTypeGenerator {
                 sb.append(Names.toJavaFieldName(p.name()));
             }
         }
-        if (openType) {
-            sb.append(", this.unmappedFields");
+        for (NavigationPropertyModel nav : allNavs) {
+            sb.append(", ").append(Names.toJavaFieldName(nav.name()));
         }
-        sb.append(");\n");
+        sb.append(", this.unmappedFields);\n");
         sb.append("    }\n\n");
         return sb.toString();
     }
 
-    private void generateBuilder(StringBuilder sb, List<PropertyModel> allProps, String className, boolean mutableUnmappedFields, SchemaModel schema) {
+    private void generateBuilder(StringBuilder sb, List<PropertyModel> allProps, List<NavigationPropertyModel> navs, String className, boolean mutableUnmappedFields, SchemaModel schema) {
         sb.append("    public static Builder builder() {\n");
         sb.append("        return new Builder();\n");
         sb.append("    }\n\n");
@@ -295,6 +345,10 @@ public class ComplexTypeGenerator {
         for (PropertyModel prop : allProps) {
             sb.append("        private ").append(resolvePropertyJavaType(prop, schema)).append(" ")
               .append(Names.toJavaFieldName(prop.name())).append(";\n");
+        }
+        for (NavigationPropertyModel nav : navs) {
+            sb.append("        private ").append(navJavaType(nav, schema)).append(" ")
+              .append(Names.toJavaFieldName(nav.name())).append(";\n");
         }
         if (mutableUnmappedFields) {
             sb.append("        private java.util.Map<String, Object> unmappedFields = new java.util.HashMap<>();\n");
@@ -310,11 +364,23 @@ public class ComplexTypeGenerator {
             sb.append("        }\n\n");
         }
 
+        for (NavigationPropertyModel nav : navs) {
+            String javaType = navJavaType(nav, schema);
+            String fn = Names.toJavaFieldName(nav.name());
+            sb.append("        public Builder ").append(fn).append("(").append(javaType).append(" value) {\n");
+            sb.append("            this.").append(fn).append(" = value;\n");
+            sb.append("            return this;\n");
+            sb.append("        }\n\n");
+        }
+
         sb.append("        public ").append(className).append(" build() {\n");
         sb.append("            return new ").append(className).append("(");
         for (int i = 0; i < allProps.size(); i++) {
             if (i > 0) sb.append(", ");
             sb.append(Names.toJavaFieldName(allProps.get(i).name()));
+        }
+        for (NavigationPropertyModel nav : navs) {
+            sb.append(", ").append(Names.toJavaFieldName(nav.name()));
         }
         if (mutableUnmappedFields) {
             sb.append(", unmappedFields");
@@ -360,6 +426,103 @@ public class ComplexTypeGenerator {
             }
         }
         return null;
+    }
+
+    private String navJavaType(NavigationPropertyModel nav, SchemaModel schema) {
+        String unwrapped = Names.unwrapCollectionType(nav.type());
+        String elementClassName = Names.simpleNameFromFullName(unwrapped);
+        if (Names.isCollectionType(nav.type())) {
+            return "List<" + elementClassName + ">";
+        }
+        return elementClassName;
+    }
+
+    private String navGetterName(NavigationPropertyModel nav) {
+        return "get" + Character.toUpperCase(nav.name().charAt(0)) + nav.name().substring(1);
+    }
+
+    private String navWithMethod(NavigationPropertyModel nav) {
+        return "with" + Character.toUpperCase(nav.name().charAt(0)) + nav.name().substring(1);
+    }
+
+    private String navFieldInit(NavigationPropertyModel nav) {
+        String fn = Names.toJavaFieldName(nav.name());
+        if (Names.isCollectionType(nav.type())) {
+            return fn + " == null ? List.of() : List.copyOf(" + fn + ")";
+        }
+        return fn;
+    }
+
+    private String generateNavGetter(NavigationPropertyModel nav, SchemaModel schema) {
+        String javaType = navJavaType(nav, schema);
+        String fn = Names.toJavaFieldName(nav.name());
+        StringBuilder sb = new StringBuilder();
+        if (Names.isCollectionType(nav.type())) {
+            sb.append("    public ").append(javaType).append(" ").append(navGetterName(nav)).append("() {\n");
+            sb.append("        return Collections.unmodifiableList(").append(fn).append(");\n");
+            sb.append("    }\n\n");
+        } else {
+            sb.append("    public Optional<").append(javaType).append("> ").append(navGetterName(nav)).append("() {\n");
+            sb.append("        return Optional.ofNullable(").append(fn).append(");\n");
+            sb.append("    }\n\n");
+        }
+        return sb.toString();
+    }
+
+    private String generateNavWithMethod(NavigationPropertyModel nav, List<PropertyModel> allProps, List<NavigationPropertyModel> allNavs, String className, SchemaModel schema) {
+        String javaType = navJavaType(nav, schema);
+        String fn = Names.toJavaFieldName(nav.name());
+        StringBuilder sb = new StringBuilder();
+        sb.append("    public ").append(className).append(" ").append(navWithMethod(nav))
+          .append("(").append(javaType).append(" value) {\n");
+        sb.append("        return new ").append(className).append("(");
+        for (int i = 0; i < allProps.size(); i++) {
+            if (i > 0) sb.append(", ");
+            sb.append(Names.toJavaFieldName(allProps.get(i).name()));
+        }
+        for (NavigationPropertyModel n : allNavs) {
+            sb.append(", ");
+            if (n.name().equals(nav.name())) {
+                sb.append("value");
+            } else {
+                sb.append(Names.toJavaFieldName(n.name()));
+            }
+        }
+        sb.append(", this.unmappedFields);\n");
+        sb.append("    }\n\n");
+        return sb.toString();
+    }
+
+    private void addNavImports(NavigationPropertyModel nav, Set<String> imports, SchemaModel schema) {
+        String edmType = Names.unwrapCollectionType(nav.type());
+        String simpleName = Names.simpleNameFromFullName(edmType);
+        String suffix;
+        if (schema.entityTypes().stream().anyMatch(e -> e.name().equals(simpleName))) {
+            suffix = Names.packageNameSuffixEntity();
+        } else if (schema.complexTypes().stream().anyMatch(c -> c.name().equals(simpleName))) {
+            suffix = Names.packageNameSuffixComplexType();
+        } else {
+            suffix = Names.packageNameSuffixEntity();
+        }
+        imports.add(basePackageForType(edmType, schema) + suffix + "." + simpleName);
+    }
+
+    private List<NavigationPropertyModel> inheritedNavProperties(ComplexTypeModel complexType, SchemaModel schema) {
+        ComplexTypeModel base = findBase(complexType, schema);
+        if (base == null) {
+            return List.of();
+        }
+        List<NavigationPropertyModel> result = new ArrayList<>(inheritedNavProperties(base, schema));
+        Set<String> seen = new HashSet<>();
+        for (NavigationPropertyModel n : result) {
+            seen.add(n.name());
+        }
+        for (NavigationPropertyModel n : base.navigationProperties()) {
+            if (seen.add(n.name())) {
+                result.add(n);
+            }
+        }
+        return result;
     }
 
     private List<PropertyModel> inheritedProperties(ComplexTypeModel complexType, SchemaModel schema) {

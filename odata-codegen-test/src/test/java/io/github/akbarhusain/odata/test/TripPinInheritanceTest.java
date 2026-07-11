@@ -122,7 +122,7 @@ class TripPinInheritanceTest {
     @Test
     void entity_flightHierarchyChain() {
         Flight flight = new Flight(
-                null, 1, "ABC123", null, null, null, "12A", "AA100");
+                null, 1, "ABC123", null, null, null, "12A", "AA100", null, null, null);
 
         assertInstanceOf(PublicTransportation.class, flight, "Flight is a PublicTransportation");
         assertInstanceOf(PlanItem.class, flight, "Flight is a PlanItem");
@@ -139,7 +139,7 @@ class TripPinInheritanceTest {
     @Test
     void entity_subtypeExposesInheritedAndOwnProperties() {
         Flight flight = new Flight(
-                null, 5, "CONF5", null, null, null, "9C", "UA900");
+                null, 5, "CONF5", null, null, null, "9C", "UA900", null, null, null);
 
         // Inherited getters (from PlanItem / PublicTransportation)
         assertEquals(5, flight.getPlanItemId());
@@ -152,7 +152,7 @@ class TripPinInheritanceTest {
     @Test
     void entity_subtypeWithMethodReturnsSubtypeAndPreservesInheritedFields() {
         Flight flight = new Flight(
-                null, 7, "CONF7", null, null, null, "1A", "DL7");
+                null, 7, "CONF7", null, null, null, "1A", "DL7", null, null, null);
 
         // Changing own property returns Flight, inherited fields preserved
         Flight renumbered = flight.withFlightNumber("DL8");
@@ -183,7 +183,7 @@ class TripPinInheritanceTest {
 
     @Test
     void entity_polymorphicCollectionOfPlanItems() {
-        Flight flight = new Flight(null, 10, null, null, null, null, null, "AA1");
+        Flight flight = new Flight(null, 10, null, null, null, null, null, "AA1", null, null, null);
         Event event = new Event(null, 11, null, null, null, null, "Sightseeing", null);
 
         List<PlanItem> items = new java.util.ArrayList<>();

@@ -63,7 +63,12 @@ class GeneratorIntegrationTest {
         assertTrue(personCode.contains("implements ODataEntityType"), "Should implement ODataEntityType");
         assertTrue(personCode.contains("public static final StringProperty<Person> FIRST_NAME"), "Should have FIRST_NAME property");
         assertTrue(personCode.contains("public static final CollectionProperty<Person, Trip> TRIPS"), "Should have TRIPS collection property");
-        assertTrue(personCode.contains("public TripCollectionRequest trips()") || personCode.contains("throw new UnsupportedOperationException"), "Should have trips() nav method or UnsupportedOperationException");
+        assertTrue(personCode.contains("public List<Trip> getTrips()"), "Should have getTrips() getter materializing expanded nav data");
+
+        // Verify a complex type with a navigation property materializes it into a getter.
+        String locationCode = Files.readString(complexDir.resolve("Location.java"));
+        assertTrue(locationCode.contains("public Optional<Airport> getAirportRef()"),
+                "Complex type with a navigation property should have a getAirportRef() getter");
         assertTrue(personCode.contains("public static Builder builder()"), "Should have builder");
         assertTrue(personCode.contains("public Person withFirstName"), "Should have withFirstName");
 

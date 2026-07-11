@@ -16,6 +16,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -309,22 +310,45 @@ class TripPinGeneratedClientTest {
     @Test
     void expandWithNestedExpand() {
         CollectionPage<Person> page = client.people()
+                .filter(Person.USER_NAME.equalTo("scottketchum"))
                 .expand(Person.TRIPS.expand(Trip.PLAN_ITEMS))
                 .top(1)
                 .get();
         Person person = page.currentPage().get(0);
         assertNotNull(person);
         assertNotNull(person.getUserName());
+
+        // The expanded Trips are materialized into the entity via getTrips().
+        List<Trip> trips = person.getTrips();
+        assertNotNull(trips, "Expanded Trips should be materialized on the entity");
+        assertFalse(trips.isEmpty(), "Scott should have expanded trips");
+
+        // The nested $expand=PlanItems should have populated each trip's plan items.
+        boolean hasPlanItems = trips.stream().anyMatch(t -> !t.getPlanItems().isEmpty());
+        assertTrue(hasPlanItems, "At least one expanded trip should contain its nested PlanItems");
     }
 
     @Test
     void expandWithDeepNestedExpandAndSelect() {
         CollectionPage<Person> page = client.people()
+                .filter(Person.USER_NAME.equalTo("scottketchum"))
                 .expand(Person.TRIPS.expand(Trip.PLAN_ITEMS.select(PlanItem.PLAN_ITEM_ID)))
                 .top(1)
                 .get();
         Person person = page.currentPage().get(0);
         assertNotNull(person);
         assertNotNull(person.getUserName());
+
+        List<Trip> trips = person.getTrips();
+        assertNotNull(trips, "Expanded Trips should be materialized on the entity");
+        assertFalse(trips.isEmpty(), "Scott should have expanded trips");
+
+        Optional<Trip> withPlanItems = trips.stream()
+                .filter(t -> !t.getPlanItems().isEmpty())
+                .findFirst();
+        assertTrue(withPlanItems.isPresent(), "A trip should contain expanded PlanItems");
+        PlanItem planItem = withPlanItems.get().getPlanItems().get(0);
+        assertNotNull(planItem.getPlanItemId(),
+                "Expanded PlanItems should include the selected PlanItemId property");
     }
 }
