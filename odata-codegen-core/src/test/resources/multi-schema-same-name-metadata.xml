@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<edmx:Edmx Version="4.0" xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx">
+  <edmx:DataServices>
+    <!-- Schema A: both schemas have a complex type named "Address" -->
+    <Schema Namespace="MultiSchema.OrgA" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+      <ComplexType Name="Address">
+        <Property Name="Street" Type="Edm.String"/>
+        <Property Name="City" Type="Edm.String"/>
+      </ComplexType>
+
+      <EntityType Name="Person">
+        <Key>
+          <PropertyRef Name="Id"/>
+        </Key>
+        <Property Name="Id" Type="Edm.Int32" Nullable="false"/>
+        <Property Name="Name" Type="Edm.String"/>
+        <Property Name="Home" Type="MultiSchema.OrgA.Address"/>
+        <NavigationProperty Name="Tag" Type="MultiSchema.OrgB.Tag"/>
+      </EntityType>
+
+      <EntityContainer Name="ContainerA">
+        <EntitySet Name="People" EntityType="MultiSchema.OrgA.Person"/>
+      </EntityContainer>
+    </Schema>
+
+    <!-- Schema B: same complex type name "Address", different namespace -->
+    <Schema Namespace="MultiSchema.OrgB" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+      <ComplexType Name="Address">
+        <Property Name="Line1" Type="Edm.String"/>
+        <Property Name="ZipCode" Type="Edm.String"/>
+      </ComplexType>
+
+      <EntityType Name="Company">
+        <Key>
+          <PropertyRef Name="Id"/>
+        </Key>
+        <Property Name="Id" Type="Edm.Int32" Nullable="false"/>
+        <Property Name="Name" Type="Edm.String"/>
+        <Property Name="HQ" Type="MultiSchema.OrgB.Address"/>
+        <NavigationProperty Name="Tag" Type="MultiSchema.OrgB.Tag"/>
+      </EntityType>
+
+      <EntityType Name="Tag">
+        <Key>
+          <PropertyRef Name="Code"/>
+        </Key>
+        <Property Name="Code" Type="Edm.String" Nullable="false"/>
+      </EntityType>
+
+      <EntityContainer Name="ContainerB">
+        <EntitySet Name="Companies" EntityType="MultiSchema.OrgB.Company"/>
+      </EntityContainer>
+    </Schema>
+  </edmx:DataServices>
+</edmx:Edmx>

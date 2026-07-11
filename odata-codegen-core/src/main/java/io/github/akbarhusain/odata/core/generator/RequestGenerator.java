@@ -49,6 +49,7 @@ public class RequestGenerator {
         imports.add(basePackage + Names.packageNameSuffixEntity() + "." + entityClassName);
 
         for (NavigationPropertyModel nav : entityType.navigationProperties()) {
+            if (isComplexTypeNav(nav, schema)) continue;
             boolean isCollection = Names.isCollectionType(nav.type());
             String elementType = Names.unwrapCollectionType(nav.type());
             String elementClassName = Names.simpleNameFromFullName(elementType);
@@ -72,13 +73,15 @@ public class RequestGenerator {
         sb.append("        this.contextPath = contextPath;\n");
         sb.append("    }\n\n");
 
-        // Navigation property methods
+        // Navigation property methods — only for entity nav targets (complex types are inline data, not navigable)
         for (NavigationPropertyModel nav : entityType.navigationProperties()) {
+            if (isComplexTypeNav(nav, schema)) continue;
             sb.append(generateNavMethod(nav, schema));
         }
 
-        // $ref methods for collection navigation properties
+        // $ref methods for collection navigation properties — only for entity nav targets
         for (NavigationPropertyModel nav : entityType.navigationProperties()) {
+            if (isComplexTypeNav(nav, schema)) continue;
             if (Names.isCollectionType(nav.type())) {
                 String collReqClass = Names.collectionRequestClassName(Names.simpleNameFromFullName(Names.unwrapCollectionType(nav.type())));
                 sb.append("    public void add").append(Names.capitalize(nav.name())).append("Ref(String targetEntityUrl) {\n");
@@ -484,5 +487,10 @@ public class RequestGenerator {
         }
         sb.append("    }\n\n");
         return sb.toString();
+    }
+
+    private boolean isComplexTypeNav(NavigationPropertyModel nav, SchemaModel schema) {
+        String edmSimpleName = Names.simpleNameFromFullName(Names.unwrapCollectionType(nav.type()));
+        return schema.complexTypes().stream().anyMatch(c -> c.name().equals(edmSimpleName));
     }
 }

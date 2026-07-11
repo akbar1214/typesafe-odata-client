@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<edmx:Edmx Version="4.0" xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx">
+  <edmx:DataServices>
+    <Schema Namespace="Dup.Main" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+      <EntityType Name="Person">
+        <Key>
+          <PropertyRef Name="Id"/>
+        </Key>
+        <Property Name="Id" Type="Edm.Int32" Nullable="false"/>
+        <Property Name="Name" Type="Edm.String"/>
+        <!-- Same property name "Address" but different type in each schema -->
+        <Property Name="Address" Type="Dup.Main.HomeAddress"/>
+        <NavigationProperty Name="Work" Type="Dup.Main.WorkAddress"/>
+      </EntityType>
+
+      <ComplexType Name="HomeAddress">
+        <Property Name="Street" Type="Edm.String"/>
+        <Property Name="City" Type="Edm.String"/>
+      </ComplexType>
+
+      <ComplexType Name="WorkAddress">
+        <Property Name="Building" Type="Edm.String"/>
+        <Property Name="Floor" Type="Edm.Int32"/>
+      </ComplexType>
+
+      <EntityContainer Name="MainContainer">
+        <EntitySet Name="People" EntityType="Dup.Main.Person"/>
+      </EntityContainer>
+    </Schema>
+
+    <Schema Namespace="Dup.Other" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+      <EntityType Name="Company">
+        <Key>
+          <PropertyRef Name="Id"/>
+        </Key>
+        <Property Name="Id" Type="Edm.Int32" Nullable="false"/>
+        <Property Name="Name" Type="Edm.String"/>
+        <!-- Same property name "Address" as Person, different type -->
+        <Property Name="Address" Type="Dup.Other.OfficeAddress"/>
+        <NavigationProperty Name="Branch" Type="Dup.Other.OfficeAddress"/>
+      </EntityType>
+
+      <ComplexType Name="OfficeAddress">
+        <Property Name="Building" Type="Edm.String"/>
+        <Property Name="Region" Type="Edm.String"/>
+      </ComplexType>
+
+      <EntityContainer Name="OtherContainer">
+        <EntitySet Name="Companies" EntityType="Dup.Other.Company"/>
+      </EntityContainer>
+    </Schema>
+  </edmx:DataServices>
+</edmx:Edmx>
