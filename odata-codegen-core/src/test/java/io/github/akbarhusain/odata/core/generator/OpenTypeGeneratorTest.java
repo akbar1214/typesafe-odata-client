@@ -138,5 +138,11 @@ class OpenTypeGeneratorTest {
                 "Open subtype must not duplicate the inherited any-setter");
         assertTrue(eventLocation.contains("@com.fasterxml.jackson.annotation.JsonAnyGetter"),
                 "Open subtype still annotates its getUnmappedFields override for serialization");
+
+        // Verify with*() on the subtype preserves unmappedFields (Bug 11 regression)
+        assertTrue(eventLocation.contains(", this.unmappedFields"),
+                "Open subtype with*() must pass this.unmappedFields to preserve dynamic props");
+        assertTrue(eventLocation.contains("protected EventLocation("),
+                "Open subtype must have internal constructor that accepts unmappedFields");
     }
 }

@@ -34,6 +34,9 @@ public class ComplexTypeGenerator {
         boolean openType = openTypeResolved(complexType, schema);
         boolean firstOpen = openType && (base == null || !openTypeResolved(base, schema));
         boolean rootMutableMap = base == null && subtreeHasOpen(complexType, schema);
+        // hierarchyHasOpen: true when any type in the hierarchy is open.
+        // Used for internal constructor and with*() — subtypes also need to preserve unmappedFields.
+        boolean hierarchyHasOpen = subtreeHasOpen(rootOf(complexType, schema), schema);
 
         StringBuilder sb = new StringBuilder();
         sb.append("package ").append(pkg).append(";\n\n");
@@ -122,7 +125,7 @@ public class ComplexTypeGenerator {
         sb.append("    }\n\n");
 
         // Internal constructor for with*() — preserves unmappedFields across copy-on-write
-        if (rootMutableMap) {
+        if (hierarchyHasOpen) {
             sb.append("    protected ").append(className).append("(\n");
             for (int i = 0; i < allProps.size(); i++) {
                 PropertyModel prop = allProps.get(i);
@@ -150,7 +153,9 @@ public class ComplexTypeGenerator {
                     sb.append("        this.").append(fn).append(" = ").append(fn).append(";\n");
                 }
             }
-            sb.append("        this.unmappedFields = unmappedFields != null ? unmappedFields : java.util.Map.of();\n");
+            if (base == null) {
+                sb.append("        this.unmappedFields = unmappedFields != null ? unmappedFields : java.util.Map.of();\n");
+            }
             sb.append("    }\n\n");
         }
 
@@ -179,7 +184,7 @@ public class ComplexTypeGenerator {
         // nullable getters' Optional<T> in the raw-typed constructor.
         if (!complexType.abstractType()) {
             for (PropertyModel prop : allProps) {
-                sb.append(generateWithMethod(prop, allProps, className, rootMutableMap));
+                sb.append(generateWithMethod(prop, allProps, className, hierarchyHasOpen));
             }
         }
 
