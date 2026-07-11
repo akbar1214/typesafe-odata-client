@@ -136,8 +136,16 @@ public record ContextPath(
         return sb.toString();
     }
 
+    private static final java.util.regex.Pattern GUID_PATTERN = java.util.regex.Pattern.compile(
+            "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}");
+
     private static String formatValue(Object value) {
-        if (value instanceof String s) return "'" + encodeKeyValue(s) + "'";
+        if (value instanceof String s) {
+            // Edm.Guid keys are written unquoted (e.g. Advertisements(<guid>)); services reject
+            // the quoted form ('<guid>') and the guid'...' literal (OData Demo returns 400).
+            if (GUID_PATTERN.matcher(s).matches()) return s;
+            return "'" + encodeKeyValue(s) + "'";
+        }
         return String.valueOf(value);
     }
 

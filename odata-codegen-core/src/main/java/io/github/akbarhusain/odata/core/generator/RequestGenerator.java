@@ -28,8 +28,10 @@ public class RequestGenerator {
         imports.add("io.github.akbarhusain.odata.runtime.entity.Context");
         imports.add("io.github.akbarhusain.odata.runtime.entity.ContextPath");
         imports.add("io.github.akbarhusain.odata.runtime.client.EntityOperations");
+        imports.add("io.github.akbarhusain.odata.runtime.exception.ODataException");
         imports.add("io.github.akbarhusain.odata.runtime.query.*");
         imports.add("io.github.akbarhusain.odata.runtime.batch.BatchOperation");
+        imports.add("java.io.InputStream");
         imports.add(basePackage + Names.packageNameSuffixEntity() + "." + entityClassName);
 
         for (NavigationPropertyModel nav : entityType.navigationProperties()) {
@@ -95,6 +97,52 @@ public class RequestGenerator {
         sb.append("    public void deleteWithETag(String etag) {\n");
         sb.append("        EntityOperations.executeDeleteWithETag(context, contextPath, etag);\n");
         sb.append("    }\n\n");
+
+        // Media stream access — the entity itself is a media stream (HasStream="true") at $value
+        if (entityType.hasStream()) {
+            sb.append("    public java.io.InputStream streamMedia() {\n");
+            sb.append("        return EntityOperations.streamMedia(context, contextPath.addSegment(\"$value\"));\n");
+            sb.append("    }\n\n");
+
+            sb.append("    public void setMedia(java.io.InputStream content) {\n");
+            sb.append("        setMedia(content, null);\n");
+            sb.append("    }\n\n");
+
+            sb.append("    public void setMedia(java.io.InputStream content, String etag) {\n");
+            sb.append("        try {\n");
+            sb.append("            byte[] bytes = content.readAllBytes();\n");
+            sb.append("            EntityOperations.putMedia(context, contextPath.addSegment(\"$value\"), bytes, \"application/octet-stream\", etag);\n");
+            sb.append("        } catch (java.io.IOException e) {\n");
+            sb.append("            throw new io.github.akbarhusain.odata.runtime.exception.ODataException(\"Failed to read media stream: \" + e.getMessage(), e);\n");
+            sb.append("        }\n");
+            sb.append("    }\n\n");
+        }
+
+        // Named stream properties (Edm.Stream) — stream lives at <property>/$value
+        for (PropertyModel prop : entityType.properties()) {
+            if ("Edm.Stream".equals(prop.edmType())) {
+                String streamMethod = Names.toJavaMethodName(prop.name(), "stream");
+                String setMethod = Names.toJavaMethodName(prop.name(), "set");
+                sb.append("    public java.io.InputStream ").append(streamMethod).append("() {\n");
+                sb.append("        return EntityOperations.streamMedia(context, contextPath.addSegment(\"")
+                  .append(prop.name()).append("\"));\n");
+                sb.append("    }\n\n");
+
+                sb.append("    public void ").append(setMethod).append("(java.io.InputStream content) {\n");
+                sb.append("        ").append(setMethod).append("(content, null);\n");
+                sb.append("    }\n\n");
+
+                sb.append("    public void ").append(setMethod).append("(java.io.InputStream content, String etag) {\n");
+                sb.append("        try {\n");
+                sb.append("            byte[] bytes = content.readAllBytes();\n");
+                sb.append("            EntityOperations.putMedia(context, contextPath.addSegment(\"")
+                  .append(prop.name()).append("\"), bytes, \"application/octet-stream\", etag);\n");
+                sb.append("        } catch (java.io.IOException e) {\n");
+                sb.append("            throw new io.github.akbarhusain.odata.runtime.exception.ODataException(\"Failed to read media stream: \" + e.getMessage(), e);\n");
+                sb.append("        }\n");
+                sb.append("    }\n\n");
+            }
+        }
 
         // Batch methods
         sb.append("    public BatchOperation toBatchOperation() {\n");

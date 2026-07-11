@@ -155,6 +155,52 @@ public class EntityOperations {
         throw ODataException.fromResponse(response);
     }
 
+    // Media ($value) operations — entity itself is a media stream (HasStream="true") or a
+    // property is an Edm.Stream (named stream at <property>/$value). The request layer builds
+    // the path with addSegment("$value"); entities (no Context) must go through the request.
+
+    public static InputStream streamMedia(Context context, ContextPath path) {
+        try {
+            return streamMediaAsync(context, path).join();
+        } catch (CompletionException e) {
+            Throwable cause = e.getCause();
+            if (cause instanceof RuntimeException re) throw re;
+            throw new ODataException("Stream failed: " + cause.getMessage(), cause);
+        }
+    }
+
+    public static CompletableFuture<InputStream> streamMediaAsync(Context context, ContextPath path) {
+        String url = path.toUrl();
+        Map<String, List<String>> headers = new LinkedHashMap<>();
+        for (var entry : context.authProvider().getHeaders().entrySet()) {
+            headers.put(entry.getKey(), new ArrayList<>(List.of(entry.getValue())));
+        }
+        // Request the raw media bytes, not JSON metadata
+        headers.put("Accept", new ArrayList<>(List.of("*/*")));
+
+        HttpRequest request = HttpRequest.builder()
+                .method(HttpMethod.GET)
+                .url(url)
+                .headers(headers)
+                .connectTimeout(Duration.ofSeconds(30))
+                .readTimeout(Duration.ofSeconds(60))
+                .build();
+
+        return buildTransportChain(context, context.transport()).stream(request);
+    }
+
+    public static void putMedia(Context context, ContextPath path, byte[] body, String contentType, String etag) {
+        Map<String, String> headers = new LinkedHashMap<>();
+        headers.put("Content-Type", contentType != null && !contentType.isEmpty()
+                ? contentType : "application/octet-stream");
+        if (etag != null && !etag.isEmpty()) {
+            headers.put("If-Match", etag);
+        }
+        HttpResponse response = executeSync(context, HttpMethod.PUT, path, body,
+                headers.isEmpty() ? null : headers);
+        checkResponse(response);
+    }
+
     public static HttpTransport buildTransportChain(Context context, HttpTransport real) {
         HttpTransport transport = real;
         List<HttpInterceptor> interceptors = context.interceptors();
@@ -169,7 +215,7 @@ public class EntityOperations {
 
                 @Override
                 public CompletableFuture<InputStream> stream(HttpRequest request) {
-                    throw new UnsupportedOperationException("Interceptors do not support stream()");
+                    return delegate.stream(request);
                 }
             };
         }

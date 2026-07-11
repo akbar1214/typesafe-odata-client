@@ -277,6 +277,22 @@ CollectionPage<Person> people = client.people()
 
 ---
 
+### 20. Media Stream Support (`HasStream` & `Edm.Stream`) via the Request Layer
+
+**Decision:** Entities declared `HasStream="true"` (media entities) and properties of type `Edm.Stream` (named streams) get stream accessors on the generated **entity request** class: `streamMedia()` / `setMedia(InputStream[, etag])` for media entities, and `stream<Prop>()` / `set<Prop>(InputStream[, etag])` for named streams.
+
+**Reason:** Real services expose binary content (OData Demo `Advertisement` media entity, `PersonDetail.Photo` named stream). Without it, users must drop to raw HTTP and hand-build the `$value` URL + headers. The parser already captures `hasStream`; `Edm.Stream` maps to `Object` (lesson 27) so the property getter alone was useless for the actual bytes.
+
+**Approach:**
+- Media entity: `streamMedia()` GETs `.../<EntitySet>(key)/$value`; `setMedia(...)` PUTs the same URL (with `If-Match` for concurrency).
+- Named stream: `stream<Prop>()` GETs `.../<EntitySet>(key)/<PropertyName>` — the media resource itself. OData Demo rejects `/<Prop>/$value` (only `$value` is valid for media *entities*); the named stream is the terminal segment.
+- Generated code delegates to `EntityOperations.streamMedia()` / `putMedia()`, which build the request (Accept `*/*` for raw bytes) and route through the transport chain. `HttpTransport.stream()` now honours a caller-supplied `Accept` (so media can request `*/*` instead of JSON), and the interceptor `stream()` wrapper delegates to the delegate instead of throwing.
+- Entities (no `Context`) do **not** get stream methods — consistent with decision 6b; streaming is a request-layer concern.
+
+**Known limitation:** `setMedia`/`set<Prop>` mutate server state; the live generated-client tests only exercise reads. Uploads are covered by the runtime mock-transport test (`EntityOperationsMediaTest`) and the generator-content test (`RequestGeneratorMediaTest`).
+
+---
+
 ## Architecture
 
 ```
@@ -309,9 +325,10 @@ Run `mvn test` from the repo root. All modules build in one reactor; the runtime
 - **Entity generator unit tests:** Composite-key `getKey()`, collection getter emission (`EntityGeneratorCompositeKeyTest` 1, `EntityGeneratorCollectionGetterTest` 2)
 - **Complex type generator unit tests:** Complex-type inheritance — `EventLocation extends Location`, `with*` + Builder generation (`ComplexTypeGeneratorInheritanceTest` 3)
 - **Entity generator abstract-type unit tests:** Abstract entity generation — abstract base declares no `with*()`, concrete subtype extends it + has `with*()`, and the pair compiles (`EntityGeneratorAbstractTest` 3)
-- **Runtime tests:** 116 (live TripPin & Northwind integration, query expression, context path, batch, exceptions, transport)
-- **Generated client tests (80):** `NorthwindGeneratedClientTest` (24), `ODataDemoGeneratedClientTest` (23, exercises `FeaturedProduct extends Product`, `Customer`/`Employee extends Person`, `Event`/`PlanItem`), `TripPinGeneratedClientTest` (22, exercises `Flight`/`PublicTransportation`/`PlanItem` hierarchy, type-safe + nested `$expand`), `TripPinInheritanceTest` (11, exercises generated **complex-type** inheritance `EventLocation`/`AirportLocation extends Location` + **entity** inheritance `Flight → PublicTransportation → PlanItem`, `Event → PlanItem`: `instanceof`/polymorphic assignment, subtype `with*` copy-on-write preserving inherited fields, base `builder()` scoping, live `AirportLocation` deserialization)
-- **Total: 254 tests passing**
+- **Request generator media-stream tests:** `HasStream` entity + `Edm.Stream` named property generate `stream*`/`set*` request methods (`RequestGeneratorMediaTest` 3)
+- **Runtime tests:** 119 (live TripPin & Northwind integration, query expression, context path, batch, exceptions, transport, **media `$value` stream/put via mock transport** — `EntityOperationsMediaTest` 3)
+- **Generated client tests (82):** `NorthwindGeneratedClientTest` (24), `ODataDemoGeneratedClientTest` (23, exercises `FeaturedProduct extends Product`, `Customer`/`Employee extends Person`, `Event`/`PlanItem`), `TripPinGeneratedClientTest` (22, exercises `Flight`/`PublicTransportation`/`PlanItem` hierarchy, type-safe + nested `$expand`), `TripPinInheritanceTest` (11, exercises generated **complex-type** inheritance `EventLocation`/`AirportLocation extends Location` + **entity** inheritance `Flight → PublicTransportation → PlanItem`, `Event → PlanItem`: `instanceof`/polymorphic assignment, subtype `with*` copy-on-write preserving inherited fields, base `builder()` scoping, live `AirportLocation` deserialization), `ODataDemoMediaTest` (2, live media streams: `Advertisement` `HasStream` via `streamMedia()` at `.../Advertisements(id)/$value`, `PersonDetail.Photo` `Edm.Stream` named stream via `streamPhoto()` at `.../PersonDetails(id)/Photo`)
+- **Total: 262 tests passing**
 - **Future:** Cancellable streaming
 
 ---
@@ -370,7 +387,7 @@ Run `mvn test` from the repo root. All modules build in one reactor; the runtime
 
 26. **OData datetime literals must NOT be quoted in filter expressions.** Using `StringProperty` for `Edm.DateTimeOffset` generates `OrderDate ge '1998-01-01T00:00:00Z'` (quoted), but OData requires `OrderDate ge 1998-01-01T00:00:00Z` (unquoted). Fixed by adding `DateTimeProperty` that generates unquoted datetime literals.
 
-27. **OData Demo service tests inheritance, open types, geography, stream gaps.** The parser correctly parses `BaseType`, `OpenType`, `HasStream`, and `ConcurrencyMode` attributes. `BaseType` is now honored by the generator (see decision 15 and lesson 51) — `FeaturedProduct` genuinely `extends Product`. `OpenType`, `HasStream`, and `ConcurrencyMode` are still ignored by the generator, and `Edm.Stream`/`Edm.GeographyPoint` still map to `Object`. Those remain clear future milestones.
+27. **OData Demo service tests inheritance, open types, geography, stream gaps.** The parser correctly parses `BaseType`, `OpenType`, `HasStream`, and `ConcurrencyMode` attributes. `BaseType` is now honored by the generator (see decision 15 and lesson 51) — `FeaturedProduct` genuinely `extends Product`. `HasStream` and `Edm.Stream` are now honored too (decision 20) — media entities and named streams get `stream*`/`set*` request methods. `OpenType` and `ConcurrencyMode` are still ignored by the generator, and `Edm.GeographyPoint` still maps to `Object`. Those remain clear future milestones.
 
 28. **OData Demo service IDs start at 0, not 1.** The `Products` entity set has `ID=0` for "Bread". Assertions like `assertTrue(p.getID() > 0)` fail — use `assertNotNull()` or non-zero-specific checks instead.
 
@@ -435,3 +452,5 @@ Run `mvn test` from the repo root. All modules build in one reactor; the runtime
 53. **Abstract base entity types now supported in generation.** The generator emits `public abstract class` for `Abstract="true"` types and generates **no** `with*` methods (which would otherwise call `new AbstractX(...)` — a compile error). The fix gates `with*` generation on `!entityType.abstractType()` in `EntityGenerator` (mirroring the already-correct complex-type handling in `ComplexTypeGenerator`, lessons 10/54). The protected internal constructor and public Jackson constructor are still emitted so concrete subtypes can chain `super(...)`. Verified by `EntityGeneratorAbstractTest` (abstract `Animal` + concrete `Cat extends Animal`: the pair compiles, `Animal` has no `with*()`, `Cat` has `with*()` that reconstructs `new Cat(...)`).
 
 54. **Complex-type inheritance implementation notes.** Mirrors entity inheritance but with two extra traps: (a) `baseSimpleName` must be derived from `complexType.baseType()` (the CSDL base reference), **not** `base.baseType()` — a resolved base type may itself have a `null` `baseType`, which throws `NullPointerException` in `Names.simpleNameFromFullName`. (b) A static `builder()` in a subtype clashes with the inherited `builder()` (no covariant return types for static methods), so the `Builder` is generated only for top-level concrete types and subtypes rely on `with*()`. (c) `with*` and `Builder` are both skipped for `Abstract="true"` complex types so no `new AbstractX(...)` is emitted. Verified by `ComplexTypeGeneratorInheritanceTest` (TripPin `EventLocation extends Location`).
+
+55. **Edm.Guid keys must be unquoted in URLs.** `ContextPath.formatValue()` previously wrapped every `String` key in single quotes, producing `Advertisements('guid')` — OData Demo rejects this with HTTP 400 ("Error in query syntax") and also rejects the `guid'...'` literal. The service's own `@odata.mediaReadLink` uses the bare form `Advertisements(<guid>)/$value`. Fixed by detecting UUID-shaped `String` keys in `formatValue()` and emitting them unquoted. Verified end-to-end by `ODataDemoMediaTest` (the only Guid-key entity in the test metadata is `Advertisement`).
