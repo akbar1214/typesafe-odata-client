@@ -200,7 +200,7 @@ public class EntityGenerator {
 
         // Builder (only for concrete top-level entities; subtypes reuse base builder or with* methods)
         if (base == null && !entityType.abstractType()) {
-            sb.append(generateBuilder(allProps, className, schema, keys));
+            sb.append(generateBuilder(allProps, className, schema, keys, rootMutableMap));
         }
 
         // with*() methods — skipped for abstract types, which cannot be instantiated
@@ -486,7 +486,7 @@ public class EntityGenerator {
         return sb.toString();
     }
 
-    private String generateBuilder(List<PropertyModel> props, String className, SchemaModel schema, List<KeyModel> keys) {
+    private String generateBuilder(List<PropertyModel> props, String className, SchemaModel schema, List<KeyModel> keys, boolean mutableUnmappedFields) {
         StringBuilder sb = new StringBuilder();
         sb.append("    public static Builder builder() {\n        return new Builder();\n    }\n\n");
 
@@ -498,7 +498,9 @@ public class EntityGenerator {
             String javaType = resolvePropertyJavaType(prop, schema, true);
             sb.append("        private ").append(javaType).append(" ").append(Names.toJavaFieldName(prop.name())).append(";\n");
         }
-        sb.append("        private java.util.Map<String, Object> unmappedFields = new java.util.HashMap<>();\n\n");
+        sb.append("        private java.util.Map<String, Object> unmappedFields = ")
+          .append(mutableUnmappedFields ? "new java.util.HashMap<>()" : "java.util.Map.of()")
+          .append(";\n\n");
 
         sb.append("        public Builder contextPath(ContextPath contextPath) {\n");
         sb.append("            this.contextPath = contextPath;\n");

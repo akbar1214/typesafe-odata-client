@@ -139,4 +139,34 @@ class StringPropertyTest {
         StringProperty<Object> trimmed = name.trim();
         assertEquals("trim(Name)", trimmed.toODataExpression());
     }
+
+    @Test
+    void greaterThan() {
+        FilterExpression<Object> expr = name.greaterThan("M");
+        assertEquals("Name gt 'M'", expr.toODataExpression());
+    }
+
+    @Test
+    void greaterThanOrEqualTo() {
+        FilterExpression<Object> expr = name.greaterThanOrEqualTo("M");
+        assertEquals("Name ge 'M'", expr.toODataExpression());
+    }
+
+    @Test
+    void lessThan() {
+        FilterExpression<Object> expr = name.lessThan("Z");
+        assertEquals("Name lt 'Z'", expr.toODataExpression());
+    }
+
+    @Test
+    void lessThanOrEqualTo() {
+        FilterExpression<Object> expr = name.lessThanOrEqualTo("Z");
+        assertEquals("Name le 'Z'", expr.toODataExpression());
+    }
+
+    @Test
+    void greaterThanEscapesQuote() {
+        FilterExpression<Object> expr = name.greaterThan("O'Brien");
+        assertEquals("Name gt 'O''Brien'", expr.toODataExpression());
+    }
 }

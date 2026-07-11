@@ -121,6 +121,39 @@ public class ComplexTypeGenerator {
         }
         sb.append("    }\n\n");
 
+        // Internal constructor for with*() — preserves unmappedFields across copy-on-write
+        if (rootMutableMap) {
+            sb.append("    protected ").append(className).append("(\n");
+            for (int i = 0; i < allProps.size(); i++) {
+                PropertyModel prop = allProps.get(i);
+                sb.append("            ").append(resolvePropertyJavaType(prop))
+                  .append(" ").append(Names.toJavaFieldName(prop.name()));
+                if (i < allProps.size() - 1) sb.append(",");
+                sb.append("\n");
+            }
+            if (allProps.size() > 0) sb.append(",\n");
+            sb.append("            java.util.Map<String, Object> unmappedFields) {\n");
+            if (base != null) {
+                sb.append("        super(");
+                for (int i = 0; i < inheritedProps.size(); i++) {
+                    if (i > 0) sb.append(", ");
+                    sb.append(Names.toJavaFieldName(inheritedProps.get(i).name()));
+                }
+                sb.append(", unmappedFields);\n");
+            }
+            for (PropertyModel prop : ownProps) {
+                String fn = Names.toJavaFieldName(prop.name());
+                if (Names.isCollectionType(prop.edmType())) {
+                    sb.append("        this.").append(fn).append(" = ").append(fn)
+                      .append(" == null ? List.of() : List.copyOf(").append(fn).append(");\n");
+                } else {
+                    sb.append("        this.").append(fn).append(" = ").append(fn).append(";\n");
+                }
+            }
+            sb.append("        this.unmappedFields = unmappedFields != null ? unmappedFields : java.util.Map.of();\n");
+            sb.append("    }\n\n");
+        }
+
         // Getters (own props only; inherited getters are inherited from the parent)
         for (PropertyModel prop : ownProps) {
             String javaType = resolvePropertyJavaType(prop);
@@ -146,7 +179,7 @@ public class ComplexTypeGenerator {
         // nullable getters' Optional<T> in the raw-typed constructor.
         if (!complexType.abstractType()) {
             for (PropertyModel prop : allProps) {
-                sb.append(generateWithMethod(prop, allProps, className));
+                sb.append(generateWithMethod(prop, allProps, className, rootMutableMap));
             }
         }
 
@@ -154,7 +187,7 @@ public class ComplexTypeGenerator {
         // with*() for copy-on-write (mirrors the entity design: a static builder() in a
         // subtype would clash with the inherited builder() due to different Builder types).
         if (base == null && !complexType.abstractType()) {
-            generateBuilder(sb, allProps, className);
+            generateBuilder(sb, allProps, className, rootMutableMap);
         }
 
         // ODataType interface
@@ -216,7 +249,7 @@ public class ComplexTypeGenerator {
         return sb.toString();
     }
 
-    private String generateWithMethod(PropertyModel prop, List<PropertyModel> allProps, String className) {
+    private String generateWithMethod(PropertyModel prop, List<PropertyModel> allProps, String className, boolean openType) {
         String javaType = resolvePropertyJavaType(prop);
         String fn = Names.toJavaFieldName(prop.name());
 
@@ -233,12 +266,15 @@ public class ComplexTypeGenerator {
                 sb.append(Names.toJavaFieldName(p.name()));
             }
         }
+        if (openType) {
+            sb.append(", this.unmappedFields");
+        }
         sb.append(");\n");
         sb.append("    }\n\n");
         return sb.toString();
     }
 
-    private void generateBuilder(StringBuilder sb, List<PropertyModel> allProps, String className) {
+    private void generateBuilder(StringBuilder sb, List<PropertyModel> allProps, String className, boolean mutableUnmappedFields) {
         sb.append("    public static Builder builder() {\n");
         sb.append("        return new Builder();\n");
         sb.append("    }\n\n");
@@ -247,6 +283,9 @@ public class ComplexTypeGenerator {
         for (PropertyModel prop : allProps) {
             sb.append("        private ").append(resolvePropertyJavaType(prop)).append(" ")
               .append(Names.toJavaFieldName(prop.name())).append(";\n");
+        }
+        if (mutableUnmappedFields) {
+            sb.append("        private java.util.Map<String, Object> unmappedFields = new java.util.HashMap<>();\n");
         }
         sb.append("\n");
 
@@ -264,6 +303,9 @@ public class ComplexTypeGenerator {
         for (int i = 0; i < allProps.size(); i++) {
             if (i > 0) sb.append(", ");
             sb.append(Names.toJavaFieldName(allProps.get(i).name()));
+        }
+        if (mutableUnmappedFields) {
+            sb.append(", unmappedFields");
         }
         sb.append(");\n");
         sb.append("        }\n");

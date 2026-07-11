@@ -90,6 +90,23 @@ public final class StringProperty<E> implements PropertyExpression<String> {
         return new StringProperty<>("substring(" + edmName + "," + start + "," + length + ")", entityType);
     }
 
+    // Lexicographic comparison operators (valid OData for strings)
+    public FilterExpression<E> greaterThan(String value) {
+        return new RawFilterExpression(edmName + " gt '" + escape(value) + "'");
+    }
+
+    public FilterExpression<E> greaterThanOrEqualTo(String value) {
+        return new RawFilterExpression(edmName + " ge '" + escape(value) + "'");
+    }
+
+    public FilterExpression<E> lessThan(String value) {
+        return new RawFilterExpression(edmName + " lt '" + escape(value) + "'");
+    }
+
+    public FilterExpression<E> lessThanOrEqualTo(String value) {
+        return new RawFilterExpression(edmName + " le '" + escape(value) + "'");
+    }
+
     // Null checks
     public FilterExpression<E> isNull() {
         return new RawFilterExpression(edmName + " eq null");

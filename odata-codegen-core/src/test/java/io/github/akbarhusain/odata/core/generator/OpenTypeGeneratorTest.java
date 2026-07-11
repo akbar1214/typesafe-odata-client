@@ -91,6 +91,30 @@ class OpenTypeGeneratorTest {
     }
 
     @Test
+    void builderForNonOpenEntityUsesZeroAllocMap() throws Exception {
+        String code = entity("Airline");
+        assertTrue(code.contains("private java.util.Map<String, Object> unmappedFields = java.util.Map.of()"),
+                "Builder for non-open entity must not allocate a HashMap");
+        assertFalse(code.contains("new java.util.HashMap<>()"),
+                "Non-open entity Builder must not reference HashMap at all");
+    }
+
+    @Test
+    void nonOpenComplexTypeDoesNotReferenceUnmappedFieldsInWith() throws Exception {
+        // City is a non-open complex type in TripPin. Its with*() should NOT reference unmappedFields.
+        CsdlModel.SchemaModel schema = schema();
+        CsdlModel.ComplexTypeModel cityType = schema.complexTypes().stream()
+                .filter(e -> e.name().equals("City"))
+                .findFirst()
+                .orElseThrow();
+        String code = new ComplexTypeGenerator("com.example.trippin").generate(cityType, schema);
+        assertFalse(code.contains("unmappedFields"),
+                "Non-open complex type City must not reference unmappedFields anywhere");
+        assertFalse(code.contains("HashMap"),
+                "Non-open complex type must not allocate HashMap");
+    }
+
+    @Test
     void openComplexTypeCapturesDynamicProperties() throws Exception {
         String location = complexType("Location");
         assertTrue(location.contains("protected final java.util.Map<String, Object> unmappedFields;"),
@@ -101,6 +125,12 @@ class OpenTypeGeneratorTest {
                 "Open complex root uses a mutable map");
         assertTrue(location.contains("public <T> Optional<T> getDynamicProperty(String name, Class<T> type)"),
                 "Open complex type exposes the typed getDynamicProperty(String, Class) overload");
+
+        // Verify with*() preserves unmappedFields for open complex types
+        assertTrue(location.contains(", this.unmappedFields"),
+                "Open complex type with*() must pass this.unmappedFields to preserve dynamic props");
+        assertTrue(location.contains("protected Location("),
+                "Open complex type must have internal constructor for with*() to use");
 
         // EventLocation extends open Location — inherits the any-setter, no duplicate.
         String eventLocation = complexType("EventLocation");
