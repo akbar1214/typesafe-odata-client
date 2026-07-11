@@ -74,7 +74,7 @@ odata-codegen/
 **Goal:** Clean HTTP layer with pluggable backends and async support.
 
 - [x] `HttpTransport` interface with `CompletableFuture<HttpResponse>`
-- [x] `JdkHttpTransport` (zero deps), `ApacheHttpTransport` (optional)
+- [x] `JdkHttpTransport` (zero deps), `JavaNetHttpTransport` (JDK HttpClient, optional)
 - [x] `Serializer` interface + `JacksonSerializer` implementation
 - [x] `AuthProvider` interface + `BearerAuthProvider`, `BasicAuthProvider`, `ApiKeyAuthProvider`
 - [x] Typed exception hierarchy: `ODataException`, `NotFoundException`, `UnauthorizedException`, `RateLimitException`, etc.

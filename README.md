@@ -176,12 +176,12 @@ try {
 ### Custom HTTP Transport
 
 ```java
-// Use Apache HttpClient
-import io.github.akbarhusain.odata.runtime.http.ApacheHttpTransport;
+// Use the JDK HttpClient transport (zero extra dependencies)
+import io.github.akbarhusain.odata.runtime.http.JavaNetHttpTransport;
 
 Context ctx = Context.builder()
     .baseUrl("https://services.odata.org/V4/TripPinService")
-    .transport(new ApacheHttpTransport())
+    .transport(new JavaNetHttpTransport())
     .authProvider(new BearerAuthProvider("your-token"))
     .build();
 ```

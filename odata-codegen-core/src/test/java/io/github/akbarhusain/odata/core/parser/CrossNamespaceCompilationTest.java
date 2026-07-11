@@ -73,6 +73,21 @@ class CrossNamespaceCompilationTest {
         assertTrue(personCode.contains("import com.example.crossns.shared.complex.Address"),
                 "Person must import Address from CrossNs.Shared package, not CrossNs.Main. Got:\n" + personCode);
 
+        // Verify PersonEntityRequest imports the cross-namespace nav target from the correct package
+        File personRequestFile = javaFiles.stream()
+                .filter(f -> f.getName().equals("PersonEntityRequest.java"))
+                .findFirst()
+                .orElseThrow();
+        String personRequestCode = Files.readString(personRequestFile.toPath());
+
+        assertTrue(personRequestCode.contains("import com.example.crossns.shared.entity.request.SharedTagEntityRequest"),
+                "PersonEntityRequest must import SharedTagEntityRequest from CrossNs.Shared package, not CrossNs.Main. Got:\n" + personRequestCode);
+
+        // Verify the TypeDefinition filter constant resolves to StringProperty
+        assertTrue(personCode.contains("CONTACT_EMAIL")
+                        && personCode.contains("new StringProperty<>(\"ContactEmail\""),
+                "TypeDefinition property 'ContactEmail' should emit a StringProperty filter constant. Got:\n" + personCode);
+
         // Verify TypeDefinition "Email" resolves to String
         assertTrue(personCode.contains("String contactEmail"),
                 "TypeDefinition 'Email' (underlying Edm.String) should resolve to String field. Got:\n" + personCode);

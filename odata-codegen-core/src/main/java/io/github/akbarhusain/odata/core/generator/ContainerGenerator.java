@@ -5,15 +5,22 @@ import io.github.akbarhusain.odata.core.model.CsdlModel.EntitySetModel;
 import io.github.akbarhusain.odata.core.model.CsdlModel.SchemaModel;
 import io.github.akbarhusain.odata.core.model.CsdlModel.SingletonModel;
 
+import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 
 public class ContainerGenerator {
 
     private final String basePackage;
+    private final Map<String, String> schemaPackages;
 
     public ContainerGenerator(String basePackage) {
+        this(basePackage, Map.of());
+    }
+
+    public ContainerGenerator(String basePackage, Map<String, String> schemaPackages) {
         this.basePackage = basePackage;
+        this.schemaPackages = schemaPackages;
     }
 
     public String generate(ContainerModel container, SchemaModel schema) {
@@ -28,12 +35,12 @@ public class ContainerGenerator {
 
         for (EntitySetModel es : container.entitySets()) {
             String entityClassName = Names.simpleNameFromFullName(es.entityType());
-            imports.add(basePackage + Names.packageNameSuffixCollectionRequest() + "." + Names.collectionRequestClassName(entityClassName));
+            imports.add(basePackageForType(es.entityType(), schema) + Names.packageNameSuffixCollectionRequest() + "." + Names.collectionRequestClassName(entityClassName));
         }
 
         for (SingletonModel singleton : container.singletons()) {
             String entityClassName = Names.simpleNameFromFullName(singleton.type());
-            imports.add(basePackage + Names.packageNameSuffixEntityRequest() + "." + Names.entityRequestClassName(entityClassName));
+            imports.add(basePackageForType(singleton.type(), schema) + Names.packageNameSuffixEntityRequest() + "." + Names.entityRequestClassName(entityClassName));
         }
 
         for (String imp : imports) {
@@ -74,5 +81,14 @@ public class ContainerGenerator {
 
         sb.append("}\n");
         return sb.toString();
+    }
+
+    // P0-3: Look up the base package for a cross-namespace type reference
+    private String basePackageForType(String edmType, SchemaModel schema) {
+        String namespace = Names.namespaceFromFullName(edmType);
+        if (namespace.isEmpty() || namespace.equals(schema.namespace())) {
+            return basePackage;
+        }
+        return schemaPackages.getOrDefault(namespace, Names.toPackageName(namespace));
     }
 }

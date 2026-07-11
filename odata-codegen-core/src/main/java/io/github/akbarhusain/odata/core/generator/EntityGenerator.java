@@ -79,9 +79,10 @@ public class EntityGenerator {
         imports.add("io.github.akbarhusain.odata.runtime.query.*");
 
         for (NavigationPropertyModel nav : entityType.navigationProperties()) {
-            String elementClassName = Names.simpleNameFromFullName(Names.unwrapCollectionType(nav.type()));
+            String elementType = Names.unwrapCollectionType(nav.type());
+            String elementClassName = Names.simpleNameFromFullName(elementType);
             if (!isBuiltinType(elementClassName)) {
-                imports.add(basePackage + Names.packageNameSuffixEntity() + "." + elementClassName);
+                imports.add(basePackageForType(elementType, schema) + Names.packageNameSuffixEntity() + "." + elementClassName);
             }
         }
 
@@ -606,10 +607,11 @@ public class EntityGenerator {
     }
 
     private String resolveClassNameForConstant(String edmType, SchemaModel schema) {
-        if (Names.isPrimitiveType(edmType)) {
-            return Names.edmTypeToSimpleJavaType(edmType);
+        String resolved = resolveTypeDefinition(edmType, schema);
+        if (Names.isPrimitiveType(resolved)) {
+            return Names.edmTypeToSimpleJavaType(resolved);
         }
-        return Names.simpleNameFromFullName(edmType);
+        return Names.simpleNameFromFullName(resolved);
     }
 
     private String getNumberJavaType(String edmType) {
@@ -617,11 +619,12 @@ public class EntityGenerator {
     }
 
     private String getPropertyConstantType(String edmType, SchemaModel schema) {
-        if (Names.isStringType(edmType)) return "StringProperty";
-        if (Names.isBooleanType(edmType)) return "BooleanProperty";
-        if (Names.isDateTimeType(edmType)) return "DateTimeProperty";
-        if (isEnumType(edmType, schema)) return "EnumProperty";
-        if (Names.isNumericType(edmType)) return "NumberProperty";
+        String resolved = resolveTypeDefinition(edmType, schema);
+        if (Names.isStringType(resolved)) return "StringProperty";
+        if (Names.isBooleanType(resolved)) return "BooleanProperty";
+        if (Names.isDateTimeType(resolved)) return "DateTimeProperty";
+        if (isEnumType(resolved, schema)) return "EnumProperty";
+        if (Names.isNumericType(resolved)) return "NumberProperty";
         return null; // Binary, Stream, Geography, Geometry — not filterable, no constant
     }
 

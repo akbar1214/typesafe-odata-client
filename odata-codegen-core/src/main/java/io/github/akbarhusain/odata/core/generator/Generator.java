@@ -39,8 +39,8 @@ public class Generator {
         EntityGenerator entityGenerator = new EntityGenerator(basePackage, schemaPackages);
         EnumGenerator enumGenerator = new EnumGenerator(basePackage);
         ComplexTypeGenerator complexTypeGenerator = new ComplexTypeGenerator(basePackage, schemaPackages);
-        RequestGenerator requestGenerator = new RequestGenerator(basePackage);
-        ContainerGenerator containerGenerator = new ContainerGenerator(basePackage);
+        RequestGenerator requestGenerator = new RequestGenerator(basePackage, schemaPackages);
+        ContainerGenerator containerGenerator = new ContainerGenerator(basePackage, schemaPackages);
         SchemaInfoGenerator schemaInfoGenerator = new SchemaInfoGenerator(basePackage);
 
         for (EnumTypeModel enumType : schema.enumTypes()) {

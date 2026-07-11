@@ -54,7 +54,7 @@
 **HTTP Transport:**
 
 - `JdkHttpTransport` (Java 11+ `HttpClient`, native PATCH support, dedicated executor)
-- `ApacheHttpTransport`
+- `JavaNetHttpTransport`
 - Custom `HttpTransport` interface (two methods: `submit`, `stream`)
 
 **Serialization:**

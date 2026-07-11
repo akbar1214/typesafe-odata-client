@@ -49,7 +49,7 @@ Runtime library for generated code.
 
 - `entity/` — Context, ContextPath, SchemaInfo
 - `query/` — Expression hierarchy
-- `http/` — HttpTransport, JdkHttpTransport, ApacheHttpTransport
+- `http/` — HttpTransport, JdkHttpTransport, JavaNetHttpTransport
 - `auth/` — AuthProvider implementations
 - `serialization/` — JacksonSerializer
 - `paging/` — CollectionPage

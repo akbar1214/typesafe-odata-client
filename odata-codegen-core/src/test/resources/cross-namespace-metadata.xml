@@ -18,25 +18,35 @@
         </Key>
         <Property Name="Id" Type="Edm.Int32" Nullable="false"/>
         <Property Name="Name" Type="Edm.String"/>
-        <!-- P0-3: cross-namespace reference to Shared.Address -->
-        <Property Name="Home" Type="CrossNs.Shared.Address"/>
-        <!-- P0-4: reference to TypeDefinition -->
-        <Property Name="ContactEmail" Type="CrossNs.Main.Email"/>
-        <!-- P0-5: Int64 enum property -->
-        <Property Name="Flags" Type="CrossNs.Main.BigFlags"/>
-      </EntityType>
+      <!-- P0-3: cross-namespace reference to Shared.Address -->
+      <Property Name="Home" Type="CrossNs.Shared.Address"/>
+      <!-- P0-3: cross-namespace navigation property to Shared.SharedTag -->
+      <NavigationProperty Name="Tag" Type="CrossNs.Shared.SharedTag"/>
+      <!-- P0-4: reference to TypeDefinition -->
+      <Property Name="ContactEmail" Type="CrossNs.Main.Email"/>
+      <!-- P0-5: Int64 enum property -->
+      <Property Name="Flags" Type="CrossNs.Main.BigFlags"/>
+    </EntityType>
 
-      <EntityContainer Name="Container">
-        <EntitySet Name="People" EntityType="CrossNs.Main.Person"/>
-      </EntityContainer>
-    </Schema>
+    <EntityContainer Name="Container">
+      <EntitySet Name="People" EntityType="CrossNs.Main.Person"/>
+      <EntitySet Name="SharedTags" EntityType="CrossNs.Shared.SharedTag"/>
+    </EntityContainer>
+  </Schema>
 
-    <!-- Schema B: shared types (different namespace → different package) -->
-    <Schema Namespace="CrossNs.Shared" xmlns="http://docs.oasis-open.org/odata/ns/edm">
-      <ComplexType Name="Address">
-        <Property Name="Street" Type="Edm.String"/>
-        <Property Name="City" Type="Edm.String"/>
-      </ComplexType>
-    </Schema>
+  <!-- Schema B: shared types (different namespace → different package) -->
+  <Schema Namespace="CrossNs.Shared" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+    <ComplexType Name="Address">
+      <Property Name="Street" Type="Edm.String"/>
+      <Property Name="City" Type="Edm.String"/>
+    </ComplexType>
+
+    <EntityType Name="SharedTag">
+      <Key>
+        <PropertyRef Name="Code"/>
+      </Key>
+      <Property Name="Code" Type="Edm.String" Nullable="false"/>
+    </EntityType>
+  </Schema>
   </edmx:DataServices>
 </edmx:Edmx>

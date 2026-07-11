@@ -15,12 +15,12 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicLong;
 
-public class ApacheHttpTransport implements HttpTransport {
+public class JavaNetHttpTransport implements HttpTransport {
 
     private static final AtomicLong THREAD_COUNTER = new AtomicLong();
     private static final Executor DEFAULT_EXECUTOR = Executors.newCachedThreadPool(
             r -> {
-                Thread t = new Thread(r, "odata-apache-" + THREAD_COUNTER.incrementAndGet());
+                Thread t = new Thread(r, "odata-http-" + THREAD_COUNTER.incrementAndGet());
                 t.setDaemon(true);
                 return t;
             });
@@ -28,11 +28,11 @@ public class ApacheHttpTransport implements HttpTransport {
     private final HttpClient client;
     private final Executor executor;
 
-    public ApacheHttpTransport() {
+    public JavaNetHttpTransport() {
         this(DEFAULT_EXECUTOR);
     }
 
-    ApacheHttpTransport(Executor executor) {
+    JavaNetHttpTransport(Executor executor) {
         this.client = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(30))
                 .followRedirects(HttpClient.Redirect.NEVER)

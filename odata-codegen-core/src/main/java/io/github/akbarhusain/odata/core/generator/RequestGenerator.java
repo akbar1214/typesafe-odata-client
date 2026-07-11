@@ -6,15 +6,22 @@ import io.github.akbarhusain.odata.core.model.CsdlModel.NavigationPropertyModel;
 import io.github.akbarhusain.odata.core.model.CsdlModel.PropertyModel;
 import io.github.akbarhusain.odata.core.model.CsdlModel.SchemaModel;
 
+import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 
 public class RequestGenerator {
 
     private final String basePackage;
+    private final Map<String, String> schemaPackages;
 
     public RequestGenerator(String basePackage) {
+        this(basePackage, Map.of());
+    }
+
+    public RequestGenerator(String basePackage, Map<String, String> schemaPackages) {
         this.basePackage = basePackage;
+        this.schemaPackages = schemaPackages;
     }
 
     public String generateEntityRequest(EntityTypeModel entityType, SchemaModel schema) {
@@ -37,12 +44,12 @@ public class RequestGenerator {
 
         for (NavigationPropertyModel nav : entityType.navigationProperties()) {
             boolean isCollection = Names.isCollectionType(nav.type());
-            String unwrapped = Names.unwrapCollectionType(nav.type());
-            String elementClassName = Names.simpleNameFromFullName(unwrapped);
+            String elementType = Names.unwrapCollectionType(nav.type());
+            String elementClassName = Names.simpleNameFromFullName(elementType);
             if (isCollection) {
-                imports.add(basePackage + Names.packageNameSuffixCollectionRequest() + "." + Names.collectionRequestClassName(elementClassName));
+                imports.add(basePackageForType(elementType, schema) + Names.packageNameSuffixCollectionRequest() + "." + Names.collectionRequestClassName(elementClassName));
             } else {
-                imports.add(basePackage + Names.packageNameSuffixEntityRequest() + "." + Names.entityRequestClassName(elementClassName));
+                imports.add(basePackageForType(elementType, schema) + Names.packageNameSuffixEntityRequest() + "." + Names.entityRequestClassName(elementClassName));
             }
         }
 
@@ -390,10 +397,7 @@ public class RequestGenerator {
     private String resolveKeyType(EntityTypeModel entityType, String keyPropName, SchemaModel schema) {
         for (PropertyModel prop : entityType.properties()) {
             if (prop.name().equals(keyPropName)) {
-                String edmType = prop.edmType();
-                if (Names.isStringType(edmType)) return "String";
-                if (Names.isNumericType(edmType)) return Names.edmTypeToSimpleJavaType(edmType);
-                return "Object";
+                return keyJavaType(prop.edmType(), schema);
             }
         }
         EntityTypeModel base = findBase(entityType, schema);
@@ -401,6 +405,28 @@ public class RequestGenerator {
             return resolveKeyType(base, keyPropName, schema);
         }
         return "Object";
+    }
+
+    // P1-6: map an OData key property to its Java parameter type (handles inherited + TypeDefinition keys)
+    private String keyJavaType(String edmType, SchemaModel schema) {
+        String resolved = resolveTypeDefinition(edmType, schema);
+        if (Names.isStringType(resolved)) return "String";
+        if (Names.isNumericType(resolved)) return Names.edmTypeToSimpleJavaType(resolved);
+        if (Names.isBooleanType(resolved)) return "Boolean";
+        if (Names.isPrimitiveType(resolved)) return Names.edmTypeToSimpleJavaType(resolved);
+        return "Object";
+    }
+
+    // P0-4: Resolve TypeDefinition to its underlying Edm type (recursively)
+    private String resolveTypeDefinition(String edmType, SchemaModel schema) {
+        if (Names.isPrimitiveType(edmType)) return edmType;
+        String simpleName = Names.simpleNameFromFullName(edmType);
+        for (var td : schema.typeDefinitions()) {
+            if (td.name().equals(simpleName)) {
+                return resolveTypeDefinition(td.underlyingType(), schema);
+            }
+        }
+        return edmType;
     }
 
     private java.util.List<KeyModel> resolvedKeys(EntityTypeModel entityType, SchemaModel schema) {
@@ -421,6 +447,15 @@ public class RequestGenerator {
             if (et.name().equals(baseName)) return et;
         }
         return null;
+    }
+
+    // P0-3: Look up the base package for a cross-namespace type reference
+    private String basePackageForType(String edmType, SchemaModel schema) {
+        String namespace = Names.namespaceFromFullName(edmType);
+        if (namespace.isEmpty() || namespace.equals(schema.namespace())) {
+            return basePackage;
+        }
+        return schemaPackages.getOrDefault(namespace, Names.toPackageName(namespace));
     }
 
     private String generateNavMethod(NavigationPropertyModel nav, SchemaModel schema) {
