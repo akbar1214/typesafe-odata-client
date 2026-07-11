@@ -211,11 +211,22 @@ class ODataDemoGeneratedClientTest {
     }
 
     // --- Inheritance tests ---
-    // OData Demo has inheritance: FeaturedProduct->Product, Customer->Person, Employee->Person
-    // Generator creates standalone classes (no Java inheritance), but derived types still work
-    // because the OData service returns all properties for each entity set.
+    // OData Demo has inheritance: FeaturedProduct->Product, Customer->Person, Employee->Person.
+    // The generator emits genuine Java inheritance (`extends`) for these types (decision 15),
+    // so FeaturedProduct extends Product and Customer/Employee extend Person.
     // Note: FeaturedProduct, Customer, Employee are NOT separate entity sets in the container —
     // they exist only as derived types in the metadata. The Persons entity set contains all Person-derived entities.
+
+    @Test
+    void inheritance_derivedTypesExtendBaseTypes() {
+        // Generated subclasses genuinely extend their CSDL BaseType
+        assertTrue(Product.class.isAssignableFrom(FeaturedProduct.class),
+                "FeaturedProduct should extend Product");
+        assertTrue(Person.class.isAssignableFrom(Customer.class),
+                "Customer should extend Person");
+        assertTrue(Person.class.isAssignableFrom(Employee.class),
+                "Employee should extend Person");
+    }
 
     @Test
     void inheritance_personEntitySetCompiles() {
@@ -255,8 +266,10 @@ class ODataDemoGeneratedClientTest {
 
     @Test
     void inheritance_baseTypeConstantsAreAccessibleOnDerived() {
-        // Derived types have their parent's constants accessible on the derived class
-        // (since they're standalone, this verifies the constants exist independently)
+        // Derived types inherit their parent's property constants via `extends`
+        assertNotNull(FeaturedProduct.NAME);
+        assertNotNull(FeaturedProduct.PRICE);
+        assertNotNull(Employee.NAME);
         assertNotNull(Product.ID);
         assertNotNull(Product.NAME);
         assertNotNull(Product.PRICE);

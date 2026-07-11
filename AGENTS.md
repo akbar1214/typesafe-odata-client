@@ -308,8 +308,8 @@ Run `mvn test` from the repo root. All modules build in one reactor; the runtime
 - **Entity generator unit tests:** Composite-key `getKey()`, collection getter emission (`EntityGeneratorCompositeKeyTest` 1, `EntityGeneratorCollectionGetterTest` 2)
 - **Complex type generator unit tests:** Complex-type inheritance — `EventLocation extends Location`, `with*` + Builder generation (`ComplexTypeGeneratorInheritanceTest` 3)
 - **Runtime tests:** 116 (live TripPin & Northwind integration, query expression, context path, batch, exceptions, transport)
-- **Generated client tests (68):** `NorthwindGeneratedClientTest` (24), `ODataDemoGeneratedClientTest` (22, exercises `FeaturedProduct extends Product`, `Event`/`PlanItem`), `TripPinGeneratedClientTest` (22, exercises `Flight`/`PublicTransportation`/`PlanItem` hierarchy, type-safe + nested `$expand`)
-- **Total: 239 tests passing**
+- **Generated client tests (80):** `NorthwindGeneratedClientTest` (24), `ODataDemoGeneratedClientTest` (23, exercises `FeaturedProduct extends Product`, `Customer`/`Employee extends Person`, `Event`/`PlanItem`), `TripPinGeneratedClientTest` (22, exercises `Flight`/`PublicTransportation`/`PlanItem` hierarchy, type-safe + nested `$expand`), `TripPinInheritanceTest` (11, exercises generated **complex-type** inheritance `EventLocation`/`AirportLocation extends Location` + **entity** inheritance `Flight → PublicTransportation → PlanItem`, `Event → PlanItem`: `instanceof`/polymorphic assignment, subtype `with*` copy-on-write preserving inherited fields, base `builder()` scoping, live `AirportLocation` deserialization)
+- **Total: 251 tests passing**
 - **Future:** Cancellable streaming
 
 ---
