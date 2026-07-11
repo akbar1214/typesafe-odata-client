@@ -9,6 +9,9 @@ public class BasicAuthProvider implements AuthProvider {
     private final String encodedCredentials;
 
     public BasicAuthProvider(String username, String password) {
+        if (username == null || password == null) {
+            throw new IllegalArgumentException("Username and password must not be null");
+        }
         String credentials = username + ":" + password;
         this.encodedCredentials = Base64.getEncoder()
                 .encodeToString(credentials.getBytes(StandardCharsets.UTF_8));

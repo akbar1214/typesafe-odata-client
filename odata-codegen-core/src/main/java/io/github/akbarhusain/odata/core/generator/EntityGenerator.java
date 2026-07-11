@@ -9,15 +9,22 @@ import io.github.akbarhusain.odata.core.model.CsdlModel.SchemaModel;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 
 public class EntityGenerator {
 
     private final String basePackage;
+    private final Map<String, String> schemaPackages;
+
+    public EntityGenerator(String basePackage, Map<String, String> schemaPackages) {
+        this.basePackage = basePackage;
+        this.schemaPackages = schemaPackages;
+    }
 
     public EntityGenerator(String basePackage) {
-        this.basePackage = basePackage;
+        this(basePackage, Map.of());
     }
 
     public String generate(EntityTypeModel entityType, SchemaModel schema) {
@@ -404,6 +411,9 @@ public class EntityGenerator {
         }
 
         String constantType = getPropertyConstantType(edmType, schema);
+        if (constantType == null) {
+            return ""; // Binary, Stream, Geography, Geometry — not filterable
+        }
         String typeParams = switch (constantType) {
             case "EnumProperty" -> "<" + className + ", " + resolveClassNameForConstant(edmType, schema) + ">";
             case "NumberProperty" -> "<" + className + ", " + getNumberJavaType(edmType) + ">";
@@ -413,7 +423,7 @@ public class EntityGenerator {
         return "    public static final " + constantType + typeParams + " "
                 + constantName
                 + " = new " + constantType + "<>(\"" + prop.name() + "\", " + className + ".class"
-                + (constantType.equals("EnumProperty") ? ", " + resolveClassNameForConstant(edmType, schema) + ".class" : "")
+                + (constantType.equals("EnumProperty") ? ", " + resolveClassNameForConstant(edmType, schema) + ".class, \"" + edmType + "\"" : "")
                 + ");\n";
     }
 
@@ -574,8 +584,9 @@ public class EntityGenerator {
     }
 
     private String resolveSingleJavaType(String edmType, SchemaModel schema, boolean boxed) {
-        if (Names.isPrimitiveType(edmType)) {
-            String javaType = Names.edmTypeToSimpleJavaType(edmType);
+        String resolved = resolveTypeDefinition(edmType, schema);
+        if (Names.isPrimitiveType(resolved)) {
+            String javaType = Names.edmTypeToSimpleJavaType(resolved);
             if (boxed) return javaType;
             return switch (javaType) {
                 case "Boolean" -> "boolean";
@@ -588,10 +599,10 @@ public class EntityGenerator {
                 default -> javaType;
             };
         }
-        if (isEnumType(edmType, schema)) {
-            return Names.enumClassName(Names.simpleNameFromFullName(edmType));
+        if (isEnumType(resolved, schema)) {
+            return Names.enumClassName(Names.simpleNameFromFullName(resolved));
         }
-        return Names.complexTypeClassName(Names.simpleNameFromFullName(edmType));
+        return Names.complexTypeClassName(Names.simpleNameFromFullName(resolved));
     }
 
     private String resolveClassNameForConstant(String edmType, SchemaModel schema) {
@@ -611,12 +622,33 @@ public class EntityGenerator {
         if (Names.isDateTimeType(edmType)) return "DateTimeProperty";
         if (isEnumType(edmType, schema)) return "EnumProperty";
         if (Names.isNumericType(edmType)) return "NumberProperty";
-        return "StringProperty";
+        return null; // Binary, Stream, Geography, Geometry — not filterable, no constant
     }
 
     private boolean isEnumType(String edmType, SchemaModel schema) {
         String simpleName = Names.simpleNameFromFullName(edmType);
         return schema.enumTypes().stream().anyMatch(e -> e.name().equals(simpleName));
+    }
+
+    // P0-4: Resolve TypeDefinition to its underlying Edm type (recursively)
+    private String resolveTypeDefinition(String edmType, SchemaModel schema) {
+        if (Names.isPrimitiveType(edmType)) return edmType;
+        String simpleName = Names.simpleNameFromFullName(edmType);
+        for (var td : schema.typeDefinitions()) {
+            if (td.name().equals(simpleName)) {
+                return resolveTypeDefinition(td.underlyingType(), schema);
+            }
+        }
+        return edmType;
+    }
+
+    // P0-3: Look up the base package for a cross-namespace type reference
+    private String basePackageForType(String edmType, SchemaModel schema) {
+        String namespace = Names.namespaceFromFullName(edmType);
+        if (namespace.isEmpty() || namespace.equals(schema.namespace())) {
+            return basePackage;
+        }
+        return schemaPackages.getOrDefault(namespace, Names.toPackageName(namespace));
     }
 
     private boolean isBuiltinType(String name) {
@@ -627,25 +659,30 @@ public class EntityGenerator {
     }
 
     private void addPropertyImports(PropertyModel prop, Set<String> imports, SchemaModel schema) {
-        String edmType = prop.edmType();
+        String edmType = resolveTypeDefinition(prop.edmType(), schema);
         if (Names.isCollectionType(edmType)) {
             imports.add("java.util.List");
             String elementType = Names.unwrapCollectionType(edmType);
-            if (Names.isPrimitiveType(elementType)) {
-                String javaType = Names.edmTypeToSimpleJavaType(elementType);
+            String resolvedElement = resolveTypeDefinition(elementType, schema);
+            if (Names.isPrimitiveType(resolvedElement)) {
+                String javaType = Names.edmTypeToSimpleJavaType(resolvedElement);
                 if (javaType.startsWith("java.")) imports.add(javaType);
-            } else if (isEnumType(elementType, schema)) {
-                imports.add(basePackage + Names.packageNameSuffixEnum() + "." + Names.simpleNameFromFullName(elementType));
+            } else if (isEnumType(resolvedElement, schema)) {
+                String pkg = basePackageForType(resolvedElement, schema);
+                imports.add(pkg + Names.packageNameSuffixEnum() + "." + Names.simpleNameFromFullName(resolvedElement));
             } else {
-                imports.add(basePackage + Names.packageNameSuffixComplexType() + "." + Names.complexTypeClassName(Names.simpleNameFromFullName(elementType)));
+                String pkg = basePackageForType(resolvedElement, schema);
+                imports.add(pkg + Names.packageNameSuffixComplexType() + "." + Names.complexTypeClassName(Names.simpleNameFromFullName(resolvedElement)));
             }
         } else if (Names.isPrimitiveType(edmType)) {
             String javaType = Names.edmTypeToSimpleJavaType(edmType);
             if (javaType.startsWith("java.")) imports.add(javaType);
         } else if (isEnumType(edmType, schema)) {
-            imports.add(basePackage + Names.packageNameSuffixEnum() + "." + Names.simpleNameFromFullName(edmType));
+            String pkg = basePackageForType(edmType, schema);
+            imports.add(pkg + Names.packageNameSuffixEnum() + "." + Names.simpleNameFromFullName(edmType));
         } else {
-            imports.add(basePackage + Names.packageNameSuffixComplexType() + "." + Names.complexTypeClassName(Names.simpleNameFromFullName(edmType)));
+            String pkg = basePackageForType(edmType, schema);
+            imports.add(pkg + Names.packageNameSuffixComplexType() + "." + Names.complexTypeClassName(Names.simpleNameFromFullName(edmType)));
         }
     }
 }

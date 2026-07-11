@@ -74,7 +74,7 @@ public record CsdlModel(
 
     public record EnumMemberModel(
         String name,
-        int value
+        long value
     ) {}
 
     public record TypeDefinitionModel(

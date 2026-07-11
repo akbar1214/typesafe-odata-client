@@ -97,4 +97,26 @@ class ContextPathTest {
         // Both query params should appear
         assertEquals(BASE + "?$top=5&$skip=10", url);
     }
+
+    @Test
+    void spaceInKeyValueIsPercentEncoded() {
+        // P0-2: space in key must be encoded as %20, otherwise URI.create throws
+        ContextPath path = new ContextPath(BASE)
+                .addSegment("People")
+                .addKey("UserName", "John Doe");
+
+        assertEquals(BASE + "/People('John%20Doe')", path.toUrl());
+    }
+
+    @Test
+    void spaceInKeyValueDoesNotCrashUriCreate() {
+        // P0-2: the resulting URL must be safe for URI.create (no raw spaces)
+        ContextPath path = new ContextPath(BASE)
+                .addSegment("People")
+                .addKey("UserName", "John Doe");
+
+        String url = path.toUrl();
+        assertDoesNotThrow(() -> java.net.URI.create(url),
+                "URL with space in key must not crash URI.create: " + url);
+    }
 }

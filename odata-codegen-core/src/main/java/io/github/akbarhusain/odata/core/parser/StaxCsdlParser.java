@@ -220,7 +220,7 @@ public class StaxCsdlParser {
                 StartElement memberEl = event.asStartElement();
                 String memberName = getAttr(memberEl, "Name");
                 String valueStr = getAttr(memberEl, "Value");
-                int value = valueStr != null ? Integer.parseInt(valueStr) : members.size();
+                long value = valueStr != null ? Long.parseLong(valueStr) : members.size();
                 members.add(new EnumMemberModel(memberName, value));
             } else if (event.isEndElement() && isEdmElement(event.asEndElement(), "EnumType")) {
                 return new EnumTypeModel(name, underlyingType, isFlags, members);

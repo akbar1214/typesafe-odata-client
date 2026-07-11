@@ -85,9 +85,6 @@ public class NumberExpression<N, E> implements OrderExpression<N> {
     }
 
     private static String formatValue(Object value) {
-        if (value instanceof String s) return "'" + s + "'";
-        if (value instanceof Float f) return f + "f";
-        if (value instanceof Double d) return d + "d";
         return String.valueOf(value);
     }
 }

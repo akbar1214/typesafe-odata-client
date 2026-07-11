@@ -8,15 +8,22 @@ import io.github.akbarhusain.odata.core.model.CsdlModel.SchemaModel;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 
 public class ComplexTypeGenerator {
 
     private final String basePackage;
+    private final Map<String, String> schemaPackages;
+
+    public ComplexTypeGenerator(String basePackage, Map<String, String> schemaPackages) {
+        this.basePackage = basePackage;
+        this.schemaPackages = schemaPackages;
+    }
 
     public ComplexTypeGenerator(String basePackage) {
-        this.basePackage = basePackage;
+        this(basePackage, Map.of());
     }
 
     public String generate(ComplexTypeModel complexType, SchemaModel schema) {
@@ -82,7 +89,7 @@ public class ComplexTypeGenerator {
 
         // Fields (protected so subclasses can access inherited state via bare name)
         for (PropertyModel prop : ownProps) {
-            String javaType = resolvePropertyJavaType(prop);
+            String javaType = resolvePropertyJavaType(prop, schema);
             sb.append("    protected final ").append(javaType).append(" ")
               .append(Names.toJavaFieldName(prop.name())).append(";\n");
         }
@@ -97,7 +104,7 @@ public class ComplexTypeGenerator {
         for (int i = 0; i < allProps.size(); i++) {
             PropertyModel prop = allProps.get(i);
             sb.append("            @com.fasterxml.jackson.annotation.JsonProperty(\"").append(prop.name()).append("\") ")
-              .append(resolvePropertyJavaType(prop)).append(" ").append(Names.toJavaFieldName(prop.name()));
+              .append(resolvePropertyJavaType(prop, schema)).append(" ").append(Names.toJavaFieldName(prop.name()));
             if (i < allProps.size() - 1) sb.append(",");
             sb.append("\n");
         }
@@ -129,7 +136,7 @@ public class ComplexTypeGenerator {
             sb.append("    protected ").append(className).append("(\n");
             for (int i = 0; i < allProps.size(); i++) {
                 PropertyModel prop = allProps.get(i);
-                sb.append("            ").append(resolvePropertyJavaType(prop))
+                sb.append("            ").append(resolvePropertyJavaType(prop, schema))
                   .append(" ").append(Names.toJavaFieldName(prop.name()));
                 if (i < allProps.size() - 1) sb.append(",");
                 sb.append("\n");
@@ -161,7 +168,7 @@ public class ComplexTypeGenerator {
 
         // Getters (own props only; inherited getters are inherited from the parent)
         for (PropertyModel prop : ownProps) {
-            String javaType = resolvePropertyJavaType(prop);
+            String javaType = resolvePropertyJavaType(prop, schema);
             String fn = Names.toJavaFieldName(prop.name());
             if (Names.isCollectionType(prop.edmType())) {
                 sb.append("    public ").append(javaType).append(" ").append(Names.getterMethod(prop)).append("() {\n");
@@ -184,7 +191,7 @@ public class ComplexTypeGenerator {
         // nullable getters' Optional<T> in the raw-typed constructor.
         if (!complexType.abstractType()) {
             for (PropertyModel prop : allProps) {
-                sb.append(generateWithMethod(prop, allProps, className, hierarchyHasOpen));
+                sb.append(generateWithMethod(prop, allProps, className, hierarchyHasOpen, schema));
             }
         }
 
@@ -192,7 +199,7 @@ public class ComplexTypeGenerator {
         // with*() for copy-on-write (mirrors the entity design: a static builder() in a
         // subtype would clash with the inherited builder() due to different Builder types).
         if (base == null && !complexType.abstractType()) {
-            generateBuilder(sb, allProps, className, rootMutableMap);
+            generateBuilder(sb, allProps, className, rootMutableMap, schema);
         }
 
         // ODataType interface
@@ -254,8 +261,8 @@ public class ComplexTypeGenerator {
         return sb.toString();
     }
 
-    private String generateWithMethod(PropertyModel prop, List<PropertyModel> allProps, String className, boolean openType) {
-        String javaType = resolvePropertyJavaType(prop);
+    private String generateWithMethod(PropertyModel prop, List<PropertyModel> allProps, String className, boolean openType, SchemaModel schema) {
+        String javaType = resolvePropertyJavaType(prop, schema);
         String fn = Names.toJavaFieldName(prop.name());
 
         StringBuilder sb = new StringBuilder();
@@ -279,14 +286,14 @@ public class ComplexTypeGenerator {
         return sb.toString();
     }
 
-    private void generateBuilder(StringBuilder sb, List<PropertyModel> allProps, String className, boolean mutableUnmappedFields) {
+    private void generateBuilder(StringBuilder sb, List<PropertyModel> allProps, String className, boolean mutableUnmappedFields, SchemaModel schema) {
         sb.append("    public static Builder builder() {\n");
         sb.append("        return new Builder();\n");
         sb.append("    }\n\n");
 
         sb.append("    public static final class Builder {\n");
         for (PropertyModel prop : allProps) {
-            sb.append("        private ").append(resolvePropertyJavaType(prop)).append(" ")
+            sb.append("        private ").append(resolvePropertyJavaType(prop, schema)).append(" ")
               .append(Names.toJavaFieldName(prop.name())).append(";\n");
         }
         if (mutableUnmappedFields) {
@@ -295,7 +302,7 @@ public class ComplexTypeGenerator {
         sb.append("\n");
 
         for (PropertyModel prop : allProps) {
-            String javaType = resolvePropertyJavaType(prop);
+            String javaType = resolvePropertyJavaType(prop, schema);
             String fn = Names.toJavaFieldName(prop.name());
             sb.append("        public Builder ").append(fn).append("(").append(javaType).append(" value) {\n");
             sb.append("            this.").append(fn).append(" = value;\n");
@@ -373,46 +380,73 @@ public class ComplexTypeGenerator {
         return result;
     }
 
-    private String resolvePropertyJavaType(PropertyModel prop) {
-        String edmType = prop.edmType();
+    private String resolvePropertyJavaType(PropertyModel prop, SchemaModel schema) {
+        String edmType = resolveTypeDefinition(prop.edmType(), schema);
         if (Names.isCollectionType(edmType)) {
             String elementType = Names.unwrapCollectionType(edmType);
-            return "List<" + resolveSingleJavaType(elementType) + ">";
+            return "List<" + resolveSingleJavaType(elementType, schema) + ">";
         }
-        return resolveSingleJavaType(edmType);
+        return resolveSingleJavaType(edmType, schema);
     }
 
-    private String resolveSingleJavaType(String edmType) {
-        if (Names.isPrimitiveType(edmType)) {
-            return Names.edmTypeToSimpleJavaType(edmType);
+    private String resolveSingleJavaType(String edmType, SchemaModel schema) {
+        String resolved = resolveTypeDefinition(edmType, schema);
+        if (Names.isPrimitiveType(resolved)) {
+            return Names.edmTypeToSimpleJavaType(resolved);
         }
-        return Names.complexTypeClassName(Names.simpleNameFromFullName(edmType));
+        return Names.complexTypeClassName(Names.simpleNameFromFullName(resolved));
     }
 
     private void addPropertyImports(PropertyModel prop, Set<String> imports, SchemaModel schema) {
-        String edmType = prop.edmType();
+        String edmType = resolveTypeDefinition(prop.edmType(), schema);
         if (Names.isCollectionType(edmType)) {
             String elementType = Names.unwrapCollectionType(edmType);
-            if (Names.isPrimitiveType(elementType)) {
-                String javaType = Names.edmTypeToSimpleJavaType(elementType);
+            String resolvedElement = resolveTypeDefinition(elementType, schema);
+            if (Names.isPrimitiveType(resolvedElement)) {
+                String javaType = Names.edmTypeToSimpleJavaType(resolvedElement);
                 if (javaType.startsWith("java.")) imports.add(javaType);
-            } else if (isEnumType(elementType, schema)) {
-                imports.add(basePackage + Names.packageNameSuffixEnum() + "." + Names.simpleNameFromFullName(elementType));
+            } else if (isEnumType(resolvedElement, schema)) {
+                String pkg = basePackageForType(resolvedElement, schema);
+                imports.add(pkg + Names.packageNameSuffixEnum() + "." + Names.simpleNameFromFullName(resolvedElement));
             } else {
-                imports.add(basePackage + Names.packageNameSuffixComplexType() + "." + Names.complexTypeClassName(Names.simpleNameFromFullName(elementType)));
+                String pkg = basePackageForType(resolvedElement, schema);
+                imports.add(pkg + Names.packageNameSuffixComplexType() + "." + Names.complexTypeClassName(Names.simpleNameFromFullName(resolvedElement)));
             }
         } else if (Names.isPrimitiveType(edmType)) {
             String javaType = Names.edmTypeToSimpleJavaType(edmType);
             if (javaType.startsWith("java.")) imports.add(javaType);
         } else if (isEnumType(edmType, schema)) {
-            imports.add(basePackage + Names.packageNameSuffixEnum() + "." + Names.simpleNameFromFullName(edmType));
+            String pkg = basePackageForType(edmType, schema);
+            imports.add(pkg + Names.packageNameSuffixEnum() + "." + Names.simpleNameFromFullName(edmType));
         } else {
-            imports.add(basePackage + Names.packageNameSuffixComplexType() + "." + Names.complexTypeClassName(Names.simpleNameFromFullName(edmType)));
+            String pkg = basePackageForType(edmType, schema);
+            imports.add(pkg + Names.packageNameSuffixComplexType() + "." + Names.complexTypeClassName(Names.simpleNameFromFullName(edmType)));
         }
     }
 
     private boolean isEnumType(String edmType, SchemaModel schema) {
         String simpleName = Names.simpleNameFromFullName(edmType);
         return schema.enumTypes().stream().anyMatch(e -> e.name().equals(simpleName));
+    }
+
+    // P0-4: Resolve TypeDefinition to its underlying Edm type (recursively)
+    private String resolveTypeDefinition(String edmType, SchemaModel schema) {
+        if (Names.isPrimitiveType(edmType)) return edmType;
+        String simpleName = Names.simpleNameFromFullName(edmType);
+        for (var td : schema.typeDefinitions()) {
+            if (td.name().equals(simpleName)) {
+                return resolveTypeDefinition(td.underlyingType(), schema);
+            }
+        }
+        return edmType;
+    }
+
+    // P0-3: Look up the base package for a cross-namespace type reference
+    private String basePackageForType(String edmType, SchemaModel schema) {
+        String namespace = Names.namespaceFromFullName(edmType);
+        if (namespace.isEmpty() || namespace.equals(schema.namespace())) {
+            return basePackage;
+        }
+        return schemaPackages.getOrDefault(namespace, Names.toPackageName(namespace));
     }
 }

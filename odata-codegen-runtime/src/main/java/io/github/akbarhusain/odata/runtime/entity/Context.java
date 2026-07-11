@@ -7,16 +7,13 @@ import io.github.akbarhusain.odata.runtime.http.HttpTransport;
 import io.github.akbarhusain.odata.runtime.serialization.Serializer;
 
 import java.util.List;
-import java.util.Map;
 
 public record Context(
     String baseUrl,
     Serializer serializer,
     HttpTransport transport,
     AuthProvider authProvider,
-    List<SchemaInfo> schemas,
-    List<HttpInterceptor> interceptors,
-    Map<String, Object> properties
+    List<HttpInterceptor> interceptors
 ) {
     public static Builder builder() {
         return new Builder();
@@ -27,20 +24,16 @@ public record Context(
         private Serializer serializer = Serializer.createDefault();
         private HttpTransport transport = HttpTransport.createDefault();
         private AuthProvider authProvider = AuthProvider.none();
-        private List<SchemaInfo> schemas = List.of();
         private List<HttpInterceptor> interceptors = List.of();
-        private Map<String, Object> properties = Map.of();
 
         public Builder baseUrl(String u) { this.baseUrl = u; return this; }
         public Builder serializer(Serializer s) { this.serializer = s; return this; }
         public Builder transport(HttpTransport t) { this.transport = t; return this; }
         public Builder authProvider(AuthProvider a) { this.authProvider = a; return this; }
-        public Builder schemas(List<SchemaInfo> s) { this.schemas = List.copyOf(s); return this; }
         public Builder interceptors(List<HttpInterceptor> i) { this.interceptors = List.copyOf(i); return this; }
-        public Builder properties(Map<String, Object> p) { this.properties = Map.copyOf(p); return this; }
 
         public Context build() {
-            return new Context(baseUrl, serializer, transport, authProvider, schemas, interceptors, properties);
+            return new Context(baseUrl, serializer, transport, authProvider, interceptors);
         }
     }
 

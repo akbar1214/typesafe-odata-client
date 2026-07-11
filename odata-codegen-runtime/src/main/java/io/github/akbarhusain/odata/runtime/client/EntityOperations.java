@@ -215,7 +215,15 @@ public class EntityOperations {
 
                 @Override
                 public CompletableFuture<InputStream> stream(HttpRequest request) {
-                    return delegate.stream(request);
+                    try {
+                        HttpResponse resp = next.intercept(request, delegate);
+                        return CompletableFuture.completedFuture(
+                                new java.io.ByteArrayInputStream(resp.body()));
+                    } catch (RuntimeException e) {
+                        throw e;
+                    } catch (Exception e) {
+                        throw new ODataException("Interceptor failed: " + e.getMessage(), e);
+                    }
                 }
             };
         }

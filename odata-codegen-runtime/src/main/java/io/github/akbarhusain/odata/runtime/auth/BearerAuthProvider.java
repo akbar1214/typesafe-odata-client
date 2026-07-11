@@ -13,6 +13,10 @@ public class BearerAuthProvider implements AuthProvider {
 
     @Override
     public Map<String, String> getHeaders() {
-        return Map.of("Authorization", "Bearer " + tokenSupplier.get());
+        String token = tokenSupplier.get();
+        if (token == null) {
+            throw new IllegalArgumentException("Bearer token must not be null");
+        }
+        return Map.of("Authorization", "Bearer " + token);
     }
 }

@@ -21,24 +21,24 @@ public class EnumGenerator {
 
         for (int i = 0; i < enumType.members().size(); i++) {
             var member = enumType.members().get(i);
-            sb.append("    ").append(member.name()).append("(").append(member.value()).append(")");
+            sb.append("    ").append(member.name()).append("(").append(member.value()).append("L)");
             if (i < enumType.members().size() - 1) sb.append(",");
             sb.append("\n");
         }
 
         sb.append("    ;\n\n");
 
-        sb.append("    private final int value;\n\n");
+        sb.append("    private final long value;\n\n");
 
-        sb.append("    ").append(className).append("(int value) {\n");
+        sb.append("    ").append(className).append("(long value) {\n");
         sb.append("        this.value = value;\n");
         sb.append("    }\n\n");
 
-        sb.append("    public int getValue() {\n");
+        sb.append("    public long getValue() {\n");
         sb.append("        return value;\n");
         sb.append("    }\n\n");
 
-        sb.append("    public static ").append(className).append(" fromValue(int value) {\n");
+        sb.append("    public static ").append(className).append(" fromValue(long value) {\n");
         sb.append("        for (").append(className).append(" v : values()) {\n");
         sb.append("            if (v.value == value) return v;\n");
         sb.append("        }\n");

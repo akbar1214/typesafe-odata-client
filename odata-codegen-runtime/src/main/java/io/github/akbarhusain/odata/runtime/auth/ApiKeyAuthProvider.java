@@ -19,6 +19,10 @@ public class ApiKeyAuthProvider implements AuthProvider {
 
     @Override
     public Map<String, String> getHeaders() {
-        return Map.of(headerName, apiKeySupplier.get());
+        String key = apiKeySupplier.get();
+        if (key == null) {
+            throw new IllegalArgumentException("API key must not be null");
+        }
+        return Map.of(headerName, key);
     }
 }

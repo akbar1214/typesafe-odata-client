@@ -159,6 +159,7 @@ public record ContextPath(
                 case '?'  -> sb.append("%3F");
                 case '#'  -> sb.append("%23");
                 case '%'  -> sb.append("%25");
+                case ' '  -> sb.append("%20");
                 default   -> sb.append(c);
             }
         }

@@ -4,16 +4,23 @@ public final class EnumProperty<E, V extends Enum<V>> implements PropertyExpress
     private final String edmName;
     private final Class<E> entityType;
     private final Class<V> enumType;
+    private final String typeName;
 
     public EnumProperty(String edmName, Class<E> entityType, Class<V> enumType) {
+        this(edmName, entityType, enumType, null);
+    }
+
+    public EnumProperty(String edmName, Class<E> entityType, Class<V> enumType, String typeName) {
         this.edmName = edmName;
         this.entityType = entityType;
         this.enumType = enumType;
+        this.typeName = typeName;
     }
 
     public String getEdmName() { return edmName; }
     public Class<E> getEntityType() { return entityType; }
     public Class<V> getEnumType() { return enumType; }
+    public String getTypeName() { return typeName; }
 
     @Override
     public String toODataExpression() { return edmName; }
@@ -50,7 +57,8 @@ public final class EnumProperty<E, V extends Enum<V>> implements PropertyExpress
     }
 
     private String getODataEnumName(V value) {
-        return enumType.getSimpleName() + "'" + value.name() + "'";
+        String prefix = (typeName != null) ? typeName : enumType.getSimpleName();
+        return prefix + "'" + value.name() + "'";
     }
 
     @SuppressWarnings("unchecked")

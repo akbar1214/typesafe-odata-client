@@ -1,6 +1,7 @@
 package io.github.akbarhusain.odata.core.generator;
 
 import io.github.akbarhusain.odata.core.model.CsdlModel.EntityTypeModel;
+import io.github.akbarhusain.odata.core.model.CsdlModel.KeyModel;
 import io.github.akbarhusain.odata.core.model.CsdlModel.NavigationPropertyModel;
 import io.github.akbarhusain.odata.core.model.CsdlModel.PropertyModel;
 import io.github.akbarhusain.odata.core.model.CsdlModel.SchemaModel;
@@ -328,8 +329,9 @@ public class RequestGenerator {
         sb.append("    }\n\n");
 
         // Key-based entity accessor methods
-        if (!entityType.keys().isEmpty()) {
-            for (var key : entityType.keys()) {
+        java.util.List<KeyModel> resolvedKeys = resolvedKeys(entityType, schema);
+        if (!resolvedKeys.isEmpty()) {
+            for (var key : resolvedKeys) {
                 if (key.propertyRefs().size() == 1) {
                     // Single key - generate entity accessor with key parameter
                     String keyProp = key.propertyRefs().get(0);
@@ -341,6 +343,26 @@ public class RequestGenerator {
                       .append("(").append(paramType).append(" ").append(paramName).append(") {\n");
                     sb.append("        return new ").append(Names.entityRequestClassName(entityType.name()))
                       .append("(context, contextPath.addKey(\"").append(keyProp).append("\", ").append(paramName).append("));\n");
+                    sb.append("    }\n\n");
+                } else {
+                    // Composite key - generate single accessor with all key params
+                    StringBuilder params = new StringBuilder();
+                    StringBuilder args = new StringBuilder();
+                    for (int i = 0; i < key.propertyRefs().size(); i++) {
+                        String keyProp = key.propertyRefs().get(i);
+                        String paramName = Names.toJavaFieldName(keyProp);
+                        String paramType = resolveKeyType(entityType, keyProp, schema);
+                        if (i > 0) { params.append(", "); args.append(".addKey(\""); }
+                        else { args.append("contextPath.addKey(\""); }
+                        params.append(paramType).append(" ").append(paramName);
+                        args.append(keyProp).append("\", ").append(paramName).append(")");
+                    }
+                    sb.append("    public ").append(Names.entityRequestClassName(entityType.name()))
+                      .append(" ").append(Names.toJavaFieldName(entityType.name()))
+                      .append("By").append(Names.capitalize(key.propertyRefs().get(0)))
+                      .append("(").append(params).append(") {\n");
+                    sb.append("        return new ").append(Names.entityRequestClassName(entityType.name()))
+                      .append("(context, ").append(args).append(");\n");
                     sb.append("    }\n\n");
                 }
             }
@@ -374,7 +396,31 @@ public class RequestGenerator {
                 return "Object";
             }
         }
+        EntityTypeModel base = findBase(entityType, schema);
+        if (base != null) {
+            return resolveKeyType(base, keyPropName, schema);
+        }
         return "Object";
+    }
+
+    private java.util.List<KeyModel> resolvedKeys(EntityTypeModel entityType, SchemaModel schema) {
+        if (!entityType.keys().isEmpty()) {
+            return entityType.keys();
+        }
+        EntityTypeModel base = findBase(entityType, schema);
+        if (base == null) {
+            return java.util.List.of();
+        }
+        return resolvedKeys(base, schema);
+    }
+
+    private EntityTypeModel findBase(EntityTypeModel entityType, SchemaModel schema) {
+        if (entityType.baseType() == null) return null;
+        String baseName = Names.simpleNameFromFullName(entityType.baseType());
+        for (EntityTypeModel et : schema.entityTypes()) {
+            if (et.name().equals(baseName)) return et;
+        }
+        return null;
     }
 
     private String generateNavMethod(NavigationPropertyModel nav, SchemaModel schema) {

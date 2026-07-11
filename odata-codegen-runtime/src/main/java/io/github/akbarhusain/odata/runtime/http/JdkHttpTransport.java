@@ -120,7 +120,9 @@ public class JdkHttpTransport implements HttpTransport {
 
         builder.header("OData-MaxVersion", "4.0");
         builder.header("OData-Version", "4.0");
-        builder.header("Accept", "application/json");
+        if (!request.headers().containsKey("Accept")) {
+            builder.header("Accept", "application/json");
+        }
 
         for (var entry : request.headers().entrySet()) {
             for (String value : entry.getValue()) {

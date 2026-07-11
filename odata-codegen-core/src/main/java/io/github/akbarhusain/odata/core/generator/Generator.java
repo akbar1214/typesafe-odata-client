@@ -36,9 +36,9 @@ public class Generator {
     private void generateSchema(SchemaModel schema, String basePackage) throws IOException {
         log.info("Generating schema: {} -> {}", schema.namespace(), basePackage);
 
-        EntityGenerator entityGenerator = new EntityGenerator(basePackage);
+        EntityGenerator entityGenerator = new EntityGenerator(basePackage, schemaPackages);
         EnumGenerator enumGenerator = new EnumGenerator(basePackage);
-        ComplexTypeGenerator complexTypeGenerator = new ComplexTypeGenerator(basePackage);
+        ComplexTypeGenerator complexTypeGenerator = new ComplexTypeGenerator(basePackage, schemaPackages);
         RequestGenerator requestGenerator = new RequestGenerator(basePackage);
         ContainerGenerator containerGenerator = new ContainerGenerator(basePackage);
         SchemaInfoGenerator schemaInfoGenerator = new SchemaInfoGenerator(basePackage);

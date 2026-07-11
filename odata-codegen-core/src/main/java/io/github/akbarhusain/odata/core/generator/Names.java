@@ -93,9 +93,6 @@ public final class Names {
     }
 
     public static String getterMethod(PropertyModel prop) {
-        if (prop.edmType().equals("Edm.Boolean") || prop.edmType().equals("Edm.Guid")) {
-            return "get" + capitalize(sanitizeIdentifier(prop.name()));
-        }
         return "get" + capitalize(sanitizeIdentifier(prop.name()));
     }
 

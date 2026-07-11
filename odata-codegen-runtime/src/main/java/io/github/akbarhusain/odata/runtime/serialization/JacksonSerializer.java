@@ -18,28 +18,26 @@ public class JacksonSerializer implements Serializer {
     private static final ObjectMapper MAPPER_PRETTY = createMapperPretty();
 
     private static ObjectMapper createMapper() {
-        return new ObjectMapper()
-                .registerModule(new Jdk8Module())
-                .registerModule(new JavaTimeModule())
-                .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
+        return baseMapper()
                 .setSerializationInclusion(JsonInclude.Include.NON_NULL);
     }
 
     private static ObjectMapper createMapperIncludeNulls() {
-        return new ObjectMapper()
-                .registerModule(new Jdk8Module())
-                .registerModule(new JavaTimeModule())
-                .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
+        return baseMapper()
                 .setSerializationInclusion(JsonInclude.Include.ALWAYS);
     }
 
     private static ObjectMapper createMapperPretty() {
+        return baseMapper()
+                .setSerializationInclusion(JsonInclude.Include.NON_NULL)
+                .enable(SerializationFeature.INDENT_OUTPUT);
+    }
+
+    private static ObjectMapper baseMapper() {
         return new ObjectMapper()
                 .registerModule(new Jdk8Module())
                 .registerModule(new JavaTimeModule())
-                .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
-                .setSerializationInclusion(JsonInclude.Include.NON_NULL)
-                .enable(SerializationFeature.INDENT_OUTPUT);
+                .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
     }
 
     @Override
