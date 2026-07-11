@@ -84,7 +84,13 @@ public class EntityGenerator {
             String elementType = Names.unwrapCollectionType(nav.type());
             String elementClassName = Names.simpleNameFromFullName(elementType);
             if (!isBuiltinType(elementClassName)) {
-                imports.add(basePackageForType(elementType, schema) + Names.packageNameSuffixEntity() + "." + elementClassName);
+                String suffix;
+                if (schema.complexTypes().stream().anyMatch(c -> c.name().equals(elementClassName))) {
+                    suffix = Names.packageNameSuffixComplexType();
+                } else {
+                    suffix = Names.packageNameSuffixEntity();
+                }
+                imports.add(basePackageForType(elementType, schema) + suffix + "." + elementClassName);
             }
         }
 

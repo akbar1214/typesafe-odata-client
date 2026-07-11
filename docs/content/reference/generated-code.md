@@ -52,17 +52,26 @@ public final class Person implements ODataEntityType {
     // final fields
     private final String userName;
     private final String firstName;
-    // ...
+    // Navigation fields — hold expanded ($expand) data deserialized from JSON
+    protected final List<Trip> trips;
+    protected final Photo photo;
 
     @JsonCreator
-    public Person(@JsonProperty("@odata.etag") String etag, /* ...props */) { ... }
+    public Person(@JsonProperty("@odata.etag") String etag, /* ...props */,
+                  @JsonProperty("Trips") List<Trip> trips,
+                  @JsonProperty("Photo") Photo photo) { ... }
 
     // Getters — nullable props return Optional<T>
     public String getUserName() { return userName; }
     public Optional<String> getFirstName() { return Optional.ofNullable(firstName); }
 
+    // Navigation getters — materialized expanded ($expand) data
+    public List<Trip> getTrips() { return Collections.unmodifiableList(trips); }
+    public Optional<Photo> getPhoto() { return Optional.ofNullable(photo); }
+
     // Copy-on-write
     public Person withFirstName(String firstName) { ... }
+    public Person withTrips(List<Trip> trips) { ... }
 
     // Builder — only for concrete, top-level entities
     public static Builder builder() { return new Builder(); }
@@ -221,16 +230,23 @@ implement `ODataType`.
 public class Location implements ODataType {
     protected final String address;
     protected final City city;
+    // Navigation fields — hold expanded ($expand) data deserialized from JSON
+    protected final Airport airportRef;
 
     @JsonCreator
     public Location(@JsonProperty("Address") String address,
-                    @JsonProperty("City") City city) { ... }
+                    @JsonProperty("City") City city,
+                    @JsonProperty("AirportRef") Airport airportRef) { ... }
 
     public String getAddress() { return address; }
     public City getCity() { return city; }
 
+    // Navigation getter — materialized expanded ($expand) data
+    public Optional<Airport> getAirportRef() { return Optional.ofNullable(airportRef); }
+
     // Copy-on-write
     public Location withAddress(String value) { ... }
+    public Location withAirportRef(Airport value) { ... }
 
     // Builder — only for concrete, top-level complex types
     public static Builder builder() { ... }
@@ -255,8 +271,9 @@ public class EventLocation extends Location {
     @JsonCreator
     public EventLocation(@JsonProperty("Address") String address,
                          @JsonProperty("City") City city,
-                         @JsonProperty("BuildingInfo") String buildingInfo) {
-        super(address, city);
+                         @JsonProperty("BuildingInfo") String buildingInfo,
+                         @JsonProperty("AirportRef") Airport airportRef) {
+        super(address, city, airportRef);
         this.buildingInfo = buildingInfo;
     }
 
@@ -264,7 +281,7 @@ public class EventLocation extends Location {
 
     // Copy-on-write (no Builder — reuses the inherited builder() via with*)
     public EventLocation withBuildingInfo(String value) {
-        return new EventLocation(address, city, value);
+        return new EventLocation(address, city, value, airportRef);
     }
 }
 ```

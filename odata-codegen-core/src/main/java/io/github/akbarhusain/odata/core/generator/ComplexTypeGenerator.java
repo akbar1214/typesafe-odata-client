@@ -238,10 +238,10 @@ public class ComplexTypeGenerator {
         // nullable getters' Optional<T> in the raw-typed constructor.
         if (!complexType.abstractType()) {
             for (PropertyModel prop : allProps) {
-                sb.append(generateWithMethod(prop, allProps, allNavs, className, schema));
+                sb.append(generateWithMethod(prop, allProps, allNavs, className, hierarchyHasOpen, schema));
             }
             for (NavigationPropertyModel nav : allNavs) {
-                sb.append(generateNavWithMethod(nav, allProps, allNavs, className, schema));
+                sb.append(generateNavWithMethod(nav, allProps, allNavs, className, hierarchyHasOpen, schema));
             }
         }
 
@@ -311,7 +311,7 @@ public class ComplexTypeGenerator {
         return sb.toString();
     }
 
-    private String generateWithMethod(PropertyModel prop, List<PropertyModel> allProps, List<NavigationPropertyModel> allNavs, String className, SchemaModel schema) {
+    private String generateWithMethod(PropertyModel prop, List<PropertyModel> allProps, List<NavigationPropertyModel> allNavs, String className, boolean hierarchyHasOpen, SchemaModel schema) {
         String javaType = resolvePropertyJavaType(prop, schema);
         String fn = Names.toJavaFieldName(prop.name());
 
@@ -331,7 +331,10 @@ public class ComplexTypeGenerator {
         for (NavigationPropertyModel nav : allNavs) {
             sb.append(", ").append(Names.toJavaFieldName(nav.name()));
         }
-        sb.append(", this.unmappedFields);\n");
+        if (hierarchyHasOpen) {
+            sb.append(", this.unmappedFields");
+        }
+        sb.append(");\n");
         sb.append("    }\n\n");
         return sb.toString();
     }
@@ -469,7 +472,7 @@ public class ComplexTypeGenerator {
         return sb.toString();
     }
 
-    private String generateNavWithMethod(NavigationPropertyModel nav, List<PropertyModel> allProps, List<NavigationPropertyModel> allNavs, String className, SchemaModel schema) {
+    private String generateNavWithMethod(NavigationPropertyModel nav, List<PropertyModel> allProps, List<NavigationPropertyModel> allNavs, String className, boolean hierarchyHasOpen, SchemaModel schema) {
         String javaType = navJavaType(nav, schema);
         String fn = Names.toJavaFieldName(nav.name());
         StringBuilder sb = new StringBuilder();
@@ -488,7 +491,10 @@ public class ComplexTypeGenerator {
                 sb.append(Names.toJavaFieldName(n.name()));
             }
         }
-        sb.append(", this.unmappedFields);\n");
+        if (hierarchyHasOpen) {
+            sb.append(", this.unmappedFields");
+        }
+        sb.append(");\n");
         sb.append("    }\n\n");
         return sb.toString();
     }

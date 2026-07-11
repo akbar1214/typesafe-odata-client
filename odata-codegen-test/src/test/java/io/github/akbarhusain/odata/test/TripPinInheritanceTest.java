@@ -49,8 +49,8 @@ class TripPinInheritanceTest {
     void complexType_subtypesAreInstancesOfBase() {
         City city = City.builder().countryRegion("US").name("Lander").region("WY").build();
 
-        EventLocation event = new EventLocation("100 Main St", city, "Building A");
-        AirportLocation airport = new AirportLocation("Airport Rd", city, null);
+        EventLocation event = new EventLocation("100 Main St", city, "Building A", null);
+        AirportLocation airport = new AirportLocation("Airport Rd", city, null, null);
 
         assertInstanceOf(Location.class, event, "EventLocation should be a Location");
         assertInstanceOf(Location.class, airport, "AirportLocation should be a Location");
@@ -62,7 +62,7 @@ class TripPinInheritanceTest {
         City city = City.builder().countryRegion("US").name("Lander").region("WY").build();
 
         // Polymorphic assignment: a Location reference holds an EventLocation
-        Location loc = new EventLocation("100 Main St", city, "Building A");
+        Location loc = new EventLocation("100 Main St", city, "Building A", null);
 
         // Inherited getters are accessible via the base type
         assertEquals("100 Main St", loc.getAddress());
@@ -76,7 +76,7 @@ class TripPinInheritanceTest {
     @Test
     void complexType_subtypeWithMethodPreservesInheritedFields() {
         City city = City.builder().countryRegion("US").name("Lander").region("WY").build();
-        EventLocation original = new EventLocation("100 Main St", city, "Building A");
+        EventLocation original = new EventLocation("100 Main St", city, "Building A", null);
 
         // Changing the own property preserves inherited fields and returns the subtype
         EventLocation updated = original.withBuildingInfo("Building B");

@@ -129,6 +129,34 @@ Chaining works at any depth — `NavQuery.expand(...)` also accepts another
 `NavQuery`, so you can keep nesting (e.g.
 `People($expand=Trips($expand=PlanItems($expand=...)))`).
 
+## Expanded Values in Getters
+
+When you `$expand` a navigation property, the expanded data is automatically
+deserialized into the entity's typed getter. No manual parsing needed:
+
+```java
+Person scott = client.peopleByUserName("scottketchum")
+    .expand(Person.TRIPS.expand(Trip.PLAN_ITEMS))
+    .get();
+
+// getTrips() returns List<Trip> — populated by expanded JSON
+List<Trip> trips = scott.getTrips();
+assertFalse(trips.isEmpty());
+
+// getPlanItems() on each Trip returns List<PlanItem> — nested expand
+PlanItem item = trips.get(0).getPlanItems().get(0);
+```
+
+Collection navs return `List<T>`, singleton navs return `Optional<T>`.
+
+For complex types with navigation properties (e.g. `Location` with
+`AirportRef`), the same pattern applies:
+
+```java
+// getAirportRef() returns Optional<Airport> — populated by expanded JSON
+Optional<Airport> airport = location.getAirportRef();
+```
+
 ## What's Next
 
 - [Use Pagination](pagination.md) — Handle large result sets
