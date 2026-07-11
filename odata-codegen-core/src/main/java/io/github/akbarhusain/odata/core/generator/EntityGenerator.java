@@ -95,6 +95,9 @@ public class EntityGenerator {
                 if (schema.complexTypes().stream().anyMatch(c -> c.name().equals(edmSimpleName))) {
                     suffix = Names.packageNameSuffixComplexType();
                     navTargetClass = Names.complexTypeClassName(edmSimpleName);
+                } else if (schema.entityTypes().stream().anyMatch(e -> e.name().equals(edmSimpleName))) {
+                    suffix = Names.packageNameSuffixEntity();
+                    navTargetClass = Names.entityClassName(edmSimpleName);
                 } else {
                     suffix = Names.packageNameSuffixEntity();
                     navTargetClass = Names.entityClassName(edmSimpleName);
@@ -478,7 +481,15 @@ public class EntityGenerator {
     private String generateNavPropertyConstant(NavigationPropertyModel nav, String className, SchemaModel schema) {
         boolean isCollection = Names.isCollectionType(nav.type());
         String unwrapped = Names.unwrapCollectionType(nav.type());
-        String elementClassName = Names.simpleNameFromFullName(unwrapped);
+        String edmSimpleName = Names.simpleNameFromFullName(unwrapped);
+        String elementClassName;
+        if (schema.complexTypes().stream().anyMatch(c -> c.name().equals(edmSimpleName))) {
+            elementClassName = Names.complexTypeClassName(edmSimpleName);
+        } else if (schema.entityTypes().stream().anyMatch(e -> e.name().equals(edmSimpleName))) {
+            elementClassName = Names.entityClassName(edmSimpleName);
+        } else {
+            elementClassName = Names.entityClassName(edmSimpleName);
+        }
         String constantName = Names.toConstantName(nav.name());
 
         if (isCollection) {
@@ -527,7 +538,15 @@ public class EntityGenerator {
 
     private String navJavaType(NavigationPropertyModel nav, SchemaModel schema) {
         String unwrapped = Names.unwrapCollectionType(nav.type());
-        String elementClassName = Names.simpleNameFromFullName(unwrapped);
+        String edmSimpleName = Names.simpleNameFromFullName(unwrapped);
+        String elementClassName;
+        if (schema.complexTypes().stream().anyMatch(c -> c.name().equals(edmSimpleName))) {
+            elementClassName = Names.complexTypeClassName(edmSimpleName);
+        } else if (schema.entityTypes().stream().anyMatch(e -> e.name().equals(edmSimpleName))) {
+            elementClassName = Names.entityClassName(edmSimpleName);
+        } else {
+            elementClassName = Names.entityClassName(edmSimpleName);
+        }
         if (Names.isCollectionType(nav.type())) {
             return "List<" + elementClassName + ">";
         }
@@ -721,7 +740,13 @@ public class EntityGenerator {
         if (Names.isPrimitiveType(resolved)) {
             return Names.edmTypeToSimpleJavaType(resolved);
         }
-        return Names.simpleNameFromFullName(resolved);
+        if (isEnumType(resolved, schema)) {
+            return Names.enumClassName(Names.simpleNameFromFullName(resolved));
+        }
+        if (schema.complexTypes().stream().anyMatch(c -> c.name().equals(Names.simpleNameFromFullName(resolved)))) {
+            return Names.complexTypeClassName(Names.simpleNameFromFullName(resolved));
+        }
+        return Names.entityClassName(Names.simpleNameFromFullName(resolved));
     }
 
     private String getNumberJavaType(String edmType) {
