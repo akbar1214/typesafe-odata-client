@@ -195,9 +195,13 @@ public class EntityGenerator {
             sb.append(generateBuilder(allProps, className, schema, keys));
         }
 
-        // with*() methods
-        for (PropertyModel prop : allProps) {
-            sb.append(generateWithMethod(prop, allProps, ownPropNames, className, schema));
+        // with*() methods — skipped for abstract types, which cannot be instantiated
+        // (a with* would otherwise emit `new AbstractX(...)`, a compile error). Concrete
+        // subtypes generate their own with* that reconstruct the subtype via super().
+        if (!entityType.abstractType()) {
+            for (PropertyModel prop : allProps) {
+                sb.append(generateWithMethod(prop, allProps, ownPropNames, className, schema));
+            }
         }
 
         // Interface methods

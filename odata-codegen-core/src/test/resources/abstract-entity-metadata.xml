@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<edmx:Edmx Version="4.0" xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx">
+  <edmx:DataServices>
+    <Schema Namespace="Test.Models" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+      <EntityType Name="Animal" Abstract="true">
+        <Key>
+          <PropertyRef Name="Id" />
+        </Key>
+        <Property Name="Id" Type="Edm.Int32" Nullable="false" />
+        <Property Name="Name" Type="Edm.String" />
+        <Property Name="Species" Type="Edm.String" />
+      </EntityType>
+      <EntityType Name="Cat" BaseType="Test.Models.Animal">
+        <Property Name="LivesIndoors" Type="Edm.Boolean" />
+      </EntityType>
+      <EntityContainer Name="Container">
+        <EntitySet Name="Animals" EntityType="Test.Models.Animal" />
+        <EntitySet Name="Cats" EntityType="Test.Models.Cat" />
+      </EntityContainer>
+    </Schema>
+  </edmx:DataServices>
+</edmx:Edmx>
