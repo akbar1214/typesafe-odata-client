@@ -100,4 +100,61 @@ class NavPropertyExpandTest {
         NavProperty.NavQuery<Object> query = nav.select().orderBy(name.desc());
         assertEquals("Trips($orderby=Name desc)", query.toODataExpand());
     }
+
+    @Test
+    void navPropertyExpandWithNestedNavProperty() {
+        NavProperty<Object, Object> trips = new NavProperty<>("Trips", Object.class, Object.class);
+        NavProperty<Object, Object> planItems = new NavProperty<>("PlanItems", Object.class, Object.class);
+        NavProperty.NavQuery<Object> query = trips.expand(planItems);
+        assertEquals("Trips($expand=PlanItems)", query.toODataExpand());
+    }
+
+    @Test
+    void navPropertyExpandWithNestedNavQuery() {
+        NavProperty<Object, Object> trips = new NavProperty<>("Trips", Object.class, Object.class);
+        NavProperty<Object, Object> planItems = new NavProperty<>("PlanItems", Object.class, Object.class);
+        NavProperty.NavQuery<Object> query = trips.expand(planItems.select());
+        assertEquals("Trips($expand=PlanItems)", query.toODataExpand());
+    }
+
+    @Test
+    void navQueryExpandChainsNested() {
+        NavProperty<Object, Object> trips = new NavProperty<>("Trips", Object.class, Object.class);
+        NavProperty<Object, Object> planItems = new NavProperty<>("PlanItems", Object.class, Object.class);
+        StringProperty<Object> name = new StringProperty<>("Name", null);
+        NavProperty.NavQuery<Object> query = trips.select(name)
+                .expand(planItems.select());
+        assertEquals("Trips($select=Name;$expand=PlanItems)", query.toODataExpand());
+    }
+
+    @Test
+    void navQueryExpandMultipleNested() {
+        NavProperty<Object, Object> trips = new NavProperty<>("Trips", Object.class, Object.class);
+        NavProperty<Object, Object> planItems = new NavProperty<>("PlanItems", Object.class, Object.class);
+        NavProperty<Object, Object> airline = new NavProperty<>("Airline", Object.class, Object.class);
+        NavProperty.NavQuery<Object> query = trips.expand(planItems.select(), airline.select());
+        assertEquals("Trips($expand=PlanItems,Airline)", query.toODataExpand());
+    }
+
+    @Test
+    void navQueryExpandDeepMultiLevel() {
+        NavProperty<Object, Object> people = new NavProperty<>("People", Object.class, Object.class);
+        NavProperty<Object, Object> trips = new NavProperty<>("Trips", Object.class, Object.class);
+        NavProperty<Object, Object> planItems = new NavProperty<>("PlanItems", Object.class, Object.class);
+        NavProperty.NavQuery<Object> query = people.expand(
+                trips.expand(planItems.select()));
+        assertEquals("People($expand=Trips($expand=PlanItems))", query.toODataExpand());
+    }
+
+    @Test
+    void navQueryExpandDeepWithNestedOptions() {
+        NavProperty<Object, Object> people = new NavProperty<>("People", Object.class, Object.class);
+        NavProperty<Object, Object> trips = new NavProperty<>("Trips", Object.class, Object.class);
+        NavProperty<Object, Object> planItems = new NavProperty<>("PlanItems", Object.class, Object.class);
+        StringProperty<Object> name = new StringProperty<>("Name", null);
+        NavProperty.NavQuery<Object> query = people
+                .expand(trips.select(name).expand(planItems.select(name)));
+        assertEquals("People($expand=Trips($select=Name;$expand=PlanItems($select=Name)))",
+                query.toODataExpand());
+    }
 }

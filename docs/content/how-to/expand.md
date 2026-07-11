@@ -19,7 +19,7 @@ entities.
 
 ```java
 client.people()
-    .expand(Person.TRIPS, Person.PHOTOS)
+    .expand(Person.TRIPS, Person.PHOTO)
     .get();
 ```
 
@@ -95,6 +95,39 @@ Person scott = client.peopleByUserName("scottketchum")
     .expand(Person.TRIPS)
     .get();
 ```
+
+## Deep / Multi-Level Nested Expand
+
+You can expand a navigation-of-a-navigation by calling `expand(...)` on a
+`NavProperty` (or a `NavQuery`) inside another `expand(...)`. This renders
+OData's multi-level `$expand` — for example
+`$expand=Trips($expand=PlanItems)`:
+
+```java
+client.people()
+    .expand(Person.TRIPS.expand(Trip.PLAN_ITEMS))
+    .get();
+```
+
+A bare `NavProperty` passed to `expand(...)` expands the nav with no options. To
+nest options on the inner nav, pass a `NavQuery` instead:
+
+```java
+client.people()
+    .expand(Person.TRIPS.expand(
+        Trip.PLAN_ITEMS.select(PlanItem.PLAN_ITEM_ID, PlanItem.CONFIRMATION_CODE)))
+    .get();
+```
+
+This produces (roughly):
+
+```text
+$expand=Trips($expand=PlanItems($select=PlanItemId,ConfirmationCode))
+```
+
+Chaining works at any depth — `NavQuery.expand(...)` also accepts another
+`NavQuery`, so you can keep nesting (e.g.
+`People($expand=Trips($expand=PlanItems($expand=...)))`).
 
 ## What's Next
 

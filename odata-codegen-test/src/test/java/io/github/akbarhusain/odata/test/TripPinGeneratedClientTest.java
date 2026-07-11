@@ -3,6 +3,7 @@ package io.github.akbarhusain.odata.test;
 import com.example.trippin.container.DefaultContainer;
 import com.example.trippin.entity.Person;
 import com.example.trippin.entity.Trip;
+import com.example.trippin.entity.PlanItem;
 import com.example.trippin.entity.Photo;
 import com.example.trippin.enums.PersonGender;
 import io.github.akbarhusain.odata.runtime.entity.Context;
@@ -298,6 +299,28 @@ class TripPinGeneratedClientTest {
                 .expand(Person.TRIPS
                         .select(Trip.NAME, Trip.DESCRIPTION)
                         .filter(Trip.BUDGET.greaterThan(5000f)))
+                .top(1)
+                .get();
+        Person person = page.currentPage().get(0);
+        assertNotNull(person);
+        assertNotNull(person.getUserName());
+    }
+
+    @Test
+    void expandWithNestedExpand() {
+        CollectionPage<Person> page = client.people()
+                .expand(Person.TRIPS.expand(Trip.PLAN_ITEMS))
+                .top(1)
+                .get();
+        Person person = page.currentPage().get(0);
+        assertNotNull(person);
+        assertNotNull(person.getUserName());
+    }
+
+    @Test
+    void expandWithDeepNestedExpandAndSelect() {
+        CollectionPage<Person> page = client.people()
+                .expand(Person.TRIPS.expand(Trip.PLAN_ITEMS.select(PlanItem.PLAN_ITEM_ID)))
                 .top(1)
                 .get();
         Person person = page.currentPage().get(0);
