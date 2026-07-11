@@ -72,12 +72,6 @@ public class EntityGenerator {
         boolean firstOpen = openType && (base == null || !openTypeResolved(base, schema));
         boolean rootMutableMap = base == null && subtreeHasOpen(entityType, schema);
 
-        Set<String> ownPropNames = new HashSet<>();
-        for (PropertyModel p : ownProps) {
-            ownPropNames.add(p.name());
-        }
-
-
         StringBuilder sb = new StringBuilder();
         sb.append("package ").append(pkg).append(";\n\n");
 
@@ -93,6 +87,9 @@ public class EntityGenerator {
         imports.add("io.github.akbarhusain.odata.runtime.entity.EntityUtil");
         imports.add("io.github.akbarhusain.odata.runtime.serialization.DynamicPropertyConverter");
         imports.add("io.github.akbarhusain.odata.runtime.query.*");
+        if (openType && firstOpen) {
+            imports.add("com.fasterxml.jackson.annotation.JsonAnySetter");
+        }
 
         for (NavigationPropertyModel nav : allNavs) {
             String elementType = Names.unwrapCollectionType(nav.type());
@@ -142,105 +139,207 @@ public class EntityGenerator {
         }
         if (!entityType.navigationProperties().isEmpty()) sb.append("\n");
 
-        // Fields (protected so subclasses can copy inherited state via with*/constructors)
+        // JVM limit is 255 method parameters. @JsonCreator constructor needs:
+        // this + etag + allProps + allNavs = N+M+2
+        boolean wide = (allProps.size() + allNavs.size()) > 252;
+
+        // Fields — @JsonProperty on each field for wide entities, or used via @JsonCreator constructor
         for (PropertyModel prop : ownProps) {
             String javaType = resolvePropertyJavaType(prop, schema, true);
-            sb.append("    protected final ").append(javaType).append(" ")
+            if (wide) {
+                sb.append("    @com.fasterxml.jackson.annotation.JsonProperty(\"").append(prop.name()).append("\")\n");
+            }
+            sb.append("    protected ").append(javaType).append(" ")
               .append(Names.toJavaFieldName(prop.name())).append(";\n");
         }
 
         // Navigation-property fields hold expanded ($expand) data deserialized from JSON.
         for (NavigationPropertyModel nav : ownNavs) {
-            sb.append("    protected final ").append(navJavaType(nav, schema)).append(" ")
+            if (wide) {
+                sb.append("    @com.fasterxml.jackson.annotation.JsonProperty(\"").append(nav.name()).append("\")\n");
+            }
+            sb.append("    protected ").append(navJavaType(nav, schema)).append(" ")
               .append(Names.toJavaFieldName(nav.name())).append(";\n");
         }
         if (base == null) {
-            sb.append("    protected final ContextPath contextPath;\n");
-            sb.append("    protected final String etag;\n");
-            sb.append("    protected final java.util.Map<String, Object> unmappedFields;\n");
-            sb.append("    protected final Set<String> changedFields;\n");
+            if (wide) {
+                sb.append("    @com.fasterxml.jackson.annotation.JsonProperty(\"@odata.etag\")\n");
+            }
+            sb.append("    protected String etag;\n");
+            sb.append("    protected ContextPath contextPath;\n");
+            sb.append("    protected java.util.Map<String, Object> unmappedFields;\n");
+            sb.append("    protected Set<String> changedFields;\n");
         }
         sb.append("\n");
 
-        // Constructor with Jackson annotations for deserialization
-        sb.append("    @com.fasterxml.jackson.annotation.JsonCreator\n");
-        sb.append("    public ").append(className).append("(\n");
-        sb.append("            @com.fasterxml.jackson.annotation.JsonProperty(\"@odata.etag\") String etag");
-        for (PropertyModel prop : allProps) {
-            String javaType = resolvePropertyJavaType(prop, schema, true);
-            sb.append(",\n            @com.fasterxml.jackson.annotation.JsonProperty(\"").append(prop.name()).append("\") ")
-              .append(javaType).append(" ").append(Names.toJavaFieldName(prop.name()));
-        }
-        for (NavigationPropertyModel nav : allNavs) {
-            sb.append(",\n            @com.fasterxml.jackson.annotation.JsonProperty(\"").append(nav.name()).append("\") ")
-              .append(navJavaType(nav, schema)).append(" ").append(Names.toJavaFieldName(nav.name()));
-        }
-        sb.append(") {\n");
-        if (base != null) {
-            sb.append("        super(etag");
-            for (PropertyModel prop : inheritedProps) {
-                sb.append(", ").append(Names.toJavaFieldName(prop.name()));
+        if (wide) {
+            // Wide entity: @JsonAnySetter with switch (no @JsonCreator constructor)
+            sb.append("    ").append(entityType.abstractType() ? "protected" : "public").append(" ").append(className).append("() {\n");
+            if (base == null) {
+                sb.append("        this.unmappedFields = ")
+                  .append(rootMutableMap ? "new java.util.HashMap<>()" : "java.util.Map.of()")
+                  .append(";\n");
+                sb.append("        this.changedFields = new java.util.HashSet<>();\n");
             }
-            for (NavigationPropertyModel nav : inheritedNavs) {
-                sb.append(", ").append(Names.toJavaFieldName(nav.name()));
-            }
-            sb.append(");\n");
-        } else {
-            sb.append("        this.contextPath = null;\n");
-            sb.append("        this.etag = etag;\n");
-        }
-        for (PropertyModel prop : ownProps) {
-            String fn = Names.toJavaFieldName(prop.name());
-            sb.append("        this.").append(fn).append(" = ").append(fieldInit(prop)).append(";\n");
-        }
-        for (NavigationPropertyModel nav : ownNavs) {
-            String fn = Names.toJavaFieldName(nav.name());
-            sb.append("        this.").append(fn).append(" = ").append(navFieldInit(nav)).append(";\n");
-        }
-        if (base == null) {
-            sb.append("        this.unmappedFields = ")
-              .append(rootMutableMap ? "new java.util.HashMap<>()" : "java.util.Map.of()")
-              .append(";\n");
-            sb.append("        this.changedFields = Set.of();\n");
-        }
-        sb.append("    }\n\n");
+            sb.append("    }\n\n");
 
-        // Internal constructor for builder/with methods
-        sb.append("    protected ").append(className).append("(ContextPath contextPath, String etag");
-        for (PropertyModel prop : allProps) {
-            String javaType = resolvePropertyJavaType(prop, schema, true);
-            sb.append(", ").append(javaType).append(" ").append(Names.toJavaFieldName(prop.name()));
-        }
-        for (NavigationPropertyModel nav : allNavs) {
-            sb.append(", ").append(navJavaType(nav, schema)).append(" ").append(Names.toJavaFieldName(nav.name()));
-        }
-        sb.append(", java.util.Map<String, Object> unmappedFields, Set<String> changedFields) {\n");
-        if (base != null) {
-            sb.append("        super(contextPath, etag");
-            for (PropertyModel prop : inheritedProps) {
-                sb.append(", ").append(Names.toJavaFieldName(prop.name()));
+            sb.append("    @com.fasterxml.jackson.annotation.JsonAnySetter\n");
+            sb.append("    public void setProperty(String key, Object value) {\n");
+            sb.append("        switch (key) {\n");
+            sb.append("            case \"@odata.etag\" -> this.etag = (String) value;\n");
+            for (PropertyModel prop : allProps) {
+                String fn = Names.toJavaFieldName(prop.name());
+                sb.append("            case \"").append(prop.name()).append("\" -> this.").append(fn)
+                  .append(" = (").append(resolvePropertyJavaType(prop, schema, true)).append(") value;\n");
             }
-            for (NavigationPropertyModel nav : inheritedNavs) {
-                sb.append(", ").append(Names.toJavaFieldName(nav.name()));
+            for (NavigationPropertyModel nav : allNavs) {
+                String fn = Names.toJavaFieldName(nav.name());
+                sb.append("            case \"").append(nav.name()).append("\" -> this.").append(fn)
+                  .append(" = (").append(navJavaType(nav, schema)).append(") value;\n");
             }
-            sb.append(", unmappedFields, changedFields);\n");
+            sb.append("            default -> {\n");
+            sb.append("                if (!key.startsWith(\"@\")) {\n");
+            sb.append("                    unmappedFields.put(key, value);\n");
+            sb.append("                }\n");
+            sb.append("            }\n");
+            sb.append("        }\n");
+            sb.append("    }\n\n");
+
+            // Setters for own properties (used by Builder, with* methods)
+            if (!entityType.abstractType()) {
+                for (PropertyModel prop : ownProps) {
+                    String javaType = resolvePropertyJavaType(prop, schema, true);
+                    String fn = Names.toJavaFieldName(prop.name());
+                    sb.append("    public void set").append(Names.capitalize(fn)).append("(").append(javaType).append(" value) {\n");
+                    sb.append("        this.").append(fn).append(" = value;\n");
+                    sb.append("    }\n\n");
+                }
+                for (NavigationPropertyModel nav : ownNavs) {
+                    String javaType = navJavaType(nav, schema);
+                    String fn = Names.toJavaFieldName(nav.name());
+                    sb.append("    public void set").append(Names.capitalize(fn)).append("(").append(javaType).append(" value) {\n");
+                    sb.append("        this.").append(fn).append(" = value;\n");
+                    sb.append("    }\n\n");
+                }
+            }
         } else {
-            sb.append("        this.contextPath = contextPath;\n");
-            sb.append("        this.etag = etag;\n");
+            // Normal entity: @JsonCreator with @JsonProperty on each parameter
+            if (entityType.abstractType()) {
+                // Abstract types need a constructor for subtypes to call super(...)
+                sb.append("    protected ").append(className).append("(\n");
+                sb.append("            String etag");
+                for (PropertyModel prop : allProps) {
+                    String javaType = resolvePropertyJavaType(prop, schema, true);
+                    sb.append(",\n            ").append(javaType).append(" ").append(Names.toJavaFieldName(prop.name()));
+                }
+                for (NavigationPropertyModel nav : allNavs) {
+                    sb.append(",\n            ").append(navJavaType(nav, schema)).append(" ").append(Names.toJavaFieldName(nav.name()));
+                }
+                sb.append(") {\n");
+                if (base != null) {
+                    sb.append("        super(etag");
+                    for (PropertyModel prop : inheritedProps) {
+                        sb.append(", ").append(Names.toJavaFieldName(prop.name()));
+                    }
+                    for (NavigationPropertyModel nav : inheritedNavs) {
+                        sb.append(", ").append(Names.toJavaFieldName(nav.name()));
+                    }
+                    sb.append(");\n");
+                } else {
+                    sb.append("        this.contextPath = null;\n");
+                    sb.append("        this.etag = etag;\n");
+                }
+                for (PropertyModel prop : ownProps) {
+                    String fn = Names.toJavaFieldName(prop.name());
+                    sb.append("        this.").append(fn).append(" = ").append(fieldInit(prop)).append(";\n");
+                }
+                for (NavigationPropertyModel nav : ownNavs) {
+                    String fn = Names.toJavaFieldName(nav.name());
+                    sb.append("        this.").append(fn).append(" = ").append(navFieldInit(nav)).append(";\n");
+                }
+                if (base == null) {
+                    sb.append("        this.unmappedFields = ")
+                      .append(rootMutableMap ? "new java.util.HashMap<>()" : "java.util.Map.of()")
+                      .append(";\n");
+                    sb.append("        this.changedFields = Set.of();\n");
+                }
+                sb.append("    }\n\n");
+
+                sb.append("    protected ").append(className).append("() {\n");
+                if (base == null) {
+                    sb.append("        this.unmappedFields = new java.util.HashMap<>();\n");
+                    sb.append("        this.changedFields = new java.util.HashSet<>();\n");
+                }
+                sb.append("    }\n\n");
+            } else {
+                // Concrete entity: @JsonCreator constructor for Jackson deserialization
+                sb.append("    @com.fasterxml.jackson.annotation.JsonCreator\n");
+                sb.append("    public ").append(className).append("(\n");
+                sb.append("            @com.fasterxml.jackson.annotation.JsonProperty(\"@odata.etag\") String etag");
+                for (PropertyModel prop : allProps) {
+                    String javaType = resolvePropertyJavaType(prop, schema, true);
+                    sb.append(",\n            @com.fasterxml.jackson.annotation.JsonProperty(\"").append(prop.name()).append("\") ")
+                      .append(javaType).append(" ").append(Names.toJavaFieldName(prop.name()));
+                }
+                for (NavigationPropertyModel nav : allNavs) {
+                    sb.append(",\n            @com.fasterxml.jackson.annotation.JsonProperty(\"").append(nav.name()).append("\") ")
+                      .append(navJavaType(nav, schema)).append(" ").append(Names.toJavaFieldName(nav.name()));
+                }
+                sb.append(") {\n");
+                if (base != null) {
+                    sb.append("        super(etag");
+                    for (PropertyModel prop : inheritedProps) {
+                        sb.append(", ").append(Names.toJavaFieldName(prop.name()));
+                    }
+                    for (NavigationPropertyModel nav : inheritedNavs) {
+                        sb.append(", ").append(Names.toJavaFieldName(nav.name()));
+                    }
+                    sb.append(");\n");
+                } else {
+                    sb.append("        this.contextPath = null;\n");
+                    sb.append("        this.etag = etag;\n");
+                }
+                for (PropertyModel prop : ownProps) {
+                    String fn = Names.toJavaFieldName(prop.name());
+                    sb.append("        this.").append(fn).append(" = ").append(fieldInit(prop)).append(";\n");
+                }
+                for (NavigationPropertyModel nav : ownNavs) {
+                    String fn = Names.toJavaFieldName(nav.name());
+                    sb.append("        this.").append(fn).append(" = ").append(navFieldInit(nav)).append(";\n");
+                }
+                if (base == null) {
+                    sb.append("        this.unmappedFields = ")
+                      .append(rootMutableMap ? "new java.util.HashMap<>()" : "java.util.Map.of()")
+                      .append(";\n");
+                    sb.append("        this.changedFields = Set.of();\n");
+                }
+                sb.append("    }\n\n");
+
+                // No-args constructor for Builder/with* copy-on-write
+                sb.append("    public ").append(className).append("() {\n");
+                if (base == null) {
+                    sb.append("        this.unmappedFields = new java.util.HashMap<>();\n");
+                    sb.append("        this.changedFields = new java.util.HashSet<>();\n");
+                }
+                sb.append("    }\n\n");
+
+                // Setters for own properties (used by Builder, with* methods)
+                for (PropertyModel prop : ownProps) {
+                    String javaType = resolvePropertyJavaType(prop, schema, true);
+                    String fn = Names.toJavaFieldName(prop.name());
+                    sb.append("    public void set").append(Names.capitalize(fn)).append("(").append(javaType).append(" value) {\n");
+                    sb.append("        this.").append(fn).append(" = value;\n");
+                    sb.append("    }\n\n");
+                }
+                for (NavigationPropertyModel nav : ownNavs) {
+                    String javaType = navJavaType(nav, schema);
+                    String fn = Names.toJavaFieldName(nav.name());
+                    sb.append("    public void set").append(Names.capitalize(fn)).append("(").append(javaType).append(" value) {\n");
+                    sb.append("        this.").append(fn).append(" = value;\n");
+                    sb.append("    }\n\n");
+                }
+            }
         }
-        for (PropertyModel prop : ownProps) {
-            String fn = Names.toJavaFieldName(prop.name());
-            sb.append("        this.").append(fn).append(" = ").append(fieldInit(prop)).append(";\n");
-        }
-        for (NavigationPropertyModel nav : ownNavs) {
-            String fn = Names.toJavaFieldName(nav.name());
-            sb.append("        this.").append(fn).append(" = ").append(navFieldInit(nav)).append(";\n");
-        }
-        if (base == null) {
-            sb.append("        this.unmappedFields = unmappedFields != null ? unmappedFields : java.util.Map.of();\n");
-            sb.append("        this.changedFields = changedFields != null ? changedFields : Set.of();\n");
-        }
-        sb.append("    }\n\n");
 
         // Getters
         for (PropertyModel prop : ownProps) {
@@ -252,17 +351,15 @@ public class EntityGenerator {
             sb.append(generateNavGetter(nav, schema));
         }
 
-        // Builder (only for concrete top-level entities; subtypes reuse base builder or with* methods)
+        // Builder (only for concrete top-level entities; subtypes use with* methods)
         if (base == null && !entityType.abstractType()) {
             sb.append(generateBuilder(allProps, ownNavs, className, schema, keys, rootMutableMap));
         }
 
         // with*() methods — skipped for abstract types, which cannot be instantiated
-        // (a with* would otherwise emit `new AbstractX(...)`, a compile error). Concrete
-        // subtypes generate their own with* that reconstruct the subtype via super().
         if (!entityType.abstractType()) {
             for (PropertyModel prop : allProps) {
-                sb.append(generateWithMethod(prop, allProps, allNavs, ownPropNames, className, schema));
+                sb.append(generateWithMethod(prop, allProps, allNavs, className, schema));
             }
             for (NavigationPropertyModel nav : allNavs) {
                 sb.append(generateNavWithMethod(nav, allProps, allNavs, className, schema));
@@ -282,14 +379,15 @@ public class EntityGenerator {
             sb.append("    @com.fasterxml.jackson.annotation.JsonAnyGetter\n");
         }
         sb.append("    @Override\n    public java.util.Map<String, Object> getUnmappedFields() {\n");
-        sb.append("        return ").append(openType ? "Collections.unmodifiableMap(unmappedFields)" : "unmappedFields").append(";\n");
+        sb.append("        return Collections.unmodifiableMap(unmappedFields);\n");
         sb.append("    }\n\n");
 
-        // OpenType: capture undeclared JSON fields (dynamic properties) into unmappedFields.
+        // OpenType: @JsonAnySetter captures undeclared JSON fields (dynamic properties) into unmappedFields.
         // Generated only at the topmost open type in the chain to avoid duplicate any-setters.
+        // @JsonCreator handles known properties; @JsonAnySetter handles unknown ones.
         if (firstOpen) {
             sb.append("    @com.fasterxml.jackson.annotation.JsonAnySetter\n");
-            sb.append("    protected void putDynamicProperty(String name, Object value) {\n");
+            sb.append("    public void setDynamicProperty(String name, Object value) {\n");
             sb.append("        if (name != null && !name.startsWith(\"@\")) {\n");
             sb.append("            unmappedFields.put(name, value);\n");
             sb.append("        }\n");
@@ -574,19 +672,26 @@ public class EntityGenerator {
         StringBuilder sb = new StringBuilder();
         sb.append("    public ").append(className).append(" ").append(navWithMethod(nav))
           .append("(").append(javaType).append(" value) {\n");
-        sb.append("        return new ").append(className).append("(contextPath, etag");
+        sb.append("        ").append(className).append(" e = new ").append(className).append("();\n");
+        sb.append("        e.contextPath = contextPath;\n");
+        sb.append("        e.etag = etag;\n");
         for (PropertyModel p : allProps) {
-            sb.append(", this.").append(Names.toJavaFieldName(p.name()));
+            String pfn = Names.toJavaFieldName(p.name());
+            sb.append("        e.").append(pfn).append(" = this.").append(pfn).append(";\n");
         }
         for (NavigationPropertyModel n : allNavs) {
-            sb.append(", ");
+            String nfn = Names.toJavaFieldName(n.name());
+            sb.append("        e.").append(nfn).append(" = ");
             if (n.name().equals(nav.name())) {
                 sb.append("value");
             } else {
-                sb.append("this.").append(Names.toJavaFieldName(n.name()));
+                sb.append("this.").append(nfn);
             }
+            sb.append(";\n");
         }
-        sb.append(", unmappedFields, EntityUtil.mergeChanged(changedFields, \"").append(nav.name()).append("\"));\n");
+        sb.append("        e.unmappedFields = unmappedFields;\n");
+        sb.append("        e.changedFields = EntityUtil.mergeChanged(changedFields, \"").append(nav.name()).append("\");\n");
+        sb.append("        return e;\n");
         sb.append("    }\n\n");
         return sb.toString();
     }
@@ -646,40 +751,53 @@ public class EntityGenerator {
                   .append(", \"").append(keyProp).append(" is required (key)\");\n");
             }
         }
-        sb.append("            return new ").append(className).append("(contextPath, etag");
+        sb.append("            ").append(className).append(" e = new ").append(className).append("();\n");
+        sb.append("            e.contextPath = contextPath;\n");
+        sb.append("            e.etag = etag;\n");
         for (PropertyModel prop : props) {
-            sb.append(", ").append(Names.toJavaFieldName(prop.name()));
+            String fn = Names.toJavaFieldName(prop.name());
+            sb.append("            e.").append(fn).append(" = ").append(fn).append(";\n");
         }
         for (NavigationPropertyModel nav : navs) {
-            sb.append(", ").append(Names.toJavaFieldName(nav.name()));
+            String fn = Names.toJavaFieldName(nav.name());
+            sb.append("            e.").append(fn).append(" = ").append(fn).append(";\n");
         }
-        sb.append(", unmappedFields, changed);\n");
+        sb.append("            e.unmappedFields = unmappedFields;\n");
+        sb.append("            e.changedFields = new java.util.HashSet<>(changed);\n");
+        sb.append("            return e;\n");
         sb.append("        }\n");
         sb.append("    }\n\n");
 
         return sb.toString();
     }
 
-    private String generateWithMethod(PropertyModel prop, List<PropertyModel> allProps, List<NavigationPropertyModel> allNavs, Set<String> ownPropNames, String className, SchemaModel schema) {
+    private String generateWithMethod(PropertyModel prop, List<PropertyModel> allProps, List<NavigationPropertyModel> allNavs, String className, SchemaModel schema) {
         String javaType = resolvePropertyJavaType(prop, schema, true);
         String fn = Names.toJavaFieldName(prop.name());
 
         StringBuilder sb = new StringBuilder();
         sb.append("    public ").append(className).append(" ").append(Names.withMethod(prop))
           .append("(").append(javaType).append(" value) {\n");
-        sb.append("        return new ").append(className).append("(contextPath, etag");
+        sb.append("        ").append(className).append(" e = new ").append(className).append("();\n");
+        sb.append("        e.contextPath = contextPath;\n");
+        sb.append("        e.etag = etag;\n");
         for (PropertyModel p : allProps) {
-            sb.append(", ");
+            String pfn = Names.toJavaFieldName(p.name());
+            sb.append("        e.").append(pfn).append(" = ");
             if (p.name().equals(prop.name())) {
                 sb.append("value");
             } else {
-                sb.append("this.").append(Names.toJavaFieldName(p.name()));
+                sb.append("this.").append(pfn);
             }
+            sb.append(";\n");
         }
         for (NavigationPropertyModel nav : allNavs) {
-            sb.append(", this.").append(Names.toJavaFieldName(nav.name()));
+            String nfn = Names.toJavaFieldName(nav.name());
+            sb.append("        e.").append(nfn).append(" = this.").append(nfn).append(";\n");
         }
-        sb.append(", unmappedFields, EntityUtil.mergeChanged(changedFields, \"").append(prop.name()).append("\"));\n");
+        sb.append("        e.unmappedFields = unmappedFields;\n");
+        sb.append("        e.changedFields = EntityUtil.mergeChanged(changedFields, \"").append(prop.name()).append("\");\n");
+        sb.append("        return e;\n");
         sb.append("    }\n\n");
 
         return sb.toString();

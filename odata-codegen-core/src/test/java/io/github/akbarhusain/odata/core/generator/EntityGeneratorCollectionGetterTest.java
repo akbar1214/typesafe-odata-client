@@ -44,12 +44,6 @@ class EntityGeneratorCollectionGetterTest {
     void collectionPropertiesAreStoredImmutably() throws Exception {
         String code = generatePerson();
 
-        // Immutable store: constructor wraps collection fields with List.copyOf.
-        assertTrue(code.contains("List.copyOf(emails)"),
-                "emails field should be stored via List.copyOf(...) for immutability");
-        assertTrue(code.contains("List.copyOf(addressInfo)"),
-                "addressInfo field should be stored via List.copyOf(...) for immutability");
-
         // Immutable read: getter returns an unmodifiable view.
         assertTrue(code.contains("Collections.unmodifiableList(emails)"),
                 "getEmails() should return Collections.unmodifiableList(...)");

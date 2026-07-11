@@ -121,8 +121,11 @@ class TripPinInheritanceTest {
 
     @Test
     void entity_flightHierarchyChain() {
-        Flight flight = new Flight(
-                null, 1, "ABC123", null, null, null, "12A", "AA100", null, null, null);
+        Flight flight = new Flight();
+        flight.setPlanItemId(1);
+        flight.setConfirmationCode("ABC123");
+        flight.setSeatNumber("12A");
+        flight.setFlightNumber("AA100");
 
         assertInstanceOf(PublicTransportation.class, flight, "Flight is a PublicTransportation");
         assertInstanceOf(PlanItem.class, flight, "Flight is a PlanItem");
@@ -131,15 +134,21 @@ class TripPinInheritanceTest {
 
     @Test
     void entity_eventIsPlanItem() {
-        Event event = new Event(null, 2, "EVT1", null, null, null, "Conference", null);
+        Event event = new Event();
+        event.setPlanItemId(2);
+        event.setConfirmationCode("EVT1");
+        event.setDescription("Conference");
         assertInstanceOf(PlanItem.class, event, "Event is a PlanItem");
         assertInstanceOf(ODataEntityType.class, event);
     }
 
     @Test
     void entity_subtypeExposesInheritedAndOwnProperties() {
-        Flight flight = new Flight(
-                null, 5, "CONF5", null, null, null, "9C", "UA900", null, null, null);
+        Flight flight = new Flight();
+        flight.setPlanItemId(5);
+        flight.setConfirmationCode("CONF5");
+        flight.setSeatNumber("9C");
+        flight.setFlightNumber("UA900");
 
         // Inherited getters (from PlanItem / PublicTransportation)
         assertEquals(5, flight.getPlanItemId());
@@ -151,8 +160,11 @@ class TripPinInheritanceTest {
 
     @Test
     void entity_subtypeWithMethodReturnsSubtypeAndPreservesInheritedFields() {
-        Flight flight = new Flight(
-                null, 7, "CONF7", null, null, null, "1A", "DL7", null, null, null);
+        Flight flight = new Flight();
+        flight.setPlanItemId(7);
+        flight.setConfirmationCode("CONF7");
+        flight.setSeatNumber("1A");
+        flight.setFlightNumber("DL7");
 
         // Changing own property returns Flight, inherited fields preserved
         Flight renumbered = flight.withFlightNumber("DL8");
@@ -183,8 +195,12 @@ class TripPinInheritanceTest {
 
     @Test
     void entity_polymorphicCollectionOfPlanItems() {
-        Flight flight = new Flight(null, 10, null, null, null, null, null, "AA1", null, null, null);
-        Event event = new Event(null, 11, null, null, null, null, "Sightseeing", null);
+        Flight flight = new Flight();
+        flight.setPlanItemId(10);
+        flight.setFlightNumber("AA1");
+        Event event = new Event();
+        event.setPlanItemId(11);
+        event.setDescription("Sightseeing");
 
         List<PlanItem> items = new java.util.ArrayList<>();
         items.add(flight);
