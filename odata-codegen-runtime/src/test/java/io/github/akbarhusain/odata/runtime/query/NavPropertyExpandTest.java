@@ -82,4 +82,22 @@ class NavPropertyExpandTest {
         NavProperty.NavQuery<Object> query = col.select(firstName);
         assertEquals("Friends($select=FirstName)", query.toODataExpand());
     }
+
+    @Test
+    void navQueryWithOrderByDescending() {
+        NavProperty<Object, Object> nav = new NavProperty<>("Trips", Object.class, Object.class);
+        StringProperty<Object> name = new StringProperty<>("Name", null);
+        // desc() returns an OrderExpression whose getODataPath() already includes " desc"
+        NavProperty.NavQuery<Object> query = nav.orderBy(name.desc());
+        assertEquals("Trips($orderby=Name desc)", query.toODataExpand());
+    }
+
+    @Test
+    void navQueryWithOrderByDescendingNavQuery() {
+        NavProperty<Object, Object> nav = new NavProperty<>("Trips", Object.class, Object.class);
+        StringProperty<Object> name = new StringProperty<>("Name", null);
+        // NavQuery.orderBy() should produce the same output as NavProperty.orderBy()
+        NavProperty.NavQuery<Object> query = nav.select().orderBy(name.desc());
+        assertEquals("Trips($orderby=Name desc)", query.toODataExpand());
+    }
 }

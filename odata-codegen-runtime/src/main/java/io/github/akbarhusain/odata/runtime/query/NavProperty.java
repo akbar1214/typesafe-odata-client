@@ -33,18 +33,13 @@ public class NavProperty<E, T> {
     public NavQuery<T> orderBy(OrderExpression<?>... expressions) {
         List<String> orders = new ArrayList<>();
         for (var expr : expressions) {
-            orders.add(expr.getODataPath() + (isDescending(expr) ? " desc" : ""));
+            orders.add(expr.getODataPath());
         }
         return new NavQuery<>(edmName, List.of(), List.of(), orders, null);
     }
 
     public NavQuery<T> top(int count) {
         return new NavQuery<>(edmName, List.of(), List.of(), List.of(), "$top=" + count);
-    }
-
-    private boolean isDescending(OrderExpression<?> expr) {
-        String path = expr.getODataPath();
-        return path.endsWith(" desc");
     }
 
     public record NavQuery<T>(

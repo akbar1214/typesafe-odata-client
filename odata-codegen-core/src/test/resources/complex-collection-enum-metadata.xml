@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<edmx:Edmx Version="4.0" xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx">
+  <edmx:DataServices>
+    <Schema Namespace="Test.Models" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+      <EnumType Name="Color">
+        <Member Name="Red" Value="0" />
+        <Member Name="Green" Value="1" />
+        <Member Name="Blue" Value="2" />
+      </EnumType>
+      <ComplexType Name="Detail">
+        <Property Name="Tags" Type="Collection(Edm.String)" Nullable="false" />
+        <Property Name="Color" Type="Test.Models.Color" Nullable="false" />
+      </ComplexType>
+      <EntityType Name="Item">
+        <Key>
+          <PropertyRef Name="Id" />
+        </Key>
+        <Property Name="Id" Type="Edm.Int32" Nullable="false" />
+        <Property Name="Detail" Type="Test.Models.Detail" />
+      </EntityType>
+      <EntityContainer Name="Container">
+        <EntitySet Name="Items" EntityType="Test.Models.Item" />
+      </EntityContainer>
+    </Schema>
+  </edmx:DataServices>
+</edmx:Edmx>

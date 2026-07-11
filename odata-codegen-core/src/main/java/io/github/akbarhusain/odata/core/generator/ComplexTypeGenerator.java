@@ -38,16 +38,28 @@ public class ComplexTypeGenerator {
         StringBuilder sb = new StringBuilder();
         sb.append("package ").append(pkg).append(";\n\n");
 
+        boolean hasCollection = false;
         Set<String> imports = new TreeSet<>();
         imports.add("java.util.Optional");
         imports.add("io.github.akbarhusain.odata.runtime.entity.ODataType");
         imports.add("io.github.akbarhusain.odata.runtime.entity.ContextPath");
         if (openType) {
-            imports.add("java.util.Collections");
             imports.add("io.github.akbarhusain.odata.runtime.serialization.DynamicPropertyConverter");
         }
         if (base != null) {
             imports.add(pkg + "." + baseSimpleName);
+        }
+        for (PropertyModel prop : ownProps) {
+            addPropertyImports(prop, imports, schema);
+            if (Names.isCollectionType(prop.edmType())) {
+                hasCollection = true;
+            }
+        }
+        if (hasCollection || openType) {
+            imports.add("java.util.Collections");
+        }
+        if (hasCollection) {
+            imports.add("java.util.List");
         }
         for (String imp : imports) {
             sb.append("import ").append(imp).append(";\n");
@@ -97,7 +109,12 @@ public class ComplexTypeGenerator {
         }
         for (PropertyModel prop : ownProps) {
             String fn = Names.toJavaFieldName(prop.name());
-            sb.append("        this.").append(fn).append(" = ").append(fn).append(";\n");
+            if (Names.isCollectionType(prop.edmType())) {
+                sb.append("        this.").append(fn).append(" = ").append(fn)
+                  .append(" == null ? List.of() : List.copyOf(").append(fn).append(");\n");
+            } else {
+                sb.append("        this.").append(fn).append(" = ").append(fn).append(";\n");
+            }
         }
         if (rootMutableMap) {
             sb.append("        this.unmappedFields = new java.util.HashMap<>();\n");
@@ -108,14 +125,19 @@ public class ComplexTypeGenerator {
         for (PropertyModel prop : ownProps) {
             String javaType = resolvePropertyJavaType(prop);
             String fn = Names.toJavaFieldName(prop.name());
-            if (prop.nullable()) {
+            if (Names.isCollectionType(prop.edmType())) {
+                sb.append("    public ").append(javaType).append(" ").append(Names.getterMethod(prop)).append("() {\n");
+                sb.append("        return Collections.unmodifiableList(").append(fn).append(");\n");
+                sb.append("    }\n\n");
+            } else if (prop.nullable()) {
                 sb.append("    public Optional<").append(javaType).append("> ").append(Names.getterMethod(prop)).append("() {\n");
                 sb.append("        return Optional.ofNullable(").append(fn).append(");\n");
+                sb.append("    }\n\n");
             } else {
                 sb.append("    public ").append(javaType).append(" ").append(Names.getterMethod(prop)).append("() {\n");
                 sb.append("        return ").append(fn).append(";\n");
+                sb.append("    }\n\n");
             }
-            sb.append("    }\n\n");
         }
 
         // with*() copy-on-write methods — generated for all concrete complex types so that
@@ -306,9 +328,44 @@ public class ComplexTypeGenerator {
 
     private String resolvePropertyJavaType(PropertyModel prop) {
         String edmType = prop.edmType();
+        if (Names.isCollectionType(edmType)) {
+            String elementType = Names.unwrapCollectionType(edmType);
+            return "List<" + resolveSingleJavaType(elementType) + ">";
+        }
+        return resolveSingleJavaType(edmType);
+    }
+
+    private String resolveSingleJavaType(String edmType) {
         if (Names.isPrimitiveType(edmType)) {
             return Names.edmTypeToSimpleJavaType(edmType);
         }
         return Names.complexTypeClassName(Names.simpleNameFromFullName(edmType));
+    }
+
+    private void addPropertyImports(PropertyModel prop, Set<String> imports, SchemaModel schema) {
+        String edmType = prop.edmType();
+        if (Names.isCollectionType(edmType)) {
+            String elementType = Names.unwrapCollectionType(edmType);
+            if (Names.isPrimitiveType(elementType)) {
+                String javaType = Names.edmTypeToSimpleJavaType(elementType);
+                if (javaType.startsWith("java.")) imports.add(javaType);
+            } else if (isEnumType(elementType, schema)) {
+                imports.add(basePackage + Names.packageNameSuffixEnum() + "." + Names.simpleNameFromFullName(elementType));
+            } else {
+                imports.add(basePackage + Names.packageNameSuffixComplexType() + "." + Names.complexTypeClassName(Names.simpleNameFromFullName(elementType)));
+            }
+        } else if (Names.isPrimitiveType(edmType)) {
+            String javaType = Names.edmTypeToSimpleJavaType(edmType);
+            if (javaType.startsWith("java.")) imports.add(javaType);
+        } else if (isEnumType(edmType, schema)) {
+            imports.add(basePackage + Names.packageNameSuffixEnum() + "." + Names.simpleNameFromFullName(edmType));
+        } else {
+            imports.add(basePackage + Names.packageNameSuffixComplexType() + "." + Names.complexTypeClassName(Names.simpleNameFromFullName(edmType)));
+        }
+    }
+
+    private boolean isEnumType(String edmType, SchemaModel schema) {
+        String simpleName = Names.simpleNameFromFullName(edmType);
+        return schema.enumTypes().stream().anyMatch(e -> e.name().equals(simpleName));
     }
 }

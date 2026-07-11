@@ -85,4 +85,22 @@ class BatchRequestTest {
         String relative = path.toRelativeUrl();
         assertEquals("People?$top=5", relative);
     }
+
+    @Test
+    void authHeaderListIsMutable() {
+        // Verifies that auth header lists (converted from Map<String,String> to
+        // Map<String,List<String>>) are mutable so that computeIfAbsent/add works
+        // when header keys collide (the old List.of(...) pattern threw UOE).
+        java.util.Map<String, String> authHeaders = java.util.Map.of("Authorization", "Bearer token");
+        java.util.Map<String, java.util.List<String>> headers = new java.util.HashMap<>();
+        for (var entry : authHeaders.entrySet()) {
+            headers.put(entry.getKey(), new java.util.ArrayList<>(java.util.List.of(entry.getValue())));
+        }
+        assertDoesNotThrow(() -> {
+            headers.computeIfAbsent("Authorization", k -> new java.util.ArrayList<>()).add("extra");
+        });
+        assertEquals(2, headers.get("Authorization").size());
+        assertEquals("Bearer token", headers.get("Authorization").get(0));
+        assertEquals("extra", headers.get("Authorization").get(1));
+    }
 }

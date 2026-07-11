@@ -145,7 +145,7 @@ public class BatchRequest {
     private static Map<String, List<String>> toMultiMap(Map<String, String> singleMap) {
         Map<String, List<String>> result = new HashMap<>();
         for (var entry : singleMap.entrySet()) {
-            result.put(entry.getKey(), List.of(entry.getValue()));
+            result.put(entry.getKey(), new ArrayList<>(List.of(entry.getValue())));
         }
         return result;
     }
