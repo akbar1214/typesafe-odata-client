@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<edmx:Edmx Version="4.0" xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx">
+  <edmx:DataServices>
+    <Schema Namespace="ReservedWords" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+      <EntityType Name="Entity">
+        <Key>
+          <PropertyRef Name="Id"/>
+        </Key>
+        <Property Name="Id" Type="Edm.Int32" Nullable="false"/>
+        <Property Name="class" Type="Edm.String"/>
+        <Property Name="new" Type="Edm.String"/>
+        <Property Name="int" Type="Edm.Int32"/>
+        <Property Name="return" Type="Edm.String"/>
+        <Property Name="package" Type="Edm.String"/>
+        <Property Name="import" Type="Edm.String"/>
+        <Property Name="abstract" Type="Edm.String"/>
+        <Property Name="interface" Type="Edm.String"/>
+        <Property Name="try" Type="Edm.String"/>
+        <Property Name="catch" Type="Edm.String"/>
+        <Property Name="throw" Type="Edm.String"/>
+        <Property Name="switch" Type="Edm.String"/>
+        <Property Name="for" Type="Edm.String"/>
+        <Property Name="while" Type="Edm.String"/>
+        <Property Name="if" Type="Edm.String"/>
+        <Property Name="else" Type="Edm.String"/>
+        <Property Name="final" Type="Edm.String"/>
+        <Property Name="static" Type="Edm.String"/>
+        <Property Name="void" Type="Edm.String"/>
+        <Property Name="private" Type="Edm.String"/>
+        <Property Name="public" Type="Edm.String"/>
+        <Property Name="protected" Type="Edm.String"/>
+        <Property Name="this" Type="Edm.String"/>
+        <Property Name="super" Type="Edm.String"/>
+        <Property Name="extends" Type="Edm.String"/>
+        <Property Name="implements" Type="Edm.String"/>
+        <Property Name="instanceof" Type="Edm.String"/>
+        <Property Name="var" Type="Edm.String"/>
+        <Property Name="record" Type="Edm.String"/>
+        <Property Name="sealed" Type="Edm.String"/>
+        <Property Name="permits" Type="Edm.String"/>
+        <Property Name="yield" Type="Edm.String"/>
+        <Property Name="with" Type="Edm.String"/>
+        <Property Name="open" Type="Edm.String"/>
+        <Property Name="to" Type="Edm.String"/>
+        <Property Name="module" Type="Edm.String"/>
+        <Property Name="requires" Type="Edm.String"/>
+        <Property Name="exports" Type="Edm.String"/>
+        <Property Name="native" Type="Edm.String"/>
+      </EntityType>
+      <EntityContainer Name="Container">
+        <EntitySet Name="Entities" EntityType="ReservedWords.Entity"/>
+      </EntityContainer>
+    </Schema>
+  </edmx:DataServices>
+</edmx:Edmx>

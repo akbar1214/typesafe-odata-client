@@ -72,7 +72,9 @@ public final class Names {
 
     public static String toJavaFieldName(String edmName) {
         String name = sanitizeIdentifier(edmName);
-        return Character.toLowerCase(name.charAt(0)) + name.substring(1);
+        String result = Character.toLowerCase(name.charAt(0)) + name.substring(1);
+        if (isReservedWord(result)) result = result + "_";
+        return result;
     }
 
     public static String toConstantName(String edmName) {
@@ -93,7 +95,9 @@ public final class Names {
     }
 
     public static String getterMethod(PropertyModel prop) {
-        return "get" + capitalize(sanitizeIdentifier(prop.name()));
+        String name = "get" + capitalize(sanitizeIdentifier(prop.name()));
+        if (isObjectMethodName(name)) name = name + "_";
+        return name;
     }
 
     public static String withMethod(PropertyModel prop) {
@@ -231,5 +235,15 @@ public final class Names {
                  "open", "requires", "exports", "opens", "to", "with" -> true;
             default -> false;
         };
+    }
+
+    // Object methods that cannot be overridden (final) or would break identity contracts.
+    private static final java.util.Set<String> OBJECT_METHOD_NAMES = java.util.Set.of(
+            "getClass", "hashCode", "equals", "toString", "clone",
+            "notify", "notifyAll", "wait"
+    );
+
+    private static boolean isObjectMethodName(String name) {
+        return OBJECT_METHOD_NAMES.contains(name);
     }
 }
