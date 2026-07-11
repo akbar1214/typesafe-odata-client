@@ -124,14 +124,10 @@ public static class Builder {
 Generated entities have no Jackson/Gson annotations. Serialization is handled by the pluggable `Serializer` interface:
 
 ```java
-// Jackson (default)
+// Jackson (default, only built-in implementation)
 Serializer jackson = new JacksonSerializer();
 
-// Gson
-Serializer gson = new GsonSerializer();
-
-// Jakarta JSON-B
-Serializer jsonb = new JakartaJsonBSerializer();
+// Gson / Jakarta JSON-B: implement the Serializer interface yourself
 ```
 
 This means the same entity works with any JSON library.

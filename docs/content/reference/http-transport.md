@@ -156,17 +156,20 @@ public class LoggingInterceptor implements HttpInterceptor {
 ```java
 Context ctx = Context.builder()
     .baseUrl("https://services.odata.org/V4/TripPinService")
-    .addInterceptor(new LoggingInterceptor())
+    .interceptors(List.of(new LoggingInterceptor()))
     .build();
 ```
 
 ## Timeouts
 
+Timeouts are configured on the `HttpTransport` implementation, not on `Context`.
+The built-in transports use fixed defaults (30s connect, 60s read). To customize timeouts,
+supply your own `HttpTransport` implementation via `Context.builder().transport(...)`.
+
 ```java
 Context ctx = Context.builder()
     .baseUrl("https://services.odata.org/V4/TripPinService")
-    .property("connectTimeout", "5000")  // 5 seconds
-    .property("readTimeout", "30000")    // 30 seconds
+    .transport(new JdkHttpTransport())
     .build();
 ```
 

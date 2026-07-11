@@ -29,45 +29,16 @@ Context ctx = Context.builder()
 - Handles records automatically
 - No annotations required on entities
 
-### GsonSerializer
-
-```java
-import io.github.akbarhusain.odata.runtime.serialization.GsonSerializer;
-
-Context ctx = Context.builder()
-    .baseUrl("https://services.odata.org/V4/TripPinService")
-    .serializer(new GsonSerializer())
-    .build();
-```
-
-**Features:**
-
-- Uses Gson
-- No annotations required on entities
-- Lightweight
-
-### JakartaJsonBSerializer
-
-```java
-import io.github.akbarhusain.odata.runtime.serialization.JakartaJsonBSerializer;
-
-Context ctx = Context.builder()
-    .baseUrl("https://services.odata.org/V4/TripPinService")
-    .serializer(new JakartaJsonBSerializer())
-    .build();
-```
-
-**Features:**
-
-- Uses Jakarta JSON Binding
-- Standard Java EE API
-- Works with any JSON-B implementation
+> Only `JacksonSerializer` ships as a built-in implementation. To use Gson or
+> Jakarta JSON-B, implement the `Serializer` interface yourself — see
+> [Custom Implementations](#custom-implementations) below.
 
 ## Custom Implementations
 
 ### Implement Serializer
 
 ```java
+import io.github.akbarhusain.odata.runtime.exception.ODataException;
 import io.github.akbarhusain.odata.runtime.serialization.Serializer;
 
 public class CustomSerializer implements Serializer {
@@ -78,7 +49,7 @@ public class CustomSerializer implements Serializer {
         try {
             return mapper.writeValueAsBytes(value);
         } catch (Exception e) {
-            throw new SerializationException("Serialization failed", e);
+            throw new ODataException("Serialization failed", e);
         }
     }
 
@@ -87,7 +58,7 @@ public class CustomSerializer implements Serializer {
         try {
             return mapper.readValue(data, type);
         } catch (Exception e) {
-            throw new SerializationException("Deserialization failed", e);
+            throw new ODataException("Deserialization failed", e);
         }
     }
 }
@@ -106,29 +77,40 @@ Context ctx = Context.builder()
 
 ### Jackson Configuration
 
-```java
-ObjectMapper mapper = new ObjectMapper()
-    .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
-    .configure(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS, false)
-    .registerModule(new JavaTimeModule());
+`JacksonSerializer` is configured internally (FAIL_ON_UNKNOWN_PROPERTIES disabled,
+JavaTime + Jdk8 modules registered). You can supply your own `Serializer`
+implementation if you need a different ObjectMapper:
 
+```java
 Context ctx = Context.builder()
     .baseUrl("https://services.odata.org/V4/TripPinService")
-    .serializer(new JacksonSerializer(mapper))
+    .serializer(new JacksonSerializer())
     .build();
 ```
 
 ### Gson Configuration
 
-```java
-Gson gson = new GsonBuilder()
-    .setDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSZ")
-    .create();
+Gson is not built in. Implement the `Serializer` interface with a Gson-backed
+mapper and register it via `Context.builder().serializer(...)`:
 
-Context ctx = Context.builder()
-    .baseUrl("https://services.odata.org/V4/TripPinService")
-    .serializer(new GsonSerializer(gson))
-    .build();
+```java
+import java.nio.charset.StandardCharsets;
+
+public class GsonSerializer implements Serializer {
+    private final Gson gson = new GsonBuilder()
+        .setDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSZ")
+        .create();
+
+    @Override
+    public <T> byte[] serialize(T value, Class<T> type) {
+        return gson.toJson(value, type).getBytes(StandardCharsets.UTF_8);
+    }
+
+    @Override
+    public <T> T deserialize(byte[] data, Class<T> type) {
+        return gson.fromJson(new String(data, StandardCharsets.UTF_8), type);
+    }
+}
 ```
 
 ## OData Response Format

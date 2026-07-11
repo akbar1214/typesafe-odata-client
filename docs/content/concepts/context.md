@@ -1,6 +1,6 @@
 # The Context Pattern
 
-`Context` is the central configuration object that holds HTTP transport, serialization, and authentication.
+`Context` is the central configuration object that holds HTTP transport, serialization, authentication, and interceptors.
 
 ## What is Context?
 
@@ -11,10 +11,8 @@ public record Context(
     String baseUrl,
     Serializer serializer,
     HttpTransport transport,
-    AuthProvider auth,
-    SchemaInfo schemas,
-    List<HttpInterceptor> interceptors,
-    Map<String, String> properties
+    AuthProvider authProvider,
+    List<HttpInterceptor> interceptors
 ) { ... }
 ```
 
@@ -32,21 +30,18 @@ Context ctx = Context.builder()
 |-----------|---------|
 | `serializer` | `JacksonSerializer` |
 | `transport` | `JdkHttpTransport` |
-| `auth` | `null` (no auth) |
-| `schemas` | Generated `ServiceSchemaInfo` |
+| `authProvider` | `AuthProvider.none()` (no auth) |
 | `interceptors` | Empty list |
-| `properties` | Empty map |
 
 ### Custom Configuration
 
 ```java
 Context ctx = Context.builder()
     .baseUrl("https://services.odata.org/V4/TripPinService")
-    .serializer(new GsonSerializer())
+    .serializer(new JacksonSerializer())
     .transport(new JavaNetHttpTransport())
-    .auth(new BearerTokenAuthProvider("token"))
-    .addInterceptor(new LoggingInterceptor())
-    .property("connectTimeout", "5000")
+    .authProvider(new BearerAuthProvider("token"))
+    .interceptors(List.of(new LoggingInterceptor()))
     .build();
 ```
 

@@ -1,6 +1,6 @@
 # Add Authentication
 
-Configure authentication for OData services.
+Configure authentication for OData services via `Context.builder().authProvider(...)`.
 
 ## No Authentication
 
@@ -20,7 +20,7 @@ DefaultContainer client = new DefaultContainer(ctx);
 ```java
 Context ctx = Context.builder()
     .baseUrl("https://your-service.com/V4/odata")
-    .auth(new ApiKeyAuthProvider("your-api-key"))
+    .authProvider(new ApiKeyAuthProvider(() -> "your-api-key"))
     .build();
 
 DefaultContainer client = new DefaultContainer(ctx);
@@ -31,7 +31,7 @@ DefaultContainer client = new DefaultContainer(ctx);
 ```java
 Context ctx = Context.builder()
     .baseUrl("https://your-service.com/V4/odata")
-    .auth(new ApiKeyAuthProvider("your-api-key", "X-Api-Key"))
+    .authProvider(new ApiKeyAuthProvider(() -> "your-api-key", "X-Api-Key"))
     .build();
 ```
 
@@ -42,20 +42,18 @@ Context ctx = Context.builder()
 ```java
 Context ctx = Context.builder()
     .baseUrl("https://your-service.com/V4/odata")
-    .auth(new BearerTokenAuthProvider("your-oauth-token"))
+    .authProvider(new BearerAuthProvider(() -> "your-oauth-token"))
     .build();
 ```
 
 ### Token Refresh
 
+Pass a `Supplier<String>` so the token is fetched (and refreshed) on each request:
+
 ```java
 Context ctx = Context.builder()
     .baseUrl("https://your-service.com/V4/odata")
-    .auth(new OAuth2AuthProvider(
-        "https://auth.example.com/token",
-        "client-id",
-        "client-secret"
-    ))
+    .authProvider(new BearerAuthProvider(() -> oauthClient.fetchToken()))
     .build();
 ```
 
@@ -64,7 +62,7 @@ Context ctx = Context.builder()
 ```java
 Context ctx = Context.builder()
     .baseUrl("https://your-service.com/V4/odata")
-    .auth(new BasicAuthProvider("username", "password"))
+    .authProvider(new BasicAuthProvider("username", "password"))
     .build();
 ```
 
@@ -75,9 +73,9 @@ Context ctx = Context.builder()
 ```java
 public class CustomAuthProvider implements AuthProvider {
     @Override
-    public HttpRequest addAuth(HttpRequest request) {
+    public Map<String, String> getHeaders() {
         String token = getMyToken(); // Your logic here
-        return request.withHeader("Authorization", "Bearer " + token);
+        return Map.of("Authorization", "Bearer " + token);
     }
 }
 ```
@@ -87,7 +85,7 @@ public class CustomAuthProvider implements AuthProvider {
 ```java
 Context ctx = Context.builder()
     .baseUrl("https://your-service.com/V4/odata")
-    .auth(new CustomAuthProvider())
+    .authProvider(new CustomAuthProvider())
     .build();
 ```
 
