@@ -62,9 +62,11 @@ class OpenTypeGeneratorTest {
     @Test
     void nonOpenEntityIsUnchanged() throws Exception {
         String code = entity("Airline");
-        // Non-open entities use @JsonCreator for deserialization
-        assertTrue(code.contains("@com.fasterxml.jackson.annotation.JsonCreator"),
-                "Non-open entity uses @JsonCreator for deserialization");
+        // All entities now use no-args constructor + @JsonProperty setters for deserialization
+        assertTrue(code.contains("public Airline()"),
+                "Non-open entity must have a public no-args constructor");
+        assertTrue(code.contains("@com.fasterxml.jackson.annotation.JsonProperty"),
+                "Non-open entity uses @JsonProperty setters for deserialization");
         assertFalse(code.contains("JsonAnySetter"), "Non-open entity must not have @JsonAnySetter");
         assertFalse(code.contains("getDynamicProperty"), "Non-open entity must not expose getDynamicProperty");
         assertTrue(code.contains("this.unmappedFields = java.util.Map.of()"),
@@ -80,8 +82,8 @@ class OpenTypeGeneratorTest {
                 "Root PlanItem declares the unmappedFields field");
         assertTrue(plan.contains("this.unmappedFields = new java.util.HashMap<>()"),
                 "PlanItem root must use a mutable map because open subtype Event exists");
-        assertTrue(plan.contains("@com.fasterxml.jackson.annotation.JsonCreator"),
-                "PlanItem uses @JsonCreator for deserialization");
+        assertTrue(plan.contains("public PlanItem()"),
+                "PlanItem must have a public no-args constructor");
 
         String event = entity("Event");
         assertTrue(event.contains("JsonAnySetter"),
@@ -115,7 +117,7 @@ class OpenTypeGeneratorTest {
     @Test
     void openComplexTypeCapturesDynamicProperties() throws Exception {
         String location = complexType("Location");
-        assertTrue(location.contains("protected final java.util.Map<String, Object> unmappedFields;"),
+        assertTrue(location.contains("protected java.util.Map<String, Object> unmappedFields;"),
                 "Open complex root declares unmappedFields");
         assertTrue(location.contains("JsonAnySetter"),
                 "Open complex type captures dynamic props");
@@ -124,11 +126,11 @@ class OpenTypeGeneratorTest {
         assertTrue(location.contains("public <T> Optional<T> getDynamicProperty(String name, Class<T> type)"),
                 "Open complex type exposes the typed getDynamicProperty(String, Class) overload");
 
-        // Verify with*() preserves unmappedFields for open complex types
-        assertTrue(location.contains(", this.unmappedFields"),
-                "Open complex type with*() must pass this.unmappedFields to preserve dynamic props");
-        assertTrue(location.contains("protected Location("),
-                "Open complex type must have internal constructor for with*() to use");
+        // Verify with*() preserves unmappedFields for open complex types via defensive copy
+        assertTrue(location.contains("new java.util.HashMap<>(unmappedFields)"),
+                "Open complex type with*() must copy unmappedFields to preserve dynamic props");
+        assertTrue(location.contains("public Location()"),
+                "Open complex type must have a public no-args constructor");
 
         // EventLocation extends open Location — inherits the any-setter, no duplicate.
         String eventLocation = complexType("EventLocation");
@@ -137,10 +139,10 @@ class OpenTypeGeneratorTest {
         assertTrue(eventLocation.contains("JsonAnyGetter"),
                 "Open subtype still annotates its getUnmappedFields override for serialization");
 
-        // Verify with*() on the subtype preserves unmappedFields (Bug 11 regression)
-        assertTrue(eventLocation.contains(", this.unmappedFields"),
-                "Open subtype with*() must pass this.unmappedFields to preserve dynamic props");
-        assertTrue(eventLocation.contains("protected EventLocation("),
-                "Open subtype must have internal constructor that accepts unmappedFields");
+        // Verify with*() on the subtype preserves unmappedFields via defensive copy
+        assertTrue(eventLocation.contains("new java.util.HashMap<>(unmappedFields)"),
+                "Open subtype with*() must copy unmappedFields to preserve dynamic props");
+        assertTrue(eventLocation.contains("public EventLocation()"),
+                "Open subtype must have a public no-args constructor");
     }
 }

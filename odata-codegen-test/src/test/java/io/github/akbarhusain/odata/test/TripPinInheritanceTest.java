@@ -49,8 +49,14 @@ class TripPinInheritanceTest {
     void complexType_subtypesAreInstancesOfBase() {
         City city = City.builder().countryRegion("US").name("Lander").region("WY").build();
 
-        EventLocation event = new EventLocation("100 Main St", city, "Building A", null);
-        AirportLocation airport = new AirportLocation("Airport Rd", city, null, null);
+        EventLocation event = new EventLocation();
+        event.setAddress("100 Main St");
+        event.setCity(city);
+        event.setBuildingInfo("Building A");
+
+        AirportLocation airport = new AirportLocation();
+        airport.setAddress("Airport Rd");
+        airport.setCity(city);
 
         assertInstanceOf(Location.class, event, "EventLocation should be a Location");
         assertInstanceOf(Location.class, airport, "AirportLocation should be a Location");
@@ -62,7 +68,10 @@ class TripPinInheritanceTest {
         City city = City.builder().countryRegion("US").name("Lander").region("WY").build();
 
         // Polymorphic assignment: a Location reference holds an EventLocation
-        Location loc = new EventLocation("100 Main St", city, "Building A", null);
+        Location loc = new EventLocation();
+        loc.setAddress("100 Main St");
+        loc.setCity(city);
+        ((EventLocation) loc).setBuildingInfo("Building A");
 
         // Inherited getters are accessible via the base type
         assertEquals("100 Main St", loc.getAddress());
@@ -76,7 +85,10 @@ class TripPinInheritanceTest {
     @Test
     void complexType_subtypeWithMethodPreservesInheritedFields() {
         City city = City.builder().countryRegion("US").name("Lander").region("WY").build();
-        EventLocation original = new EventLocation("100 Main St", city, "Building A", null);
+        EventLocation original = new EventLocation();
+        original.setAddress("100 Main St");
+        original.setCity(city);
+        original.setBuildingInfo("Building A");
 
         // Changing the own property preserves inherited fields and returns the subtype
         EventLocation updated = original.withBuildingInfo("Building B");

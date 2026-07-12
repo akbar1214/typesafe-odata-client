@@ -54,7 +54,7 @@ A type-safe OData v4 client generator for Java. Parses CSDL XML metadata and gen
 
 ### 4. Immutable-by-Contract with Copy-on-Write
 
-**Decision:** Generated entities use non-final `protected` fields but enforce immutability through copy-on-write `with*()` methods and immutable getters. This hybrid approach avoids the JVM 255-parameter limit for constructor-based deserialization.
+**Decision:** Generated entities use non-final `protected` fields but enforce immutability through copy-on-write `with*()` methods and immutable getters.
 
 **Reason:** The reference implementation claims immutability but has:
 - `protected` non-final fields (due to JVM 256-arg constructor limit)
@@ -62,15 +62,14 @@ A type-safe OData v4 client generator for Java. Parses CSDL XML metadata and gen
 - `changedFields` set to `null` after `patch()` (NPE risk)
 
 **Our approach:**
-- Fields are `protected` (non-final) — allows no-args constructor for Builder/`with*()`
-- Jackson deserialization via `@JsonCreator` with `@JsonProperty` on each parameter (correct types)
-- For wide entities (>252 params): `@JsonAnySetter` switch instead of `@JsonCreator`
+- Fields are `protected` (non-final) — allows no-args constructor for Jackson, Builder, and `with*()`
+- Jackson deserialization via public no-args constructor + `@JsonProperty` setters (correct types)
 - Public no-args constructor for Builder/`with*()` copy-on-write
-- Public setters for all own properties (used by Builder and `with*()`)
+- Public setters for all own properties (used by Jackson, Builder, and `with*()`)
 - Getters return immutable views: `Collections.unmodifiableList()` for collections, `Optional` for nullable
 - `with*()` methods deep-copy collections (`List.copyOf`) and `unmappedFields` (`new HashMap<>`)
 - `ChangedFields` is a separate `Set<String>` tracked via `EntityUtil.mergeChanged()`
-- No `@JacksonInject` coupling — model is annotation-free except for `@JsonProperty`/`@JsonCreator`
+- No `@JacksonInject` coupling — model is annotation-free except for `@JsonProperty`
 
 ### 5. Narrow HTTP Interface
 
@@ -120,9 +119,9 @@ public interface SchemaInfo {
 
 ### 6b. Entity Navigation Properties Materialize Expanded Data
 
-**Decision:** Entity and complex-type nav properties deserialized from JSON via `@JsonProperty` hold expanded data in `final` fields, exposed via typed getters (e.g., `person.getTrips()` → `List<Trip>`, `location.getAirportRef()` → `Optional<Airport>`).
+**Decision:** Entity and complex-type nav properties deserialized from JSON via `@JsonProperty` setters hold expanded data in `protected` fields, exposed via typed getters (e.g., `person.getTrips()` → `List<Trip>`, `location.getAirportRef()` → `Optional<Airport>`).
 
-**Reason:** When `$expand` is used, OData returns navigation data inline with the entity. The generated `@JsonCreator` constructor accepts the nav JSON as `@JsonProperty("Trips") List<Trip> trips`, which Jackson deserializes automatically. This gives users direct access to expanded data without dropping to raw HTTP.
+**Reason:** When `$expand` is used, OData returns navigation data inline with the entity. The generated `@JsonProperty("Trips") public void setTrips(List<Trip> trips)` setter accepts the nav JSON, which Jackson deserializes automatically. This gives users direct access to expanded data without dropping to raw HTTP.
 
 Navigation **requests** (which require `Context` for HTTP execution) remain on the entity request class: `client.peopleByUserName("scott").trips().get()`.
 
@@ -155,11 +154,11 @@ ODataException (base)
 
 ### 8. Serialization-Agnostic Model
 
-**Decision:** Generated entities use Jackson `@JsonCreator`/`@JsonProperty` annotations for deserialization, but the `Serializer` interface is pluggable.
+**Decision:** Generated entities use Jackson `@JsonProperty` setter annotations for deserialization, but the `Serializer` interface is pluggable.
 
-**Reason:** The reference's entities are annotated with `@JsonAnySetter`, `@JacksonInject`, etc. We simplified to just `@JsonCreator` and `@JsonProperty` — the minimum needed for Jackson deserialization. The `Serializer` interface allows plugging in custom serialization logic, but Jackson annotations on the model are required for the default `JacksonSerializer`.
+**Reason:** The reference's entities are annotated with `@JsonAnySetter`, `@JacksonInject`, etc. We simplified to just `@JsonProperty` on public setters — the minimum needed for Jackson deserialization. The `Serializer` interface allows plugging in custom serialization logic, but Jackson annotations on the model are required for the default `JacksonSerializer`.
 
-**Our approach:** Entities are annotated with `@JsonCreator`/`@JsonProperty` for Jackson. `Serializer` interface is pluggable for custom serialization:
+**Our approach:** Entities are annotated with `@JsonProperty` setters for Jackson. `Serializer` interface is pluggable for custom serialization:
 ```java
 public interface Serializer {
     <T> byte[] serialize(T value, Class<T> type);
@@ -167,9 +166,9 @@ public interface Serializer {
 }
 ```
 
-**Known limitation:** Swapping to Gson or JSON-B requires removing `@JsonCreator`/`@JsonProperty` and implementing a custom `Serializer` with schema-driven deserialization.
+**Known limitation:** Swapping to Gson or JSON-B requires removing `@JsonProperty` and implementing a custom `Serializer` with schema-driven deserialization.
 
-**Known limitation (as of v0.1.0):** The `EntityGenerator` currently emits `@JsonCreator`/`@JsonProperty` annotations on generated entities for Jackson deserialization. This couples the model to Jackson despite the pluggable `Serializer` interface. The `Serializer` interface works for serialization (POST/PATCH bodies) but deserialization relies on Jackson annotations. Swapping to Gson or JSON-B requires either removing annotations and writing a schema-driven deserializer, or registering Jackson mixins. This is documented tech debt tracked in issue #10 of the code review.
+**Known limitation (as of v0.1.0):** The `EntityGenerator` currently emits `@JsonProperty` annotations on generated entity/complex-type setters for Jackson deserialization. This couples the model to Jackson despite the pluggable `Serializer` interface. The `Serializer` interface works for serialization (POST/PATCH bodies) but deserialization relies on Jackson annotations. Swapping to Gson or JSON-B requires either removing annotations and writing a schema-driven deserializer, or registering Jackson mixins. This is documented tech debt tracked in issue #10 of the code review.
 
 ### 9. Maven Plugin (Not CLI Tool)
 
@@ -314,9 +313,9 @@ CollectionPage<Person> people = client.people()
 
 ### 22. OpenType Dynamic Properties via `@JsonAnySetter`/`@JsonAnyGetter`
 
-**Decision:** Entities and complex types declared `OpenType="true"` (or inheriting openness from a base) capture undeclared JSON fields into `unmappedFields` on deserialization, expose them via `getUnmappedFields()` / `getDynamicProperty(String)`, and round-trip them on serialization. Known properties go through `@JsonCreator` with correct types; only unknown properties pass through `@JsonAnySetter`.
+**Decision:** Entities and complex types declared `OpenType="true"` (or inheriting openness from a base) capture undeclared JSON fields into `unmappedFields` on deserialization, expose them via `getUnmappedFields()` / `getDynamicProperty(String)`, and round-trip them on serialization. Known properties go through `@JsonProperty` setters with correct types; only unknown properties pass through `@JsonAnySetter`.
 
-**Reason:** OData open types may carry dynamic properties not present in the CSDL — a service can return extra JSON fields (TripPin `Person`/`Event`/`Location`, OData Demo `Category`). The `@JsonCreator` constructor handles known properties with full type safety; the `@JsonAnySetter` catches the rest.
+**Reason:** OData open types may carry dynamic properties not present in the CSDL — a service can return extra JSON fields (TripPin `Person`/`Event`/`Location`, OData Demo `Category`). The `@JsonProperty` setters handle known properties with full type safety; the `@JsonAnySetter` catches the rest.
 
 **Approach:**
 - `openTypeResolved(type)` walks the base chain — a type is open if it or any ancestor is open.
@@ -350,21 +349,21 @@ BatchResponse response = context.batch()
 
 **Known limitation:** Content-ID references (`$N` patterns in URLs within a changeset) are not yet resolved. Tracked as follow-up.
 
-### 24. Unified Entity Generation: `@JsonCreator` for Normal, `@JsonAnySetter` for Wide (>252 params)
+### 24. Simplified Entity/Complex-Type Deserialization via No-Args Constructor + `@JsonProperty` Setters
 
-**Decision:** Entities use a hybrid approach:
-- **Normal entities** (≤252 params): `@JsonCreator` with `@JsonProperty` on each parameter — Jackson deserializes with full type safety.
-- **Wide entities** (>252 params): `@JsonProperty` on each field + `@JsonAnySetter` switch — avoids the JVM 255-parameter limit.
-- **All entities**: public no-args constructor + setters for Builder/`with*()` copy-on-write.
-- **All entities**: non-final `protected` fields (mutable setters, immutable-read via getters).
+**Decision:** All entities and complex types use a public no-args constructor plus `@JsonProperty` setters for Jackson deserialization. The previous hybrid approach (`@JsonCreator` for normal entities, `@JsonAnySetter` switch for wide entities) has been removed.
 
-**Reason:** The JVM limits constructors to 255 parameters. For most OData entities (10-50 properties) `@JsonCreator` is type-safe and efficient. For edge cases (>240 properties), field-level `@JsonProperty` + `@JsonAnySetter` avoids the limit entirely. The no-args constructor + setters unify both paths for Builder and `with*()`.
+**Reason:** The hybrid approach added significant generator complexity and the wide-entity path relied on unsafe direct casts (`(SomeType) value`) that failed for nested complex types and enums. Aligning with `davidmoten/odata-client`, setter-based deserialization is simpler, avoids the JVM 255-parameter limit entirely, and lets Jackson handle type conversion for nested objects and collections. The same no-args constructor also serves the Builder and `with*()` copy-on-write paths.
 
 **Details:**
-- `wide` threshold = 252 params (leaves margin, accounts for `long`/`double` double-counting)
-- Wide entities: `@PropertyName` on every field, `@JsonAnySetter public void setProperty(String key, Object value)` with a switch statement for known properties
-- Setters generated for `ownProps` only (inherited fields set via `this.fieldName` in `with*()`)
-- Builder created for root-level concrete entities only (subtypes use `with*()`)
+- `@com.fasterxml.jackson.annotation.JsonProperty` setters are generated for all own properties and navigation properties (entity and complex type).
+- `@JsonAnySetter` is still generated only at the topmost open type to capture dynamic properties; known properties are handled by typed setters.
+- Lifecycle fields (`etag`, `contextPath`, `unmappedFields`, `changedFields`) are initialized in the root class no-args constructor.
+- Collection getters are null-safe: `return field == null ? List.of() : Collections.unmodifiableList(field);`.
+- Setters are generated for `ownProps` only; inherited fields are copied by name (`this.fieldName`) in `with*()` methods.
+- Builder is created for root-level concrete entities and complex types only; subtypes rely on `with*()` to avoid static-method clashes.
+
+**Note:** Complex-type fields changed from `protected final` to `protected` so Jackson setters and `with*()` field assignment can mutate them.
 
 ### 25. Copy-on-Write Defensive Copying in `with*()` Methods
 
@@ -463,9 +462,9 @@ Run `mvn test` from the repo root. All modules build in one reactor; the runtime
 - **Open-type generator tests:** Generated entity/complex-type captures undeclared JSON fields into `unmappedFields`; open subtype of non-open base captures via inherited root map; non-open complex type doesn't reference unmappedFields (`OpenTypeGeneratorTest` 6)
 - **Runtime tests:** 175 (live TripPin & Northwind integration, query expression, context path, batch, exceptions, transport, **media `$value` stream/put via mock transport** — `EntityOperationsMediaTest` 3, **`$apply` builder** — `ApplyExpressionTest` 8, **collection parse** — `EntityOperationsCollectionParseTest` 6, **batch changeset encode/decode/round-trip** — `MultipartHelperTest` 14, `BatchRequestTest` 10, **typed collection lambdas** — `CollectionPropertyTypedLambdaTest` 2)
 - **Generated client tests (92):** `NorthwindGeneratedClientTest` (24), `ODataDemoGeneratedClientTest` (23, exercises `FeaturedProduct extends Product`, `Customer`/`Employee extends Person`, `Event`/`PlanItem`), `TripPinGeneratedClientTest` (24, exercises `Flight`/`PublicTransportation`/`PlanItem` hierarchy, type-safe + nested `$expand` with materialized getters), `TripPinInheritanceTest` (11, exercises generated **complex-type** inheritance `EventLocation`/`AirportLocation extends Location` + **entity** inheritance `Flight → PublicTransportation → PlanItem`: `instanceof`/polymorphic assignment, subtype `with*` copy-on-write preserving inherited fields, base `builder()` scoping, live `AirportLocation` deserialization), `ODataDemoMediaTest` (2, live media streams: `Advertisement` `HasStream` via `streamMedia()` at `.../Advertisements(id)/$value`, `PersonDetail.Photo` `Edm.Stream` named stream via `streamPhoto()` at `.../PersonDetails(id)/Photo`), `OpenTypeDynamicPropertyTest` (8, deserialization captures dynamic props into `unmappedFields`/`getDynamicProperty`, typed `getDynamicProperty(String, Class)` coercion to a POJO/number, round-trips on serialize, filters `@odata.*` control fields)
-- **Generator unit tests (21 new):** `WideEntityGeneratorTest` 8 (wide-entity `@JsonAnySetter` switch, mutable lifecycle fields, no-args constructor), `WithMethodCopyOnWriteTest` 5 (copy-on-write defensive copying of collections and unmappedFields), `NavReservedWordTest` 3 (nav getter/with-method sanitization for `class` and other Object-method collisions), `EntityGeneratorFilterableTest` 5 (typed Filterable inner class for `any`/`all` lambdas)
+- **Generator unit tests (22 new):** `WithMethodCopyOnWriteTest` 5 (copy-on-write defensive copying of collections and unmappedFields), `NavReservedWordTest` 3 (nav getter/with-method sanitization for `class` and other Object-method collisions), `EntityGeneratorFilterableTest` 5 (typed Filterable inner class for `any`/`all` lambdas), `EntityGeneratorSimplifiedDeserializationTest` 5 (no `@JsonCreator`, no wide-entity switch, public no-args constructor + `@JsonProperty` setters), `ComplexTypeGeneratorSimplifiedDeserializationTest` 4 (same simplification for complex types)
 - **Query type-safety tests:** `QueryTypeSafetyCompilationTest` 1 (negative compile test proving cross-entity `select`/`orderBy`/`expand` fails)
-- **Total: 389 tests passing** (117 core + 175 runtime + 5 maven + 92 test module)
+- **Total: 390 tests passing** (118 core + 175 runtime + 5 maven + 92 test module)
 - **Future:** Cancellable streaming, Content-ID resolution in changesets
 
 ---
@@ -624,10 +623,8 @@ Run `mvn test` from the repo root. All modules build in one reactor; the runtime
 
 71. **`ContextPath` only supports flat batch — changesets require recursive multipart encoding/decoding.** The original `MultipartHelper.decodeResponse` parsed parts in one pass with no nesting. Changesets emit `Content-Type: multipart/mixed; boundary=X` as a part header, with the changeset operations nested inside. `decodeParts()` recurses into these nested boundaries. `encodeBatchRequest()` wraps changeset operations in a nested boundary with `Content-ID` headers. Verified by 7 new tests.
 
-72. **Wide-entity `setProperty` default case can throw `UnsupportedOperationException` on immutable `Map.of()`.** The wide entity path always uses `@JsonAnySetter` with a switch statement. The default case writes unknown keys to `unmappedFields.put(key, value)`. But the no-args constructor initialized `unmappedFields` to `Map.of()` for non-open roots. Fixed: wide entities always initialize `unmappedFields` as a mutable `new HashMap<>()`, regardless of `rootMutableMap`. Verified by `WideEntityGeneratorTest` (asserts `new HashMap<>()` in no-args constructor).
-
-73. **Copy-on-write `with*()` must defensively copy collections and `unmappedFields`.** Original `with*()` methods assigned fields directly: `e.trips = this.trips` and `e.unmappedFields = unmappedFields`. This shared mutable state between original and copy — a violation of copy-on-write. Fix: `with*()` methods now emit `List.copyOf(this.field)` for collection-types and `new HashMap<>(unmappedFields)` for the dynamic-property map. Changed fields still go through `EntityUtil.mergeChanged()` which creates a new `HashSet`. Verified by `WithMethodCopyOnWriteTest` (5 tests checking defensive copies).
+72. **Copy-on-write `with*()` must defensively copy collections and `unmappedFields`.** Original `with*()` methods assigned fields directly: `e.trips = this.trips` and `e.unmappedFields = unmappedFields`. This shared mutable state between original and copy — a violation of copy-on-write. Fix: `with*()` methods now emit `List.copyOf(this.field)` for collection-types and `new HashMap<>(unmappedFields)` for the dynamic-property map. Changed fields still go through `EntityUtil.mergeChanged()` which creates a new `HashSet`. Verified by `WithMethodCopyOnWriteTest` (5 tests checking defensive copies).
 
 74. **Nav property getter/with-method names must be sanitized with the same checks as property getters.** `EntityGenerator.navGetterName()` used raw `"get" + capitalize(nav.name())`, sidestepping `Names.getterMethod` which applies `sanitizeIdentifier` + `isObjectMethodName`. A nav named `class` produced `getClass()` — collision with `Object.getClass()` (final). Fix: added `Names.navGetterMethod(navName)` and `Names.navWithMethod(navName)` that apply the same checks. Both `EntityGenerator` and `ComplexTypeGenerator` use them. Verified by `NavReservedWordTest` (3 tests: `class` → `getClass_()`, `Class` → `getClass_()`, `withClass` is fine).
 
-75. **Wide-entity threshold must account for JVM `long`/`double` double-counting.** The JVM counts `long` and `double` method parameters as 2 slots each. The original threshold `> (allProps.size() + allNavs.size()) > 252` didn't account for this — an entity with 250 `Edm.Int64` props would trigger the 255 limit before reaching the wide threshold. Fix: `paramCount` starts at `allProps.size() + allNavs.size()` and adds +1 for each `Edm.Int64` or `Edm.Double` property. Verified by test (no regression — `LargeEntityCompilationTest` still passes).
+75. **Simplified deserialization removes the need for a wide-entity threshold.** After Decision 24, all entities and complex types use a public no-args constructor + `@JsonProperty` setters, so the JVM 255-parameter constructor limit and the `long`/`double` double-counting problem no longer apply. `LargeEntityCompilationTest` continues to verify that entities with hundreds of properties compile and deserialize correctly.

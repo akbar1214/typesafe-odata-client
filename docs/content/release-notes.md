@@ -60,7 +60,7 @@
 
 **Serialization:**
 
-- `JacksonSerializer` (default; uses `@JsonCreator`/`@JsonProperty` on generated entities)
+- `JacksonSerializer` (default; uses `@JsonProperty` setters on generated entities)
 - Pluggable `Serializer` interface for custom (de)serialization
 
 **Batch Support:**

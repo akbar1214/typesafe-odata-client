@@ -39,22 +39,17 @@ class ComplexTypeGeneratorInheritanceTest {
         assertTrue(code.contains("implements ODataType"),
                 "Complex type should still implement ODataType");
 
-        // Constructor must chain super() with the inherited properties first
-        int ctorIdx = code.indexOf("public EventLocation(");
-        assertTrue(ctorIdx >= 0, "EventLocation constructor should be present");
-        int superIdx = code.indexOf("super(", ctorIdx);
-        assertTrue(superIdx > ctorIdx, "EventLocation constructor should call super(...)");
-        String superCall = code.substring(superIdx, code.indexOf(");", superIdx) + 2);
-        assertTrue(superCall.contains("address"), "super() should pass inherited Address");
-        assertTrue(superCall.contains("city"), "super() should pass inherited City");
-        assertFalse(superCall.contains("buildingInfo"),
-                "super() should NOT pass own property BuildingInfo");
+        // Simplified deserialization: public no-args constructor + @JsonProperty setters
+        assertTrue(code.contains("public EventLocation()"),
+                "EventLocation should have a public no-args constructor");
+        assertFalse(code.contains("super(address"),
+                "EventLocation no longer chains a super(...) property constructor");
 
-        // Own property is assigned in the constructor body
-        assertTrue(code.contains("this.buildingInfo = buildingInfo;"),
-                "Own property should be assigned in the constructor body");
-
-        // Own getter only; inherited getters come from the parent
+        // Own property setter and getter
+        assertTrue(code.contains("@com.fasterxml.jackson.annotation.JsonProperty(\"BuildingInfo\")"),
+                "Own property should have a @JsonProperty setter");
+        assertTrue(code.contains("this.buildingInfo = value;"),
+                "Own property setter should assign the field");
         assertTrue(code.contains("public Optional<String> getBuildingInfo()"),
                 "Own getter should be generated");
         assertFalse(code.contains("public Optional<String> getAddress()"),
@@ -79,17 +74,23 @@ class ComplexTypeGeneratorInheritanceTest {
         assertTrue(withIdx >= 0, "Own with* method should be generated");
         int bodyEnd = code.indexOf("    }\n\n", withIdx);
         String body = code.substring(withIdx, bodyEnd);
-        assertTrue(body.contains("new EventLocation(this.address, this.city, value"),
-                "with* should reconstruct via the all-args constructor including inherited fields");
+        assertTrue(body.contains("EventLocation e = new EventLocation();"),
+                "with* should create a new instance via the no-args constructor");
+        assertTrue(body.contains("e.buildingInfo = value;"),
+                "with* should assign the changed field directly");
+        assertTrue(body.contains("e.address = this.address;"),
+                "with* should copy inherited fields by name");
 
-        // Inherited with* is also generated and threads its own value alongside inherited fields
+        // Inherited with* is also generated and copies its own value alongside inherited fields
         assertTrue(code.contains("public EventLocation withAddress(String value)"),
                 "Inherited with* should be generated for the subtype");
         int withAddrIdx = code.indexOf("public EventLocation withAddress(String value)");
         int addrBodyEnd = code.indexOf("    }\n\n", withAddrIdx);
         String addrBody = code.substring(withAddrIdx, addrBodyEnd);
-        assertTrue(addrBody.contains("new EventLocation(value, this.city, this.buildingInfo"),
-                "Inherited with* should pass value for the changed prop and inherited fields by name");
+        assertTrue(addrBody.contains("e.address = value;"),
+                "Inherited with* should assign the changed field directly");
+        assertTrue(addrBody.contains("e.buildingInfo = this.buildingInfo;"),
+                "Inherited with* should copy own fields by name");
     }
 
     @Test
@@ -97,6 +98,8 @@ class ComplexTypeGeneratorInheritanceTest {
         String code = generateComplexType("Location");
         assertFalse(code.contains("extends"),
                 "Root complex type should not declare an extends clause");
+        assertTrue(code.contains("public Location()"),
+                "Root complex type should have a public no-args constructor");
         assertTrue(code.contains("public static Builder builder()"),
                 "Root complex type should get a Builder");
         assertTrue(code.contains("public Location withAddress(String value)"),

@@ -39,7 +39,8 @@ com/example/trippin/
 
 Generated entities are `final class` (not Java `record`s) so they can implement
 `ODataEntityType`, carry Jackson deserialization annotations, and support
-inheritance. All fields are `final`.
+inheritance. Fields are `protected` (not `final`) so Jackson setters and the
+no-args constructor can populate them; getters return immutable views.
 
 ```java
 public final class Person implements ODataEntityType {
@@ -49,24 +50,32 @@ public final class Person implements ODataEntityType {
     public static final NumberProperty<Person, Long> AGE = ...;
     public static final CollectionProperty<Person, String, CollectionProperty.FilterableElement<String>> EMAILS = ...;
 
-    // final fields
-    private final String userName;
-    private final String firstName;
+    // Mutable fields (deserialized via public setters)
+    protected String userName;
+    protected String firstName;
     // Navigation fields — hold expanded ($expand) data deserialized from JSON
-    protected final List<Trip> trips;
-    protected final Photo photo;
+    protected List<Trip> trips;
+    protected Photo photo;
 
-    @JsonCreator
-    public Person(@JsonProperty("@odata.etag") String etag, /* ...props */,
-                  @JsonProperty("Trips") List<Trip> trips,
-                  @JsonProperty("Photo") Photo photo) { ... }
+    // Public no-args constructor for Jackson, Builder, and with*()
+    public Person() { ... }
 
-    // Getters — nullable props return Optional<T>
+    // Jackson setters
+    @JsonProperty("UserName")
+    public void setUserName(String value) { this.userName = value; }
+
+    @JsonProperty("Trips")
+    public void setTrips(List<Trip> trips) { this.trips = trips; }
+
+    @JsonProperty("@odata.etag")
+    public void setEtag(String etag) { ... }
+
+    // Getters — nullable props return Optional<T>; collections are unmodifiable
     public String getUserName() { return userName; }
     public Optional<String> getFirstName() { return Optional.ofNullable(firstName); }
 
     // Navigation getters — materialized expanded ($expand) data
-    public List<Trip> getTrips() { return Collections.unmodifiableList(trips); }
+    public List<Trip> getTrips() { return trips == null ? List.of() : Collections.unmodifiableList(trips); }
     public Optional<Photo> getPhoto() { return Optional.ofNullable(photo); }
 
     // Copy-on-write
@@ -93,9 +102,10 @@ Person person = Person.builder()
 ### Inheritance
 
 When a CSDL entity type declares a `BaseType`, the generated subclass emits a
-real Java `extends` clause and chains `super(...)` constructors. Inherited
-fields, keys, getters, navigation properties, and property constants all resolve
-up the base chain.
+real Java `extends` clause. Inherited fields, keys, getters, navigation
+properties, and property constants all resolve up the base chain. The subclass
+uses the public no-args constructor and copies inherited fields by name in its
+`with*()` copy-on-write methods.
 
 ```java
 // CSDL: Flight -> PublicTransportation -> PlanItem
@@ -223,20 +233,28 @@ public class DefaultContainer {
 
 ## Complex Type Classes
 
-Complex types are keyless value types, generated as immutable classes that
-implement `ODataType`.
+Complex types are keyless value types, generated as classes that implement
+`ODataType`. Fields are `protected` so Jackson setters can populate them.
 
 ```java
 public class Location implements ODataType {
-    protected final String address;
-    protected final City city;
+    protected String address;
+    protected City city;
     // Navigation fields — hold expanded ($expand) data deserialized from JSON
-    protected final Airport airportRef;
+    protected Airport airportRef;
 
-    @JsonCreator
-    public Location(@JsonProperty("Address") String address,
-                    @JsonProperty("City") City city,
-                    @JsonProperty("AirportRef") Airport airportRef) { ... }
+    // Public no-args constructor for Jackson, Builder, and with*()
+    public Location() { ... }
+
+    // Jackson setters
+    @JsonProperty("Address")
+    public void setAddress(String value) { this.address = value; }
+
+    @JsonProperty("City")
+    public void setCity(City value) { this.city = value; }
+
+    @JsonProperty("AirportRef")
+    public void setAirportRef(Airport value) { this.airportRef = value; }
 
     public String getAddress() { return address; }
     public City getCity() { return city; }
@@ -256,8 +274,8 @@ public class Location implements ODataType {
 ### Complex Type Inheritance
 
 Like entities, complex types honor `BaseType` and emit a real `extends` clause.
-Subtypes declare only their own fields (base fields live in the parent), chain
-`super(...)` in the constructor, and get `with*()` copy-on-write methods.
+Subtypes declare only their own fields (base fields live in the parent) and get
+`with*()` copy-on-write methods.
 
 The `Builder` is generated **only for concrete top-level complex types** — a
 static `builder()` in a subtype would clash with the inherited one (Java forbids
@@ -266,22 +284,23 @@ hiding a static method with an incompatible return type). Subtypes use `with*()`
 ```java
 // CSDL: EventLocation BaseType="...Location"
 public class EventLocation extends Location {
-    protected final String buildingInfo;
+    protected String buildingInfo;
 
-    @JsonCreator
-    public EventLocation(@JsonProperty("Address") String address,
-                         @JsonProperty("City") City city,
-                         @JsonProperty("BuildingInfo") String buildingInfo,
-                         @JsonProperty("AirportRef") Airport airportRef) {
-        super(address, city, airportRef);
-        this.buildingInfo = buildingInfo;
-    }
+    public EventLocation() { super(); }
+
+    @JsonProperty("BuildingInfo")
+    public void setBuildingInfo(String value) { this.buildingInfo = value; }
 
     public Optional<String> getBuildingInfo() { return Optional.ofNullable(buildingInfo); }
 
     // Copy-on-write (no Builder — reuses the inherited builder() via with*)
     public EventLocation withBuildingInfo(String value) {
-        return new EventLocation(address, city, value, airportRef);
+        EventLocation e = new EventLocation();
+        e.address = this.address;
+        e.city = this.city;
+        e.airportRef = this.airportRef;
+        e.buildingInfo = value;
+        return e;
     }
 }
 ```
