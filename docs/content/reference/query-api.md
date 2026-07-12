@@ -113,7 +113,7 @@ Person.TRIPS.any(trip ->
 )
 ```
 
-Produces: `Trips/any(trip: trip/Budget gt 500.0f)`
+Produces: `Trips/any(x: x/Budget gt 500.0f)`
 
 ### all
 
@@ -123,7 +123,7 @@ Person.TRIPS.all(trip ->
 )
 ```
 
-Produces: `Trips/all(trip: trip/Budget gt 100.0f)`
+Produces: `Trips/all(x: x/Budget gt 100.0f)`
 
 ## Sort Expressions
 
@@ -160,7 +160,7 @@ Person.TRIPS.any(trip ->
 )
 ```
 
-Produces: `Trips/any(trip: trip/Budget gt 500.0f and trip/Duration gt duration'P7D')`
+Produces: `Trips/any(x: x/Budget gt 500.0f and x/Duration gt duration'P7D')`
 
 ## What's Next
 

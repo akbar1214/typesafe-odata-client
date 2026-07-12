@@ -8,8 +8,8 @@ class CollectionPropertyTest {
 
     @Test
     void anyProducesCorrectODataWithSubstitutedPredicate() {
-        CollectionProperty<Object, String> prop =
-                new CollectionProperty<>("Emails", Object.class, String.class);
+        CollectionProperty<Object, String, CollectionProperty.FilterableElement<String>> prop =
+                new CollectionProperty<>("Emails", Object.class, String.class, CollectionProperty.FilterableElement::new);
 
         FilterExpression expr = prop.any(e -> e.stringField("Value").equalTo("a"));
 
@@ -18,8 +18,8 @@ class CollectionPropertyTest {
 
     @Test
     void allProducesCorrectODataWithSubstitutedPredicate() {
-        CollectionProperty<Object, String> prop =
-                new CollectionProperty<>("Emails", Object.class, String.class);
+        CollectionProperty<Object, String, CollectionProperty.FilterableElement<String>> prop =
+                new CollectionProperty<>("Emails", Object.class, String.class, CollectionProperty.FilterableElement::new);
 
         FilterExpression expr = prop.all(e -> e.stringField("Value").equalTo("a"));
 

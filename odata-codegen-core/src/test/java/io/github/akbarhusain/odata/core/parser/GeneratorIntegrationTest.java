@@ -62,7 +62,7 @@ class GeneratorIntegrationTest {
         assertTrue(personCode.contains("public final class Person"), "Should have final class");
         assertTrue(personCode.contains("implements ODataEntityType"), "Should implement ODataEntityType");
         assertTrue(personCode.contains("public static final StringProperty<Person> FIRST_NAME"), "Should have FIRST_NAME property");
-        assertTrue(personCode.contains("public static final CollectionProperty<Person, Trip> TRIPS"), "Should have TRIPS collection property");
+        assertTrue(personCode.contains("public static final CollectionProperty<Person, Trip, Trip.Filterable> TRIPS"), "Should have TRIPS collection property");
         assertTrue(personCode.contains("public List<Trip> getTrips()"), "Should have getTrips() getter materializing expanded nav data");
 
         // Verify a complex type with a navigation property materializes it into a getter.

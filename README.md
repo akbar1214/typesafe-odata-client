@@ -225,7 +225,7 @@ odata-codegen/
 // Entity (immutable, annotation-free)
 public final class Person implements ODataEntityType {
     public static final StringProperty<Person> FIRST_NAME = ...;
-    public static final CollectionProperty<Person, Trip> TRIPS = ...;
+    public static final CollectionProperty<Person, Trip, Trip.Filterable> TRIPS = ...;
     private final String userName;
     private final String firstName;
     // Builder, with*() methods, getters

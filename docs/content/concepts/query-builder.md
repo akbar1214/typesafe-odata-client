@@ -6,16 +6,15 @@ Build OData queries with compile-time validation.
 
 ```
 Expression<T>
-├── Property<T> (abstract)
-│   ├── StringProperty
-│   ├── NumberProperty<T>
-│   ├── BooleanProperty
-│   ├── DateProperty
-│   └── CollectionProperty<T>
-├── Constant<T>
-├── BinaryExpression<T> (and, or)
-├── UnaryExpression<T> (not)
-└── FunctionExpression (contains, startsWith, etc.)
+├── PropertyExpression<E, T> (abstract)
+│   ├── StringProperty<E>
+│   ├── NumberProperty<E, N>
+│   ├── BooleanProperty<E>
+│   ├── DateTimeProperty<E>
+│   ├── EnumProperty<E, V>
+│   └── CollectionProperty<E, T, F>
+├── FilterExpression<E>
+└── ApplyExpression
 ```
 
 ## Property Types
@@ -54,8 +53,8 @@ Person.IS_ACTIVE.greaterThan(5)          // ✗ Compile error!
 ### CollectionProperty
 
 ```java
-Person.EMAILS.any(e -> e.equalTo("a@b.com"))  // ✓
 Person.TRIPS.any(trip -> trip.BUDGET.greaterThan(500))  // ✓
+Person.TRIPS.all(trip -> trip.NAME.startsWith("A"))     // ✓
 ```
 
 ## Composing Expressions

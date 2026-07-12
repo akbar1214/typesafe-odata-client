@@ -136,6 +136,9 @@ public class EntityGenerator {
         }
         if (!entityType.navigationProperties().isEmpty()) sb.append("\n");
 
+        // Typed filterable for collection lambda operators (any/all)
+        sb.append(generateFilterableClass(entityType, schema, className));
+
         // JVM limit is 255 method parameters (long/double count as 2). The @JsonCreator
         // constructor needs: this(implicit) + etag + allProps + allNavs. Each Edm.Int64 or
         // Edm.Double or Edm.Decimal property counts as 2 JVM slots.
@@ -551,10 +554,18 @@ public class EntityGenerator {
         if (Names.isCollectionType(edmType)) {
             String elementType = Names.unwrapCollectionType(edmType);
             String elementClassName = resolveClassNameForConstant(elementType, schema);
-            return "    public static final CollectionProperty<" + className + ", " + elementClassName
-                    + "> " + constantName
-                    + " = new CollectionProperty<>(\"" + prop.name() + "\", " + className + ".class, "
-                    + elementClassName + ".class);\n";
+            Names.TypeKind kind = Names.resolveTypeKind(elementType, effectiveSchemas);
+            if (kind == Names.TypeKind.ENTITY || kind == Names.TypeKind.COMPLEX) {
+                return "    public static final CollectionProperty<" + className + ", " + elementClassName
+                        + ", " + elementClassName + ".Filterable> " + constantName
+                        + " = new CollectionProperty<>(\"" + prop.name() + "\", " + className + ".class, "
+                        + elementClassName + ".class, " + elementClassName + ".Filterable::new);\n";
+            } else {
+                return "    public static final CollectionProperty<" + className + ", " + elementClassName
+                        + ", CollectionProperty.FilterableElement<" + elementClassName + ">> " + constantName
+                        + " = new CollectionProperty<>(\"" + prop.name() + "\", " + className + ".class, "
+                        + elementClassName + ".class, CollectionProperty.FilterableElement::new);\n";
+            }
         }
 
         String constantType = getPropertyConstantType(edmType, schema);
@@ -582,15 +593,82 @@ public class EntityGenerator {
 
         if (isCollection) {
             return "    public static final CollectionProperty<" + className + ", "
-                    + elementClassName + "> " + constantName
+                    + elementClassName + ", " + elementClassName + ".Filterable> " + constantName
                     + " = new CollectionProperty<>(\"" + nav.name() + "\", " + className + ".class, "
-                    + elementClassName + ".class);\n";
+                    + elementClassName + ".class, " + elementClassName + ".Filterable::new);\n";
         } else {
             return "    public static final NavProperty<" + className + ", "
                     + elementClassName + "> " + constantName
                     + " = new NavProperty<>(\"" + nav.name() + "\", " + className + ".class, "
                     + elementClassName + ".class);\n";
         }
+    }
+
+    private String generateFilterableClass(EntityTypeModel entityType, SchemaModel schema, String className) {
+        List<PropertyModel> allProps = new ArrayList<>(inheritedProperties(entityType, schema));
+        allProps.addAll(entityType.properties());
+        List<NavigationPropertyModel> allNavs = new ArrayList<>(inheritedNavProperties(entityType, schema));
+        allNavs.addAll(entityType.navigationProperties());
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("    public static class Filterable {\n");
+        for (PropertyModel prop : allProps) {
+            sb.append(generateFilterablePropertyField(prop, className, schema));
+        }
+        for (NavigationPropertyModel nav : allNavs) {
+            if (Names.isCollectionType(nav.type())) {
+                sb.append(generateFilterableNavPropertyField(nav, className, schema));
+            }
+        }
+        sb.append("    }\n\n");
+        return sb.toString();
+    }
+
+    private String generateFilterablePropertyField(PropertyModel prop, String className, SchemaModel schema) {
+        String edmType = prop.edmType();
+        String constantName = Names.toConstantName(prop.name());
+
+        if (Names.isCollectionType(edmType)) {
+            String elementType = Names.unwrapCollectionType(edmType);
+            String elementClassName = resolveClassNameForConstant(elementType, schema);
+            Names.TypeKind kind = Names.resolveTypeKind(elementType, effectiveSchemas);
+            if (kind == Names.TypeKind.ENTITY || kind == Names.TypeKind.COMPLEX) {
+                return "    public final CollectionProperty<" + className + ", " + elementClassName
+                        + ", " + elementClassName + ".Filterable> " + constantName
+                        + " = new CollectionProperty<>(\"x/" + prop.name() + "\", " + className + ".class, "
+                        + elementClassName + ".class, " + elementClassName + ".Filterable::new);\n";
+            } else {
+                return "    public final CollectionProperty<" + className + ", " + elementClassName
+                        + ", CollectionProperty.FilterableElement<" + elementClassName + ">> " + constantName
+                        + " = new CollectionProperty<>(\"x/" + prop.name() + "\", " + className + ".class, "
+                        + elementClassName + ".class, CollectionProperty.FilterableElement::new);\n";
+            }
+        }
+
+        String constantType = getPropertyConstantType(edmType, schema);
+        if (constantType == null) {
+            return ""; // Binary, Stream, Geography, Geometry — not filterable
+        }
+        String typeParams = switch (constantType) {
+            case "EnumProperty" -> "<" + className + ", " + resolveClassNameForConstant(edmType, schema) + ">";
+            case "NumberProperty" -> "<" + className + ", " + getNumberJavaType(edmType) + ">";
+            default -> "<" + className + ">";
+        };
+
+        return "    public final " + constantType + typeParams + " " + constantName
+                + " = new " + constantType + "<>(\"x/" + prop.name() + "\", " + className + ".class"
+                + (constantType.equals("EnumProperty") ? ", " + resolveClassNameForConstant(edmType, schema) + ".class, \"" + edmType + "\"" : "")
+                + ");\n";
+    }
+
+    private String generateFilterableNavPropertyField(NavigationPropertyModel nav, String className, SchemaModel schema) {
+        String unwrapped = Names.unwrapCollectionType(nav.type());
+        String elementClassName = Names.resolvedClassName(unwrapped, effectiveSchemas);
+        String constantName = Names.toConstantName(nav.name());
+        return "    public final CollectionProperty<" + className + ", "
+                + elementClassName + ", " + elementClassName + ".Filterable> " + constantName
+                + " = new CollectionProperty<>(\"x/" + nav.name() + "\", " + className + ".class, "
+                + elementClassName + ".class, " + elementClassName + ".Filterable::new);\n";
     }
 
     private String fieldInit(PropertyModel prop) {

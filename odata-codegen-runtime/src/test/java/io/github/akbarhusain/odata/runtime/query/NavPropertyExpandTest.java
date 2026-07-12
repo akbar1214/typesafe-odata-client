@@ -66,7 +66,8 @@ class NavPropertyExpandTest {
 
     @Test
     void collectionPropertyAsExpandable() {
-        CollectionProperty<Object, Object> col = new CollectionProperty<>("Friends", Object.class, Object.class);
+        CollectionProperty<Object, Object, CollectionProperty.FilterableElement<Object>> col =
+                new CollectionProperty<>("Friends", Object.class, Object.class, CollectionProperty.FilterableElement::new);
         assertEquals("Friends", col.getEdmName());
         assertEquals(Object.class, col.getEntityType());
         assertEquals(Object.class, col.getElementType());
@@ -77,7 +78,8 @@ class NavPropertyExpandTest {
 
     @Test
     void collectionPropertyExpandWithSelect() {
-        CollectionProperty<Object, Object> col = new CollectionProperty<>("Friends", Object.class, Object.class);
+        CollectionProperty<Object, Object, CollectionProperty.FilterableElement<Object>> col =
+                new CollectionProperty<>("Friends", Object.class, Object.class, CollectionProperty.FilterableElement::new);
         StringProperty<Object> firstName = new StringProperty<>("FirstName", null);
         NavProperty.NavQuery<Object, Object> query = col.select(firstName);
         assertEquals("Friends($select=FirstName)", query.toODataExpand());

@@ -406,6 +406,20 @@ BatchResponse response = context.batch()
   - `expand(NavProperty.NavQuery<? super E, ?>...)`
 - 6 new tests: `RequestGeneratorNarrowQueryTest` (5, content assertions) + `QueryTypeSafetyCompilationTest` (1, negative compile test proving cross-entity usage fails).
 
+### 28. Typed Collection Lambda Operators (`any` / `all`) via Generated `Filterable`
+
+**Decision:** `CollectionProperty<E, T, F>` gains a third type parameter `F` (the filterable type) and `any()`/`all()` accept `Function<F, FilterExpression<T>>`. Generated entity and complex types expose a `public static class Filterable` with typed property fields, and collection property constants are instantiated with the target type's `Filterable::new` factory.
+
+**Reason:** The previous `CollectionProperty.FilterableElement<T>` only offered stringly-typed accessors (`stringField("Budgt")`), so typos in property names produced invalid OData at runtime. A generated per-type `Filterable` lets users write `Person.TRIPS.any(trip -> trip.BUDGET.greaterThan(500f))`, catching wrong property names and operator/type mismatches at compile time.
+
+**Implementation:**
+- `CollectionProperty` now carries `Supplier<F> filterableFactory`; `any`/`all` call `factory.get()` and pass the instance to the lambda.
+- `EntityGenerator` and `ComplexTypeGenerator` emit a `Filterable` inner class exposing:
+  - Scalar primitive properties (`StringProperty`, `NumberProperty`, `BooleanProperty`, `DateTimeProperty`, `EnumProperty`) with `x/` prefix.
+  - Collection navigation properties as `CollectionProperty<Type, Target, Target.Filterable>` with `x/` prefix (enables nested `any`/`all`).
+  - Collection structural properties: entity/complex element types use the element's `Filterable`; primitive element types fall back to `CollectionProperty.FilterableElement<T>`.
+- 7 new tests: `EntityGeneratorFilterableTest` (5, content assertions) + `CollectionPropertyTypedLambdaTest` (2, runtime lambda rendering).
+
 ---
 
 ## Architecture
@@ -447,11 +461,11 @@ Run `mvn test` from the repo root. All modules build in one reactor; the runtime
 - **Entity generator abstract-type unit tests:** Abstract entity generation — abstract base declares no `with*()`, concrete subtype extends it + has `with*()`, and the pair compiles (`EntityGeneratorAbstractTest` 3)
 - **Request generator tests:** Media-stream, `$apply` expression, composite-key, narrowed query bounds (`RequestGeneratorMediaTest` 3, `RequestGeneratorApplyTest` 3, `RequestGeneratorKeyTest` 2, `RequestGeneratorNarrowQueryTest` 5)
 - **Open-type generator tests:** Generated entity/complex-type captures undeclared JSON fields into `unmappedFields`; open subtype of non-open base captures via inherited root map; non-open complex type doesn't reference unmappedFields (`OpenTypeGeneratorTest` 6)
-- **Runtime tests:** 173 (live TripPin & Northwind integration, query expression, context path, batch, exceptions, transport, **media `$value` stream/put via mock transport** — `EntityOperationsMediaTest` 3, **`$apply` builder** — `ApplyExpressionTest` 8, **collection parse** — `EntityOperationsCollectionParseTest` 6, **batch changeset encode/decode/round-trip** — `MultipartHelperTest` 14, `BatchRequestTest` 10)
-- **Generated client tests (92):** `NorthwindGeneratedClientTest` (24), `ODataDemoGeneratedClientTest` (23, exercises `FeaturedProduct extends Product`, `Customer`/`Employee extends Person`, `Event`/`PlanItem`), `TripPinGeneratedClientTest` (24, exercises `Flight`/`PublicTransportation`/`PlanItem` hierarchy, type-safe + nested `$expand` with materialized getters), `TripPinInheritanceTest` (11, exercises generated **complex-type** inheritance `EventLocation`/`AirportLocation extends Location` + **entity** inheritance `Flight → PublicTransportation → PlanItem`, `Event → PlanItem`: `instanceof`/polymorphic assignment, subtype `with*` copy-on-write preserving inherited fields, base `builder()` scoping, live `AirportLocation` deserialization), `ODataDemoMediaTest` (2, live media streams: `Advertisement` `HasStream` via `streamMedia()` at `.../Advertisements(id)/$value`, `PersonDetail.Photo` `Edm.Stream` named stream via `streamPhoto()` at `.../PersonDetails(id)/Photo`), `OpenTypeDynamicPropertyTest` (8, deserialization captures dynamic props into `unmappedFields`/`getDynamicProperty`, typed `getDynamicProperty(String, Class)` coercion to a POJO/number, round-trips on serialize, filters `@odata.*` control fields)
-- **Generator unit tests (16 new):** `WideEntityGeneratorTest` 8 (wide-entity `@JsonAnySetter` switch, mutable lifecycle fields, no-args constructor), `WithMethodCopyOnWriteTest` 5 (copy-on-write defensive copying of collections and unmappedFields), `NavReservedWordTest` 3 (nav getter/with-method sanitization for `class` and other Object-method collisions)
+- **Runtime tests:** 175 (live TripPin & Northwind integration, query expression, context path, batch, exceptions, transport, **media `$value` stream/put via mock transport** — `EntityOperationsMediaTest` 3, **`$apply` builder** — `ApplyExpressionTest` 8, **collection parse** — `EntityOperationsCollectionParseTest` 6, **batch changeset encode/decode/round-trip** — `MultipartHelperTest` 14, `BatchRequestTest` 10, **typed collection lambdas** — `CollectionPropertyTypedLambdaTest` 2)
+- **Generated client tests (92):** `NorthwindGeneratedClientTest` (24), `ODataDemoGeneratedClientTest` (23, exercises `FeaturedProduct extends Product`, `Customer`/`Employee extends Person`, `Event`/`PlanItem`), `TripPinGeneratedClientTest` (24, exercises `Flight`/`PublicTransportation`/`PlanItem` hierarchy, type-safe + nested `$expand` with materialized getters), `TripPinInheritanceTest` (11, exercises generated **complex-type** inheritance `EventLocation`/`AirportLocation extends Location` + **entity** inheritance `Flight → PublicTransportation → PlanItem`: `instanceof`/polymorphic assignment, subtype `with*` copy-on-write preserving inherited fields, base `builder()` scoping, live `AirportLocation` deserialization), `ODataDemoMediaTest` (2, live media streams: `Advertisement` `HasStream` via `streamMedia()` at `.../Advertisements(id)/$value`, `PersonDetail.Photo` `Edm.Stream` named stream via `streamPhoto()` at `.../PersonDetails(id)/Photo`), `OpenTypeDynamicPropertyTest` (8, deserialization captures dynamic props into `unmappedFields`/`getDynamicProperty`, typed `getDynamicProperty(String, Class)` coercion to a POJO/number, round-trips on serialize, filters `@odata.*` control fields)
+- **Generator unit tests (21 new):** `WideEntityGeneratorTest` 8 (wide-entity `@JsonAnySetter` switch, mutable lifecycle fields, no-args constructor), `WithMethodCopyOnWriteTest` 5 (copy-on-write defensive copying of collections and unmappedFields), `NavReservedWordTest` 3 (nav getter/with-method sanitization for `class` and other Object-method collisions), `EntityGeneratorFilterableTest` 5 (typed Filterable inner class for `any`/`all` lambdas)
 - **Query type-safety tests:** `QueryTypeSafetyCompilationTest` 1 (negative compile test proving cross-entity `select`/`orderBy`/`expand` fails)
-- **Total: 382 tests passing** (112 core + 173 runtime + 5 maven + 92 test module)
+- **Total: 389 tests passing** (117 core + 175 runtime + 5 maven + 92 test module)
 - **Future:** Cancellable streaming, Content-ID resolution in changesets
 
 ---

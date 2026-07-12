@@ -47,7 +47,7 @@ public final class Person implements ODataEntityType {
     public static final StringProperty<Person> USER_NAME = ...;
     public static final StringProperty<Person> FIRST_NAME = ...;
     public static final NumberProperty<Person, Long> AGE = ...;
-    public static final CollectionProperty<Person, String> EMAILS = ...;
+    public static final CollectionProperty<Person, String, CollectionProperty.FilterableElement<String>> EMAILS = ...;
 
     // final fields
     private final String userName;

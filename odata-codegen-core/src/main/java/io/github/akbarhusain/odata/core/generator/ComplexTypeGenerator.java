@@ -73,6 +73,7 @@ public class ComplexTypeGenerator {
         imports.add("java.util.Optional");
         imports.add("io.github.akbarhusain.odata.runtime.entity.ODataType");
         imports.add("io.github.akbarhusain.odata.runtime.entity.ContextPath");
+        imports.add("io.github.akbarhusain.odata.runtime.query.*");
         if (openType) {
             imports.add("io.github.akbarhusain.odata.runtime.serialization.DynamicPropertyConverter");
         }
@@ -109,6 +110,9 @@ public class ComplexTypeGenerator {
             sb.append(" extends ").append(baseSimpleName);
         }
         sb.append(" implements ODataType {\n\n");
+
+        // Typed filterable for collection lambda operators (any/all)
+        sb.append(generateFilterableClass(complexType, schema, className));
 
         // Fields (protected so subclasses can access inherited state via bare name)
         for (PropertyModel prop : ownProps) {
@@ -592,6 +596,95 @@ public class ComplexTypeGenerator {
             String pkg = basePackageForType(edmType, schema);
             imports.add(pkg + Names.resolvedSuffix(edmType, effectiveSchemas) + "." + Names.resolvedClassName(edmType, effectiveSchemas));
         }
+    }
+
+    private String generateFilterableClass(ComplexTypeModel complexType, SchemaModel schema, String className) {
+        List<PropertyModel> allProps = new ArrayList<>(inheritedProperties(complexType, schema));
+        allProps.addAll(complexType.properties());
+        List<NavigationPropertyModel> allNavs = new ArrayList<>(inheritedNavProperties(complexType, schema));
+        allNavs.addAll(complexType.navigationProperties());
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("    public static class Filterable {\n");
+        for (PropertyModel prop : allProps) {
+            sb.append(generateFilterablePropertyField(prop, className, schema));
+        }
+        for (NavigationPropertyModel nav : allNavs) {
+            if (Names.isCollectionType(nav.type())) {
+                sb.append(generateFilterableNavPropertyField(nav, className, schema));
+            }
+        }
+        sb.append("    }\n\n");
+        return sb.toString();
+    }
+
+    private String generateFilterablePropertyField(PropertyModel prop, String className, SchemaModel schema) {
+        String edmType = prop.edmType();
+        String constantName = Names.toConstantName(prop.name());
+
+        if (Names.isCollectionType(edmType)) {
+            String elementType = Names.unwrapCollectionType(edmType);
+            String elementClassName = resolveClassNameForConstant(elementType, schema);
+            Names.TypeKind kind = Names.resolveTypeKind(elementType, effectiveSchemas);
+            if (kind == Names.TypeKind.ENTITY || kind == Names.TypeKind.COMPLEX) {
+                return "    public final CollectionProperty<" + className + ", " + elementClassName
+                        + ", " + elementClassName + ".Filterable> " + constantName
+                        + " = new CollectionProperty<>(\"x/" + prop.name() + "\", " + className + ".class, "
+                        + elementClassName + ".class, " + elementClassName + ".Filterable::new);\n";
+            } else {
+                return "    public final CollectionProperty<" + className + ", " + elementClassName
+                        + ", CollectionProperty.FilterableElement<" + elementClassName + ">> " + constantName
+                        + " = new CollectionProperty<>(\"x/" + prop.name() + "\", " + className + ".class, "
+                        + elementClassName + ".class, CollectionProperty.FilterableElement::new);\n";
+            }
+        }
+
+        String constantType = getPropertyConstantType(edmType, schema);
+        if (constantType == null) {
+            return ""; // Binary, Stream, Geography, Geometry — not filterable
+        }
+        String typeParams = switch (constantType) {
+            case "EnumProperty" -> "<" + className + ", " + resolveClassNameForConstant(edmType, schema) + ">";
+            case "NumberProperty" -> "<" + className + ", " + getNumberJavaType(edmType) + ">";
+            default -> "<" + className + ">";
+        };
+
+        return "    public final " + constantType + typeParams + " " + constantName
+                + " = new " + constantType + "<>(\"x/" + prop.name() + "\", " + className + ".class"
+                + (constantType.equals("EnumProperty") ? ", " + resolveClassNameForConstant(edmType, schema) + ".class, \"" + edmType + "\"" : "")
+                + ");\n";
+    }
+
+    private String generateFilterableNavPropertyField(NavigationPropertyModel nav, String className, SchemaModel schema) {
+        String unwrapped = Names.unwrapCollectionType(nav.type());
+        String elementClassName = Names.resolvedClassName(unwrapped, effectiveSchemas);
+        String constantName = Names.toConstantName(nav.name());
+        return "    public final CollectionProperty<" + className + ", "
+                + elementClassName + ", " + elementClassName + ".Filterable> " + constantName
+                + " = new CollectionProperty<>(\"x/" + nav.name() + "\", " + className + ".class, "
+                + elementClassName + ".class, " + elementClassName + ".Filterable::new);\n";
+    }
+
+    private String resolveClassNameForConstant(String edmType, SchemaModel schema) {
+        String resolved = resolveTypeDefinition(edmType, schema);
+        if (Names.isPrimitiveType(resolved)) {
+            return Names.edmTypeToSimpleJavaType(resolved);
+        }
+        return Names.resolvedClassName(resolved, effectiveSchemas);
+    }
+
+    private String getNumberJavaType(String edmType) {
+        return Names.edmTypeToSimpleJavaType(edmType);
+    }
+
+    private String getPropertyConstantType(String edmType, SchemaModel schema) {
+        String resolved = resolveTypeDefinition(edmType, schema);
+        if (Names.isStringType(resolved)) return "StringProperty";
+        if (Names.isBooleanType(resolved)) return "BooleanProperty";
+        if (Names.isDateTimeType(resolved)) return "DateTimeProperty";
+        if (isEnumType(resolved, schema)) return "EnumProperty";
+        if (Names.isNumericType(resolved)) return "NumberProperty";
+        return null; // Binary, Stream, Geography, Geometry — not filterable, no constant
     }
 
     private boolean isEnumType(String edmType, SchemaModel schema) {
