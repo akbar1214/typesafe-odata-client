@@ -58,6 +58,44 @@ public record ContextPath(
         return new ContextPath(basePath, List.copyOf(newSegments));
     }
 
+    /**
+     * Creates a ContextPath from an OData @odata.nextLink value.
+     * Handles absolute URLs and URLs relative to the current base path.
+     */
+    public ContextPath fromNextLink(String nextLink) {
+        if (nextLink == null || nextLink.trim().isEmpty()) {
+            throw new IllegalArgumentException("nextLink cannot be null or empty");
+        }
+        String trimmed = nextLink.trim();
+        if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+            return new ContextPath(trimmed);
+        }
+        String base = basePath;
+        while (base.endsWith("/")) {
+            base = base.substring(0, base.length() - 1);
+        }
+        if (trimmed.startsWith("/")) {
+            return new ContextPath(base + trimmed);
+        }
+        return new ContextPath(base + "/" + trimmed);
+    }
+
+    /**
+     * Appends a {@code $count} segment to the resource path, preserving any query
+     * parameters on the current last segment. This produces URLs such as
+     * {@code /People/$count?$filter=Age gt 25}.
+     */
+    public ContextPath addCountSegment() {
+        if (segments.isEmpty()) {
+            return addSegment("$count");
+        }
+        Segment last = segments.get(segments.size() - 1);
+        List<Segment> newSegments = new ArrayList<>(segments);
+        newSegments.set(newSegments.size() - 1, new Segment(last.name(), last.keys(), List.of()));
+        newSegments.add(new Segment("$count", List.of(), last.queries()));
+        return new ContextPath(basePath, List.copyOf(newSegments));
+    }
+
     public String toUrl() {
         StringBuilder sb = new StringBuilder(basePath);
         appendSegments(sb);

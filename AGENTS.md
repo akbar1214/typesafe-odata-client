@@ -419,6 +419,20 @@ BatchResponse response = context.batch()
   - Collection structural properties: entity/complex element types use the element's `Filterable`; primitive element types fall back to `CollectionProperty.FilterableElement<T>`.
 - 7 new tests: `EntityGeneratorFilterableTest` (5, content assertions) + `CollectionPropertyTypedLambdaTest` (2, runtime lambda rendering).
 
+### 29. Pagination Helpers: `nextPage(String)` and `countValue()`
+
+**Decision:** Generated collection requests expose `nextPage(String nextLink)` for server-driven paging and `countValue()` for the count-only `/$count` endpoint. The existing `count()` method continues to request an inline count via `$count=true`.
+
+**Reason:** `docs/content/how-to/pagination.md` documented `nextPage(nextLink)` but the generator never emitted it. Also, `count()` was documented as `GET /People/$count` even though it emitted `$count=true`, which confused users. Providing both options makes the API match the docs and the OData spec:
+- `$count=true` returns the collection plus `@odata.count`.
+- `/$count` returns just the number.
+
+**Implementation:**
+- `ContextPath.fromNextLink(String)` resolves absolute `@odata.nextLink` URLs and service-root-relative URLs against the current base path.
+- `ContextPath.addCountSegment()` appends `/$count` to the resource path while moving existing query parameters onto the new terminal segment, producing URLs like `/People/$count?$filter=Age%20gt%2025`.
+- `EntityOperations.executeCount(Context, ContextPath)` performs a GET on the count path and parses the plain numeric response.
+- `RequestGenerator.generateCollectionRequest` emits `nextPage(String)` and `countValue()` on every collection request class.
+
 ---
 
 ## Architecture
@@ -458,13 +472,13 @@ Run `mvn test` from the repo root. All modules build in one reactor; the runtime
 - **Entity generator unit tests:** Composite-key `getKey()`, collection getter emission (`EntityGeneratorCompositeKeyTest` 1, `EntityGeneratorCollectionGetterTest` 2)
 - **Complex type generator unit tests:** Complex-type inheritance — `EventLocation extends Location`, `with*` + Builder generation (`ComplexTypeGeneratorInheritanceTest` 3, `ComplexTypeGeneratorCollectionEnumTest` 4)
 - **Entity generator abstract-type unit tests:** Abstract entity generation — abstract base declares no `with*()`, concrete subtype extends it + has `with*()`, and the pair compiles (`EntityGeneratorAbstractTest` 3)
-- **Request generator tests:** Media-stream, `$apply` expression, composite-key, narrowed query bounds (`RequestGeneratorMediaTest` 3, `RequestGeneratorApplyTest` 3, `RequestGeneratorKeyTest` 2, `RequestGeneratorNarrowQueryTest` 5)
+- **Request generator tests:** Media-stream, `$apply` expression, composite-key, narrowed query bounds, pagination helpers (`RequestGeneratorMediaTest` 3, `RequestGeneratorApplyTest` 3, `RequestGeneratorKeyTest` 2, `RequestGeneratorNarrowQueryTest` 5, `RequestGeneratorPaginationTest` 4)
 - **Open-type generator tests:** Generated entity/complex-type captures undeclared JSON fields into `unmappedFields`; open subtype of non-open base captures via inherited root map; non-open complex type doesn't reference unmappedFields (`OpenTypeGeneratorTest` 6)
-- **Runtime tests:** 175 (live TripPin & Northwind integration, query expression, context path, batch, exceptions, transport, **media `$value` stream/put via mock transport** — `EntityOperationsMediaTest` 3, **`$apply` builder** — `ApplyExpressionTest` 8, **collection parse** — `EntityOperationsCollectionParseTest` 6, **batch changeset encode/decode/round-trip** — `MultipartHelperTest` 14, `BatchRequestTest` 10, **typed collection lambdas** — `CollectionPropertyTypedLambdaTest` 2)
+- **Runtime tests:** 186 (live TripPin & Northwind integration, query expression, context path, batch, exceptions, transport, **media `$value` stream/put via mock transport** — `EntityOperationsMediaTest` 3, **`$apply` builder** — `ApplyExpressionTest` 8, **collection parse** — `EntityOperationsCollectionParseTest` 6, **batch changeset encode/decode/round-trip** — `MultipartHelperTest` 14, `BatchRequestTest` 10, **typed collection lambdas** — `CollectionPropertyTypedLambdaTest` 2, **count endpoint** — `EntityOperationsCountTest` 4, **ContextPath next-link/count-segment** — `ContextPathTest` additions 7)
 - **Generated client tests (92):** `NorthwindGeneratedClientTest` (24), `ODataDemoGeneratedClientTest` (23, exercises `FeaturedProduct extends Product`, `Customer`/`Employee extends Person`, `Event`/`PlanItem`), `TripPinGeneratedClientTest` (24, exercises `Flight`/`PublicTransportation`/`PlanItem` hierarchy, type-safe + nested `$expand` with materialized getters), `TripPinInheritanceTest` (11, exercises generated **complex-type** inheritance `EventLocation`/`AirportLocation extends Location` + **entity** inheritance `Flight → PublicTransportation → PlanItem`: `instanceof`/polymorphic assignment, subtype `with*` copy-on-write preserving inherited fields, base `builder()` scoping, live `AirportLocation` deserialization), `ODataDemoMediaTest` (2, live media streams: `Advertisement` `HasStream` via `streamMedia()` at `.../Advertisements(id)/$value`, `PersonDetail.Photo` `Edm.Stream` named stream via `streamPhoto()` at `.../PersonDetails(id)/Photo`), `OpenTypeDynamicPropertyTest` (8, deserialization captures dynamic props into `unmappedFields`/`getDynamicProperty`, typed `getDynamicProperty(String, Class)` coercion to a POJO/number, round-trips on serialize, filters `@odata.*` control fields)
 - **Generator unit tests (22 new):** `WithMethodCopyOnWriteTest` 5 (copy-on-write defensive copying of collections and unmappedFields), `NavReservedWordTest` 3 (nav getter/with-method sanitization for `class` and other Object-method collisions), `EntityGeneratorFilterableTest` 5 (typed Filterable inner class for `any`/`all` lambdas), `EntityGeneratorSimplifiedDeserializationTest` 5 (no `@JsonCreator`, no wide-entity switch, public no-args constructor + `@JsonProperty` setters), `ComplexTypeGeneratorSimplifiedDeserializationTest` 4 (same simplification for complex types)
 - **Query type-safety tests:** `QueryTypeSafetyCompilationTest` 1 (negative compile test proving cross-entity `select`/`orderBy`/`expand` fails)
-- **Total: 390 tests passing** (118 core + 175 runtime + 5 maven + 92 test module)
+- **Total: 405 tests passing** (122 core + 186 runtime + 5 maven + 92 test module)
 - **Future:** Cancellable streaming, Content-ID resolution in changesets
 
 ---

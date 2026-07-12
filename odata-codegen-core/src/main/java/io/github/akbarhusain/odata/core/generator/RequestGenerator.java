@@ -354,6 +354,18 @@ public class RequestGenerator {
         sb.append("        return BatchOperation.get(buildContext().toRelativeUrl());\n");
         sb.append("    }\n\n");
 
+        // Pagination helper: fetch the next page from an @odata.nextLink URL
+        sb.append("    public ").append(className).append(" nextPage(String nextLink) {\n");
+        sb.append("        return new ").append(className).append("(context, contextPath.fromNextLink(nextLink));\n");
+        sb.append("    }\n\n");
+
+        // Direct $count endpoint helper (GET /EntitySet/$count)
+        sb.append("    public long countValue() {\n");
+        sb.append("        ").append(className).append(" tmp = copy();\n");
+        sb.append("        tmp.countRequested = false;\n");
+        sb.append("        return EntityOperations.executeCount(context, tmp.buildContext());\n");
+        sb.append("    }\n\n");
+
         // Key-based entity accessor methods
         java.util.List<KeyModel> resolvedKeys = resolvedKeys(entityType, schema);
         if (!resolvedKeys.isEmpty()) {

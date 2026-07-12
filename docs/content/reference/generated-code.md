@@ -201,12 +201,16 @@ public class PersonCollectionRequest {
     public PersonCollectionRequest orderBy(OrderExpression<? super Person, ?>... sorts) { ... }
     public PersonCollectionRequest top(int count) { ... }
     public PersonCollectionRequest skip(int count) { ... }
-    public PersonCollectionRequest count() { ... }
+    public PersonCollectionRequest count() { ... }                     // $count=true (inline count)
+    public long countValue() { ... }                                   // GET /People/$count
     public PersonCollectionRequest expand(NavProperty<? super Person, ?>... navs) { ... }
     public PersonCollectionRequest expand(NavProperty.NavQuery<? super Person, ?>... queries) { ... }
     public PersonCollectionRequest search(String term) { ... }         // $search
     public PersonCollectionRequest apply(ApplyExpression expr) { ... }  // $apply (aggregation / $compute)
     public PersonCollectionRequest apply(String raw) { ... }           // $apply (raw)
+
+    // Pagination
+    public PersonCollectionRequest nextPage(String nextLink) { ... }   // @odata.nextLink
 }
 ```
 

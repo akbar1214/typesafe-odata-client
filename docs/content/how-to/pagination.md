@@ -41,11 +41,10 @@ for (Person person : page) {
 }
 
 // Check if more pages exist
-Optional<String> nextLink = page.getNextLink();
-if (nextLink.isPresent()) {
+if (page.hasNextPage()) {
     // Fetch next page using the OData next link
     CollectionPage<Person> nextPage = client.people()
-        .nextPage(nextLink.get())
+        .nextPage(page.getNextLink())
         .get();
 }
 ```
@@ -63,17 +62,16 @@ while (true) {
         System.out.println(person.getFirstName());
     }
 
-    Optional<String> nextLink = page.getNextLink();
-    if (nextLink.isEmpty()) {
+    if (!page.hasNextPage()) {
         break;
     }
-    page = client.people().nextPage(nextLink.get()).get();
+    page = client.people().nextPage(page.getNextLink()).get();
 }
 ```
 
 ## Count Results
 
-### Get Total Count
+### Inline Count
 
 ```java
 CollectionPage<Person> people = client.people()
@@ -84,7 +82,20 @@ Optional<Long> totalCount = people.count();
 System.out.println("Total: " + totalCount.orElse(0L));
 ```
 
-This executes a `GET /People/$count` and returns the total.
+This executes `GET /People?$count=true` and returns the total in `@odata.count`.
+
+### Count Endpoint
+
+For a count-only request, use `countValue()`. This executes `GET /People/$count` and returns the total directly.
+
+```java
+long total = client.people().countValue();
+
+// With a filter
+long adults = client.people()
+    .filter(Person.AGE.greaterThan(25))
+    .countValue();
+```
 
 ### Count with Filter
 
@@ -100,7 +111,8 @@ Optional<Long> totalAdults = people.count();
 ## Best Practices
 
 - Use `$top` to limit result size
-- Use `$count` when building pagination UIs
+- Use `count()` for paginated UIs that also need the first page of data
+- Use `countValue()` for count-only requests
 - Store the `nextLink` for cursor-based pagination
 - Avoid large `$skip` values — they're inefficient on the server
 

@@ -150,6 +150,18 @@ public class EntityOperations {
         }
     }
 
+    public static long executeCount(Context context, ContextPath path) {
+        ContextPath countPath = path.addCountSegment();
+        HttpResponse response = executeSync(context, HttpMethod.GET, countPath, null, null);
+        checkResponse(response);
+        try {
+            String body = new String(response.body(), StandardCharsets.UTF_8).trim();
+            return Long.parseLong(body);
+        } catch (NumberFormatException e) {
+            throw new ODataException("Failed to parse $count response: " + e.getMessage(), e);
+        }
+    }
+
     public static void checkResponse(HttpResponse response) {
         if (response.isSuccessful()) return;
         throw ODataException.fromResponse(response);

@@ -119,4 +119,59 @@ class ContextPathTest {
         assertDoesNotThrow(() -> java.net.URI.create(url),
                 "URL with space in key must not crash URI.create: " + url);
     }
+
+    @Test
+    void fromNextLinkAbsoluteUrlIsUsedAsBasePath() {
+        ContextPath path = new ContextPath(BASE).addSegment("People");
+        String next = "https://services.odata.org/V4/TripPinService/People?$skip=10&$top=10";
+        ContextPath nextPath = path.fromNextLink(next);
+        assertEquals(next, nextPath.toUrl());
+    }
+
+    @Test
+    void fromNextLinkRelativeUrlResolvesAgainstBasePath() {
+        ContextPath path = new ContextPath(BASE).addSegment("People");
+        ContextPath nextPath = path.fromNextLink("/People?$skip=10");
+        assertEquals(BASE + "/People?$skip=10", nextPath.toUrl());
+    }
+
+    @Test
+    void fromNextLinkRelativeUrlWithoutLeadingSlashResolvesAgainstBasePath() {
+        ContextPath path = new ContextPath(BASE).addSegment("People");
+        ContextPath nextPath = path.fromNextLink("People?$skip=10");
+        assertEquals(BASE + "/People?$skip=10", nextPath.toUrl());
+    }
+
+    @Test
+    void fromNextLinkTrimsWhitespace() {
+        ContextPath path = new ContextPath(BASE).addSegment("People");
+        ContextPath nextPath = path.fromNextLink("  /People?$skip=10  ");
+        assertEquals(BASE + "/People?$skip=10", nextPath.toUrl());
+    }
+
+    @Test
+    void fromNextLinkRejectsNullOrEmpty() {
+        ContextPath path = new ContextPath(BASE);
+        assertThrows(IllegalArgumentException.class, () -> path.fromNextLink(null));
+        assertThrows(IllegalArgumentException.class, () -> path.fromNextLink(""));
+        assertThrows(IllegalArgumentException.class, () -> path.fromNextLink("   "));
+    }
+
+    @Test
+    void addCountSegmentAppendsCountBeforeQueryParams() {
+        ContextPath path = new ContextPath(BASE)
+                .addSegment("People")
+                .addQuery("$filter", "Age gt 25");
+        ContextPath countPath = path.addCountSegment();
+        String url = countPath.toUrl();
+        assertEquals(BASE + "/People/$count?$filter=Age%20gt%2025", url);
+    }
+
+    @Test
+    void addCountSegmentOnEmptySegments() {
+        ContextPath path = new ContextPath(BASE).addQuery("$filter", "Age gt 25");
+        ContextPath countPath = path.addCountSegment();
+        String url = countPath.toUrl();
+        assertEquals(BASE + "/$count?$filter=Age%20gt%2025", url);
+    }
 }
