@@ -433,6 +433,18 @@ BatchResponse response = context.batch()
 - `EntityOperations.executeCount(Context, ContextPath)` performs a GET on the count path and parses the plain numeric response.
 - `RequestGenerator.generateCollectionRequest` emits `nextPage(String)` and `countValue()` on every collection request class.
 
+### 30. Structured OData Error in Base `ODataException`
+
+**Decision:** The base `ODataException` carries the parsed `ODataError` from the response body. All typed exceptions inherit `getError()` from the base class, and `ODataException.fromResponse()` parses the error once for every status code (including unmapped codes).
+
+**Reason:** Previously `ODataError.fromResponse()` was only used by `RateLimitException`, and other typed exceptions either stored the error in a duplicated field or discarded it entirely. Unmapped status codes (e.g. 500) produced a generic `ODataException` with no structured `error.code` or `error.message`. Callers had to parse the exception message to inspect server errors.
+
+**Implementation:**
+- Added an `ODataError error` field and `getError()` getter to `ODataException`.
+- Added constructors accepting an `ODataError`.
+- `ODataException.fromResponse()` parses `ODataError` once and passes it into typed exception constructors; the generic fallback for unmapped codes now also carries the error.
+- Removed the duplicated `error` field from `BadRequestException`, `UnauthorizedException`, `ForbiddenException`, `NotFoundException`, `ConflictException`, and `RateLimitException`.
+
 ---
 
 ## Architecture
@@ -474,11 +486,11 @@ Run `mvn test` from the repo root. All modules build in one reactor; the runtime
 - **Entity generator abstract-type unit tests:** Abstract entity generation — abstract base declares no `with*()`, concrete subtype extends it + has `with*()`, and the pair compiles (`EntityGeneratorAbstractTest` 3)
 - **Request generator tests:** Media-stream, `$apply` expression, composite-key, narrowed query bounds, pagination helpers (`RequestGeneratorMediaTest` 3, `RequestGeneratorApplyTest` 3, `RequestGeneratorKeyTest` 2, `RequestGeneratorNarrowQueryTest` 5, `RequestGeneratorPaginationTest` 4)
 - **Open-type generator tests:** Generated entity/complex-type captures undeclared JSON fields into `unmappedFields`; open subtype of non-open base captures via inherited root map; non-open complex type doesn't reference unmappedFields (`OpenTypeGeneratorTest` 6)
-- **Runtime tests:** 186 (live TripPin & Northwind integration, query expression, context path, batch, exceptions, transport, **media `$value` stream/put via mock transport** — `EntityOperationsMediaTest` 3, **`$apply` builder** — `ApplyExpressionTest` 8, **collection parse** — `EntityOperationsCollectionParseTest` 6, **batch changeset encode/decode/round-trip** — `MultipartHelperTest` 14, `BatchRequestTest` 10, **typed collection lambdas** — `CollectionPropertyTypedLambdaTest` 2, **count endpoint** — `EntityOperationsCountTest` 4, **ContextPath next-link/count-segment** — `ContextPathTest` additions 7)
+- **Runtime tests:** 190 (live TripPin & Northwind integration, query expression, context path, batch, exceptions, transport, **media `$value` stream/put via mock transport** — `EntityOperationsMediaTest` 3, **`$apply` builder** — `ApplyExpressionTest` 8, **collection parse** — `EntityOperationsCollectionParseTest` 6, **batch changeset encode/decode/round-trip** — `MultipartHelperTest` 14, `BatchRequestTest` 10, **typed collection lambdas** — `CollectionPropertyTypedLambdaTest` 2, **count endpoint** — `EntityOperationsCountTest` 4, **ContextPath next-link/count-segment** — `ContextPathTest` additions 7, **structured OData error in exceptions** — `ODataExceptionTest` additions 4)
 - **Generated client tests (92):** `NorthwindGeneratedClientTest` (24), `ODataDemoGeneratedClientTest` (23, exercises `FeaturedProduct extends Product`, `Customer`/`Employee extends Person`, `Event`/`PlanItem`), `TripPinGeneratedClientTest` (24, exercises `Flight`/`PublicTransportation`/`PlanItem` hierarchy, type-safe + nested `$expand` with materialized getters), `TripPinInheritanceTest` (11, exercises generated **complex-type** inheritance `EventLocation`/`AirportLocation extends Location` + **entity** inheritance `Flight → PublicTransportation → PlanItem`: `instanceof`/polymorphic assignment, subtype `with*` copy-on-write preserving inherited fields, base `builder()` scoping, live `AirportLocation` deserialization), `ODataDemoMediaTest` (2, live media streams: `Advertisement` `HasStream` via `streamMedia()` at `.../Advertisements(id)/$value`, `PersonDetail.Photo` `Edm.Stream` named stream via `streamPhoto()` at `.../PersonDetails(id)/Photo`), `OpenTypeDynamicPropertyTest` (8, deserialization captures dynamic props into `unmappedFields`/`getDynamicProperty`, typed `getDynamicProperty(String, Class)` coercion to a POJO/number, round-trips on serialize, filters `@odata.*` control fields)
 - **Generator unit tests (22 new):** `WithMethodCopyOnWriteTest` 5 (copy-on-write defensive copying of collections and unmappedFields), `NavReservedWordTest` 3 (nav getter/with-method sanitization for `class` and other Object-method collisions), `EntityGeneratorFilterableTest` 5 (typed Filterable inner class for `any`/`all` lambdas), `EntityGeneratorSimplifiedDeserializationTest` 5 (no `@JsonCreator`, no wide-entity switch, public no-args constructor + `@JsonProperty` setters), `ComplexTypeGeneratorSimplifiedDeserializationTest` 4 (same simplification for complex types)
 - **Query type-safety tests:** `QueryTypeSafetyCompilationTest` 1 (negative compile test proving cross-entity `select`/`orderBy`/`expand` fails)
-- **Total: 405 tests passing** (122 core + 186 runtime + 5 maven + 92 test module)
+- **Total: 409 tests passing** (122 core + 190 runtime + 5 maven + 92 test module)
 - **Future:** Cancellable streaming, Content-ID resolution in changesets
 
 ---

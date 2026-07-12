@@ -4,19 +4,15 @@ import io.github.akbarhusain.odata.runtime.http.HttpResponse;
 
 public class NotFoundException extends ODataException {
 
-    private final ODataError error;
+    public NotFoundException(String message) {
+        super(404, message);
+    }
 
     public NotFoundException(String message, ODataError error) {
-        super(404, message);
-        this.error = error;
+        super(404, "Resource not found: " + message, error);
     }
 
     public NotFoundException(HttpResponse response) {
-        super(404, "Resource not found: " + response.getText());
-        this.error = ODataError.fromResponse(response);
-    }
-
-    public ODataError getError() {
-        return error;
+        this(response.getText(), ODataError.fromResponse(response));
     }
 }

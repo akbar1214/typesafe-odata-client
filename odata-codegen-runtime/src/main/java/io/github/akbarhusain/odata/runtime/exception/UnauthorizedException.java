@@ -4,19 +4,15 @@ import io.github.akbarhusain.odata.runtime.http.HttpResponse;
 
 public class UnauthorizedException extends ODataException {
 
-    private final ODataError error;
-
     public UnauthorizedException(String message) {
         super(401, message);
-        this.error = null;
+    }
+
+    public UnauthorizedException(String message, ODataError error) {
+        super(401, "Unauthorized: " + message, error);
     }
 
     public UnauthorizedException(HttpResponse response) {
-        super(401, "Unauthorized: " + response.getText());
-        this.error = ODataError.fromResponse(response);
-    }
-
-    public ODataError getError() {
-        return error;
+        this(response.getText(), ODataError.fromResponse(response));
     }
 }

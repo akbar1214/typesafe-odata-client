@@ -4,19 +4,15 @@ import io.github.akbarhusain.odata.runtime.http.HttpResponse;
 
 public class BadRequestException extends ODataException {
 
-    private final ODataError error;
-
     public BadRequestException(String message) {
         super(400, message);
-        this.error = null;
+    }
+
+    public BadRequestException(String message, ODataError error) {
+        super(400, "Bad request: " + message, error);
     }
 
     public BadRequestException(HttpResponse response) {
-        super(400, "Bad request: " + response.getText());
-        this.error = ODataError.fromResponse(response);
-    }
-
-    public ODataError getError() {
-        return error;
+        this(response.getText(), ODataError.fromResponse(response));
     }
 }

@@ -7,26 +7,24 @@ import java.time.Instant;
 public class RateLimitException extends ODataException {
 
     private final Instant retryAfter;
-    private final ODataError error;
 
     public RateLimitException(HttpResponse response) {
-        super(429, "Rate limit exceeded: " + response.getText());
+        super(429, "Rate limit exceeded: " + response.getText(), ODataError.fromResponse(response));
         this.retryAfter = parseRetryAfter(response);
-        this.error = ODataError.fromResponse(response);
     }
 
     public RateLimitException(String message, Instant retryAfter) {
         super(429, message);
         this.retryAfter = retryAfter;
-        this.error = null;
+    }
+
+    public RateLimitException(String message, Instant retryAfter, ODataError error) {
+        super(429, message, error);
+        this.retryAfter = retryAfter;
     }
 
     public Instant getRetryAfter() {
         return retryAfter;
-    }
-
-    public ODataError getError() {
-        return error;
     }
 
     private static Instant parseRetryAfter(HttpResponse response) {
