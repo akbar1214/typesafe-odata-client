@@ -1,6 +1,6 @@
 package io.github.akbarhusain.odata.runtime.query;
 
-public final class StringProperty<E> implements PropertyExpression<String> {
+public final class StringProperty<E> implements PropertyExpression<E, String> {
     private final String edmName;
     private final Class<E> entityType;
 
@@ -19,20 +19,20 @@ public final class StringProperty<E> implements PropertyExpression<String> {
     public String getODataPath() { return edmName; }
 
     @Override
-    public OrderExpression<String> asc() { return cast(new OrderedProperty(edmName, true)); }
+    public OrderExpression<E, String> asc() { return cast(new OrderedProperty(edmName, true)); }
 
     @Override
-    public OrderExpression<String> desc() { return cast(new OrderedProperty(edmName, false)); }
+    public OrderExpression<E, String> desc() { return cast(new OrderedProperty(edmName, false)); }
 
     @Override
-    public OrderExpression<String> nullsFirst() { return cast(new OrderedProperty(edmName, true, true, false)); }
+    public OrderExpression<E, String> nullsFirst() { return cast(new OrderedProperty(edmName, true, true, false)); }
 
     @Override
-    public OrderExpression<String> nullsLast() { return cast(new OrderedProperty(edmName, true, false, true)); }
+    public OrderExpression<E, String> nullsLast() { return cast(new OrderedProperty(edmName, true, false, true)); }
 
     @SuppressWarnings("unchecked")
-    private OrderExpression<String> cast(OrderExpression<?> expr) {
-        return (OrderExpression<String>) expr;
+    private OrderExpression<E, String> cast(OrderExpression<?, ?> expr) {
+        return (OrderExpression<E, String>) expr;
     }
 
     // Equality operators

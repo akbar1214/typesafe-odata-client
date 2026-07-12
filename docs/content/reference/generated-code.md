@@ -187,13 +187,13 @@ public class PersonCollectionRequest {
 
     // Query operations
     public PersonCollectionRequest filter(FilterExpression<Person> predicate) { ... }
-    public PersonCollectionRequest select(PropertyExpression<?>... properties) { ... }
-    public PersonCollectionRequest orderBy(OrderExpression<?>... sorts) { ... }
+    public PersonCollectionRequest select(PropertyExpression<? super Person, ?>... properties) { ... }
+    public PersonCollectionRequest orderBy(OrderExpression<? super Person, ?>... sorts) { ... }
     public PersonCollectionRequest top(int count) { ... }
     public PersonCollectionRequest skip(int count) { ... }
     public PersonCollectionRequest count() { ... }
-    public PersonCollectionRequest expand(NavProperty<?, ?>... navs) { ... }
-    public PersonCollectionRequest expand(NavProperty.NavQuery<?>... queries) { ... }
+    public PersonCollectionRequest expand(NavProperty<? super Person, ?>... navs) { ... }
+    public PersonCollectionRequest expand(NavProperty.NavQuery<? super Person, ?>... queries) { ... }
     public PersonCollectionRequest search(String term) { ... }         // $search
     public PersonCollectionRequest apply(ApplyExpression expr) { ... }  // $apply (aggregation / $compute)
     public PersonCollectionRequest apply(String raw) { ... }           // $apply (raw)

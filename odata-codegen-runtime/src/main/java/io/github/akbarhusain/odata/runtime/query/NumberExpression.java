@@ -1,6 +1,6 @@
 package io.github.akbarhusain.odata.runtime.query;
 
-public class NumberExpression<N, E> implements OrderExpression<N> {
+public class NumberExpression<N, E> implements OrderExpression<E, N> {
     private final String expression;
     private final Class<E> entityType;
 
@@ -16,20 +16,20 @@ public class NumberExpression<N, E> implements OrderExpression<N> {
     public String getODataPath() { return expression; }
 
     @Override
-    public OrderExpression<N> asc() { return cast(new OrderedProperty(expression, true)); }
+    public OrderExpression<E, N> asc() { return cast(new OrderedProperty(expression, true)); }
 
     @Override
-    public OrderExpression<N> desc() { return cast(new OrderedProperty(expression, false)); }
+    public OrderExpression<E, N> desc() { return cast(new OrderedProperty(expression, false)); }
 
     @Override
-    public OrderExpression<N> nullsFirst() { return cast(new OrderedProperty(expression, true, true, false)); }
+    public OrderExpression<E, N> nullsFirst() { return cast(new OrderedProperty(expression, true, true, false)); }
 
     @Override
-    public OrderExpression<N> nullsLast() { return cast(new OrderedProperty(expression, true, false, true)); }
+    public OrderExpression<E, N> nullsLast() { return cast(new OrderedProperty(expression, true, false, true)); }
 
     @SuppressWarnings("unchecked")
-    private OrderExpression<N> cast(OrderExpression<?> expr) {
-        return (OrderExpression<N>) expr;
+    private OrderExpression<E, N> cast(OrderExpression<?, ?> expr) {
+        return (OrderExpression<E, N>) expr;
     }
 
     public FilterExpression<E> equalTo(N value) {

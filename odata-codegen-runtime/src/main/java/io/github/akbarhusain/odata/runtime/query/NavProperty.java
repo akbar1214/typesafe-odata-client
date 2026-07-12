@@ -18,7 +18,7 @@ public class NavProperty<E, T> {
     public Class<E> getEntityType() { return entityType; }
     public Class<T> getNavType() { return navType; }
 
-    public NavQuery<T> select(PropertyExpression<?>... properties) {
+    public NavQuery<E, T> select(PropertyExpression<? super T, ?>... properties) {
         List<String> selects = new ArrayList<>();
         for (var prop : properties) {
             selects.add(prop.getEdmName());
@@ -26,11 +26,11 @@ public class NavProperty<E, T> {
         return new NavQuery<>(edmName, selects, List.of(), List.of(), null, List.of());
     }
 
-    public NavQuery<T> filter(FilterExpression<? super T> predicate) {
+    public NavQuery<E, T> filter(FilterExpression<? super T> predicate) {
         return new NavQuery<>(edmName, List.of(), List.of(predicate.toODataExpression()), List.of(), null, List.of());
     }
 
-    public NavQuery<T> orderBy(OrderExpression<?>... expressions) {
+    public NavQuery<E, T> orderBy(OrderExpression<? super T, ?>... expressions) {
         List<String> orders = new ArrayList<>();
         for (var expr : expressions) {
             orders.add(expr.getODataPath());
@@ -38,11 +38,11 @@ public class NavProperty<E, T> {
         return new NavQuery<>(edmName, List.of(), List.of(), orders, null, List.of());
     }
 
-    public NavQuery<T> top(int count) {
+    public NavQuery<E, T> top(int count) {
         return new NavQuery<>(edmName, List.of(), List.of(), List.of(), "$top=" + count, List.of());
     }
 
-    public NavQuery<T> expand(NavQuery<?>... queries) {
+    public NavQuery<E, T> expand(NavQuery<? super T, ?>... queries) {
         List<String> expands = new ArrayList<>();
         for (var q : queries) {
             expands.add(q.toODataExpand());
@@ -50,7 +50,7 @@ public class NavProperty<E, T> {
         return new NavQuery<>(edmName, List.of(), List.of(), List.of(), null, expands);
     }
 
-    public NavQuery<T> expand(NavProperty<?, ?>... properties) {
+    public NavQuery<E, T> expand(NavProperty<? super T, ?>... properties) {
         List<String> expands = new ArrayList<>();
         for (var p : properties) {
             expands.add(p.getEdmName());
@@ -58,7 +58,7 @@ public class NavProperty<E, T> {
         return new NavQuery<>(edmName, List.of(), List.of(), List.of(), null, expands);
     }
 
-    public record NavQuery<T>(
+    public record NavQuery<S, T>(
         String edmName,
         List<String> selects,
         List<String> filters,
@@ -66,7 +66,7 @@ public class NavProperty<E, T> {
         String topOption,
         List<String> expands
     ) {
-        public NavQuery<T> select(PropertyExpression<?>... properties) {
+        public NavQuery<S, T> select(PropertyExpression<? super T, ?>... properties) {
             List<String> newSelects = new ArrayList<>(this.selects);
             for (var prop : properties) {
                 newSelects.add(prop.getEdmName());
@@ -74,13 +74,13 @@ public class NavProperty<E, T> {
             return new NavQuery<>(edmName, newSelects, filters, orderings, topOption, expands);
         }
 
-        public NavQuery<T> filter(FilterExpression<? super T> predicate) {
+        public NavQuery<S, T> filter(FilterExpression<? super T> predicate) {
             List<String> newFilters = new ArrayList<>(this.filters);
             newFilters.add(predicate.toODataExpression());
             return new NavQuery<>(edmName, selects, newFilters, orderings, topOption, expands);
         }
 
-        public NavQuery<T> orderBy(OrderExpression<?>... expressions) {
+        public NavQuery<S, T> orderBy(OrderExpression<? super T, ?>... expressions) {
             List<String> newOrderings = new ArrayList<>(this.orderings);
             for (var expr : expressions) {
                 newOrderings.add(expr.getODataPath());
@@ -88,14 +88,22 @@ public class NavProperty<E, T> {
             return new NavQuery<>(edmName, selects, filters, newOrderings, topOption, expands);
         }
 
-        public NavQuery<T> top(int count) {
+        public NavQuery<S, T> top(int count) {
             return new NavQuery<>(edmName, selects, filters, orderings, "$top=" + count, expands);
         }
 
-        public NavQuery<T> expand(NavQuery<?>... queries) {
+        public NavQuery<S, T> expand(NavQuery<? super T, ?>... queries) {
             List<String> newExpands = new ArrayList<>(this.expands);
             for (var q : queries) {
                 newExpands.add(q.toODataExpand());
+            }
+            return new NavQuery<>(edmName, selects, filters, orderings, topOption, newExpands);
+        }
+
+        public NavQuery<S, T> expand(NavProperty<? super T, ?>... properties) {
+            List<String> newExpands = new ArrayList<>(this.expands);
+            for (var p : properties) {
+                newExpands.add(p.getEdmName());
             }
             return new NavQuery<>(edmName, selects, filters, orderings, topOption, newExpands);
         }

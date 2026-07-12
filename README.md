@@ -234,9 +234,10 @@ public final class Person implements ODataEntityType {
 // Collection request (type-safe query building)
 public class PersonCollectionRequest {
     public PersonCollectionRequest filter(FilterExpression<Person> predicate);
-    public PersonCollectionRequest select(PropertyExpression<?>... properties);
-    public PersonCollectionRequest expand(NavProperty<?, ?>... navs);
-    public PersonCollectionRequest expand(NavProperty.NavQuery<?>... queries);
+    public PersonCollectionRequest select(PropertyExpression<? super Person, ?>... properties);
+    public PersonCollectionRequest orderBy(OrderExpression<? super Person, ?>... expressions);
+    public PersonCollectionRequest expand(NavProperty<? super Person, ?>... navs);
+    public PersonCollectionRequest expand(NavProperty.NavQuery<? super Person, ?>... queries);
     public PersonCollectionRequest top(int count);
     public CollectionPage<Person> get();
 }

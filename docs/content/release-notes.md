@@ -20,7 +20,8 @@
 - String operations: `contains`, `startsWith`, `endsWith`, `equalTo`, `notEqualTo`
 - Arithmetic operations: `add`, `subtract`, `multiply`, `divide`, `mod`
 - **Generic `FilterExpression<E>`** — cross-entity filters are compile-time errors; base-type predicates type-check against subtypes
-- **`PropertyExpression<T>`** — unifies `$select` and `$orderby` across all property types
+- **`PropertyExpression<E, T>`** — unifies `$select` and `$orderby` across all property types; entity-scoped `E` catches cross-entity `select`/`orderBy` at compile time
+- **`NavQuery<S, T>`** — nested `$expand` options are type-checked against the source and target entity types
 
 **Inheritance (Entity + Complex Type):**
 

@@ -1,6 +1,6 @@
 package io.github.akbarhusain.odata.runtime.query;
 
-class OrderedProperty implements OrderExpression<Object> {
+class OrderedProperty implements OrderExpression<Object, Object> {
     private final String expression;
     private final boolean ascending;
     private final boolean nullsFirstValue;
@@ -30,22 +30,22 @@ class OrderedProperty implements OrderExpression<Object> {
     }
 
     @Override
-    public OrderExpression<Object> asc() {
+    public OrderExpression<Object, Object> asc() {
         return new OrderedProperty(expression, true, nullsFirstValue, nullsLastValue);
     }
 
     @Override
-    public OrderExpression<Object> desc() {
+    public OrderExpression<Object, Object> desc() {
         return new OrderedProperty(expression, false, nullsFirstValue, nullsLastValue);
     }
 
     @Override
-    public OrderExpression<Object> nullsFirst() {
+    public OrderExpression<Object, Object> nullsFirst() {
         return new OrderedProperty(expression, ascending, true, false);
     }
 
     @Override
-    public OrderExpression<Object> nullsLast() {
+    public OrderExpression<Object, Object> nullsLast() {
         return new OrderedProperty(expression, ascending, false, true);
     }
 }

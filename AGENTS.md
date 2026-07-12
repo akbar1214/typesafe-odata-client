@@ -254,17 +254,19 @@ CollectionPage<Person> people = client.people()
 - `and`/`or`/`not` stay same-type (`FilterExpression<E>`) to avoid silently widening the bound.
 - `RawFilterExpression<E>` is the record implementation; `FilterExpression.of("raw")` escapes to raw OData for advanced cases.
 
-### 17. `PropertyExpression<T>` Unifies `select` and `orderBy`
+### 17. `PropertyExpression<E, T>` Unifies `select` and `orderBy`
 
-**Decision:** Introduce `PropertyExpression<T> extends OrderExpression<T>` with `getEdmName()`, implemented by `StringProperty`, `NumberProperty`, `DateTimeProperty`, `BooleanProperty`, `EnumProperty`.
+**Decision:** Introduce `PropertyExpression<E, T> extends OrderExpression<E, T>` with `getEdmName()`, implemented by `StringProperty`, `NumberProperty`, `DateTimeProperty`, `BooleanProperty`, `EnumProperty`.
 
-**Reason:** `select(...)` previously accepted only `StringProperty`. Widening to `PropertyExpression<?>` lets any property type be selected, and gives a single source of truth for the OData property name reused by both `$select` and `$expand` nested selects. `OrderExpression.getEdmName()` (which threw) was removed from the base and now lives only on `PropertyExpression`.
+**Reason:** `select(...)` previously accepted only `StringProperty`. Widening to `PropertyExpression<?, ?>` lets any property type be selected, and gives a single source of truth for the OData property name reused by both `$select` and `$expand` nested selects. `OrderExpression.getEdmName()` (which threw) was removed from the base and now lives only on `PropertyExpression`.
+
+**Note:** `E` is the owning entity type and `T` is the property value type. This extra entity parameter lets collection-request `select()`/`orderBy()` and `NavProperty`/`NavQuery` options reject properties belonging to a different entity at compile time (see decision 27).
 
 ### 18. Nested `$expand` Options via `NavQuery`
 
-**Decision:** `NavProperty` gains `select()`/`orderBy()`/`filter()`/`top()` methods returning a `NavQuery<T>` record; `expand()` accepts either `NavProperty<?, ?>` or `NavQuery<?>`.
+**Decision:** `NavProperty<E, T>` gains `select()`/`orderBy()`/`filter()`/`top()` methods returning a `NavQuery<E, T>` record; `expand()` accepts either `NavProperty<? super E, ?>` or `NavQuery<? super E, ?>`.
 
-**Reason:** OData allows `$expand=Trips($select=...;$filter=...;$top=...;$orderby=...)`. Exposing `NavQuery` lets users nest those options type-safely on the navigation target without string concatenation. `NavQuery.toODataExpand()` renders the full `Trips(...)` clause; `RequestGenerator` appends it to the `$expand` query option.
+**Reason:** OData allows `$expand=Trips($select=...;$filter=...;$top=...;$orderby=...)`. Exposing `NavQuery` lets users nest those options type-safely on the navigation target without string concatenation. `NavQuery<S, T>` carries both the source entity `S` (for type-checking in collection-request `expand`) and the target entity `T` (for type-checking nested `select`/`orderBy`/`filter`), and `NavQuery.toODataExpand()` renders the full `Trips(...)` clause. `RequestGenerator` appends it to the `$expand` query option.
 
 ### 19. Complex-Type Inheritance Generation
 
@@ -387,6 +389,23 @@ BatchResponse response = context.batch()
 - Applied in `EntityGenerator.navGetterName()` and `ComplexTypeGenerator.navGetterName()`
 - 3 new tests in `NavReservedWordTest`
 
+### 27. Narrowed `select`/`orderBy`/`expand` Type Bounds
+
+**Decision:** Generated collection-request `select()`, `orderBy()`, and `expand()` methods use `? super E` bounds so only properties/navigations belonging to the entity (or its base types) are accepted. `PropertyExpression<E, T>` and `OrderExpression<E, T>` carry the owning entity type `E`; `NavQuery<S, T>` carries both source `S` and target `T`.
+
+**Reason:** `filter()` was already type-safe (`FilterExpression<? super E>`), but `select()`/`orderBy()`/`expand()` accepted any `PropertyExpression`/`NavProperty`. This allowed clearly wrong code like `client.people().select(Trip.NAME)` or `client.people().expand(Trip.FLIGHTS)` to compile. Adding the entity type parameter catches cross-entity mistakes at compile time while preserving inheritance: a base-type property is accepted on a subtype collection because `PropertyExpression<PlanItem, ?>` satisfies `PropertyExpression<? super Flight, ?>`.
+
+**Implementation:**
+- `OrderExpression<E, T>` and `PropertyExpression<E, T>` updated to expose the owning entity type.
+- `StringProperty<E>`, `NumberProperty<E, N>`, `BooleanProperty<E>`, `DateTimeProperty<E>`, `EnumProperty<E, V>` implement the two-parameter interfaces.
+- `NavProperty<E, T>` and `NavQuery<S, T>` use `PropertyExpression<? super T, ?>`, `OrderExpression<? super T, ?>`, and `NavProperty<? super T, ?>` for nested options.
+- `RequestGenerator` emits:
+  - `select(PropertyExpression<? super E, ?>...)`
+  - `orderBy(OrderExpression<? super E, ?>...)`
+  - `expand(NavProperty<? super E, ?>...)`
+  - `expand(NavProperty.NavQuery<? super E, ?>...)`
+- 6 new tests: `RequestGeneratorNarrowQueryTest` (5, content assertions) + `QueryTypeSafetyCompilationTest` (1, negative compile test proving cross-entity usage fails).
+
 ---
 
 ## Architecture
@@ -426,12 +445,13 @@ Run `mvn test` from the repo root. All modules build in one reactor; the runtime
 - **Entity generator unit tests:** Composite-key `getKey()`, collection getter emission (`EntityGeneratorCompositeKeyTest` 1, `EntityGeneratorCollectionGetterTest` 2)
 - **Complex type generator unit tests:** Complex-type inheritance — `EventLocation extends Location`, `with*` + Builder generation (`ComplexTypeGeneratorInheritanceTest` 3, `ComplexTypeGeneratorCollectionEnumTest` 4)
 - **Entity generator abstract-type unit tests:** Abstract entity generation — abstract base declares no `with*()`, concrete subtype extends it + has `with*()`, and the pair compiles (`EntityGeneratorAbstractTest` 3)
-- **Request generator tests:** Media-stream, `$apply` expression, composite-key (`RequestGeneratorMediaTest` 3, `RequestGeneratorApplyTest` 3, `RequestGeneratorKeyTest` 2)
+- **Request generator tests:** Media-stream, `$apply` expression, composite-key, narrowed query bounds (`RequestGeneratorMediaTest` 3, `RequestGeneratorApplyTest` 3, `RequestGeneratorKeyTest` 2, `RequestGeneratorNarrowQueryTest` 5)
 - **Open-type generator tests:** Generated entity/complex-type captures undeclared JSON fields into `unmappedFields`; open subtype of non-open base captures via inherited root map; non-open complex type doesn't reference unmappedFields (`OpenTypeGeneratorTest` 6)
 - **Runtime tests:** 173 (live TripPin & Northwind integration, query expression, context path, batch, exceptions, transport, **media `$value` stream/put via mock transport** — `EntityOperationsMediaTest` 3, **`$apply` builder** — `ApplyExpressionTest` 8, **collection parse** — `EntityOperationsCollectionParseTest` 6, **batch changeset encode/decode/round-trip** — `MultipartHelperTest` 14, `BatchRequestTest` 10)
 - **Generated client tests (92):** `NorthwindGeneratedClientTest` (24), `ODataDemoGeneratedClientTest` (23, exercises `FeaturedProduct extends Product`, `Customer`/`Employee extends Person`, `Event`/`PlanItem`), `TripPinGeneratedClientTest` (24, exercises `Flight`/`PublicTransportation`/`PlanItem` hierarchy, type-safe + nested `$expand` with materialized getters), `TripPinInheritanceTest` (11, exercises generated **complex-type** inheritance `EventLocation`/`AirportLocation extends Location` + **entity** inheritance `Flight → PublicTransportation → PlanItem`, `Event → PlanItem`: `instanceof`/polymorphic assignment, subtype `with*` copy-on-write preserving inherited fields, base `builder()` scoping, live `AirportLocation` deserialization), `ODataDemoMediaTest` (2, live media streams: `Advertisement` `HasStream` via `streamMedia()` at `.../Advertisements(id)/$value`, `PersonDetail.Photo` `Edm.Stream` named stream via `streamPhoto()` at `.../PersonDetails(id)/Photo`), `OpenTypeDynamicPropertyTest` (8, deserialization captures dynamic props into `unmappedFields`/`getDynamicProperty`, typed `getDynamicProperty(String, Class)` coercion to a POJO/number, round-trips on serialize, filters `@odata.*` control fields)
 - **Generator unit tests (16 new):** `WideEntityGeneratorTest` 8 (wide-entity `@JsonAnySetter` switch, mutable lifecycle fields, no-args constructor), `WithMethodCopyOnWriteTest` 5 (copy-on-write defensive copying of collections and unmappedFields), `NavReservedWordTest` 3 (nav getter/with-method sanitization for `class` and other Object-method collisions)
-- **Total: 369 tests passing** (106 core + 173 runtime + 5 maven + 92 test module)
+- **Query type-safety tests:** `QueryTypeSafetyCompilationTest` 1 (negative compile test proving cross-entity `select`/`orderBy`/`expand` fails)
+- **Total: 382 tests passing** (112 core + 173 runtime + 5 maven + 92 test module)
 - **Future:** Cancellable streaming, Content-ID resolution in changesets
 
 ---

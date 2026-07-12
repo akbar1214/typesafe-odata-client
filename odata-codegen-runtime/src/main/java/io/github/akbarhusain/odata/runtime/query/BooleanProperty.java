@@ -1,6 +1,6 @@
 package io.github.akbarhusain.odata.runtime.query;
 
-public final class BooleanProperty<E> implements PropertyExpression<Boolean> {
+public final class BooleanProperty<E> implements PropertyExpression<E, Boolean> {
     private final String edmName;
     private final Class<E> entityType;
 
@@ -19,20 +19,20 @@ public final class BooleanProperty<E> implements PropertyExpression<Boolean> {
     public String getODataPath() { return edmName; }
 
     @Override
-    public OrderExpression<Boolean> asc() { return cast(new OrderedProperty(edmName, true)); }
+    public OrderExpression<E, Boolean> asc() { return cast(new OrderedProperty(edmName, true)); }
 
     @Override
-    public OrderExpression<Boolean> desc() { return cast(new OrderedProperty(edmName, false)); }
+    public OrderExpression<E, Boolean> desc() { return cast(new OrderedProperty(edmName, false)); }
 
     @Override
-    public OrderExpression<Boolean> nullsFirst() { return cast(new OrderedProperty(edmName, true, true, false)); }
+    public OrderExpression<E, Boolean> nullsFirst() { return cast(new OrderedProperty(edmName, true, true, false)); }
 
     @Override
-    public OrderExpression<Boolean> nullsLast() { return cast(new OrderedProperty(edmName, true, false, true)); }
+    public OrderExpression<E, Boolean> nullsLast() { return cast(new OrderedProperty(edmName, true, false, true)); }
 
     @SuppressWarnings("unchecked")
-    private OrderExpression<Boolean> cast(OrderExpression<?> expr) {
-        return (OrderExpression<Boolean>) expr;
+    private OrderExpression<E, Boolean> cast(OrderExpression<?, ?> expr) {
+        return (OrderExpression<E, Boolean>) expr;
     }
 
     public FilterExpression<E> equalTo(boolean value) {

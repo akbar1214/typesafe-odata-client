@@ -38,7 +38,7 @@ public final class ApplyBuilder implements ApplyExpression {
         return this;
     }
 
-    public ApplyBuilder groupBy(PropertyExpression<?>... properties) {
+    public ApplyBuilder groupBy(PropertyExpression<?, ?>... properties) {
         StringBuilder sb = new StringBuilder("groupby((");
         for (int i = 0; i < properties.length; i++) {
             if (i > 0) sb.append(", ");

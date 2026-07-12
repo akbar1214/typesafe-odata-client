@@ -118,13 +118,13 @@ class StringPropertyTest {
 
     @Test
     void asc() {
-        OrderExpression<String> ordered = name.asc();
+        OrderExpression<Object, String> ordered = name.asc();
         assertEquals("Name", ordered.getODataPath());
     }
 
     @Test
     void desc() {
-        OrderExpression<String> ordered = name.desc();
+        OrderExpression<Object, String> ordered = name.desc();
         assertEquals("Name desc", ordered.getODataPath());
     }
 

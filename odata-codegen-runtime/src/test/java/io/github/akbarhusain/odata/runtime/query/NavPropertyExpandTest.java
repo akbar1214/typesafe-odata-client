@@ -15,7 +15,7 @@ class NavPropertyExpandTest {
     @Test
     void navQuerySimple() {
         NavProperty<Object, Object> nav = new NavProperty<>("Trips", Object.class, Object.class);
-        NavProperty.NavQuery<Object> query = nav.select();
+        NavProperty.NavQuery<Object, Object> query = nav.select();
         assertEquals("Trips", query.toODataExpand());
     }
 
@@ -24,7 +24,7 @@ class NavPropertyExpandTest {
         NavProperty<Object, Object> nav = new NavProperty<>("Trips", Object.class, Object.class);
         StringProperty<Object> name = new StringProperty<>("Name", null);
         StringProperty<Object> budget = new StringProperty<>("Budget", null);
-        NavProperty.NavQuery<Object> query = nav.select(name, budget);
+        NavProperty.NavQuery<Object, Object> query = nav.select(name, budget);
         assertEquals("Trips($select=Name,Budget)", query.toODataExpand());
     }
 
@@ -32,7 +32,7 @@ class NavPropertyExpandTest {
     void navQueryWithFilter() {
         NavProperty<Object, Object> nav = new NavProperty<>("Trips", Object.class, Object.class);
         NumberProperty<Object, Integer> budget = new NumberProperty<>("Budget", null);
-        NavProperty.NavQuery<Object> query = nav.filter(budget.greaterThan(5000));
+        NavProperty.NavQuery<Object, Object> query = nav.filter(budget.greaterThan(5000));
         assertEquals("Trips($filter=Budget gt 5000)", query.toODataExpand());
     }
 
@@ -40,14 +40,14 @@ class NavPropertyExpandTest {
     void navQueryWithOrderBy() {
         NavProperty<Object, Object> nav = new NavProperty<>("Trips", Object.class, Object.class);
         StringProperty<Object> name = new StringProperty<>("Name", null);
-        NavProperty.NavQuery<Object> query = nav.orderBy(name);
+        NavProperty.NavQuery<Object, Object> query = nav.orderBy(name);
         assertEquals("Trips($orderby=Name)", query.toODataExpand());
     }
 
     @Test
     void navQueryWithTop() {
         NavProperty<Object, Object> nav = new NavProperty<>("Trips", Object.class, Object.class);
-        NavProperty.NavQuery<Object> query = nav.top(5);
+        NavProperty.NavQuery<Object, Object> query = nav.top(5);
         assertEquals("Trips($top=5)", query.toODataExpand());
     }
 
@@ -57,7 +57,7 @@ class NavPropertyExpandTest {
         StringProperty<Object> name = new StringProperty<>("Name", null);
         NumberProperty<Object, Integer> budget = new NumberProperty<>("Budget", null);
 
-        NavProperty.NavQuery<Object> query = nav.select(name)
+        NavProperty.NavQuery<Object, Object> query = nav.select(name)
                 .filter(budget.greaterThan(5000))
                 .orderBy(name)
                 .top(5);
@@ -71,7 +71,7 @@ class NavPropertyExpandTest {
         assertEquals(Object.class, col.getEntityType());
         assertEquals(Object.class, col.getElementType());
 
-        NavProperty.NavQuery<Object> query = col.select();
+        NavProperty.NavQuery<Object, Object> query = col.select();
         assertEquals("Friends", query.toODataExpand());
     }
 
@@ -79,7 +79,7 @@ class NavPropertyExpandTest {
     void collectionPropertyExpandWithSelect() {
         CollectionProperty<Object, Object> col = new CollectionProperty<>("Friends", Object.class, Object.class);
         StringProperty<Object> firstName = new StringProperty<>("FirstName", null);
-        NavProperty.NavQuery<Object> query = col.select(firstName);
+        NavProperty.NavQuery<Object, Object> query = col.select(firstName);
         assertEquals("Friends($select=FirstName)", query.toODataExpand());
     }
 
@@ -88,7 +88,7 @@ class NavPropertyExpandTest {
         NavProperty<Object, Object> nav = new NavProperty<>("Trips", Object.class, Object.class);
         StringProperty<Object> name = new StringProperty<>("Name", null);
         // desc() returns an OrderExpression whose getODataPath() already includes " desc"
-        NavProperty.NavQuery<Object> query = nav.orderBy(name.desc());
+        NavProperty.NavQuery<Object, Object> query = nav.orderBy(name.desc());
         assertEquals("Trips($orderby=Name desc)", query.toODataExpand());
     }
 
@@ -97,7 +97,7 @@ class NavPropertyExpandTest {
         NavProperty<Object, Object> nav = new NavProperty<>("Trips", Object.class, Object.class);
         StringProperty<Object> name = new StringProperty<>("Name", null);
         // NavQuery.orderBy() should produce the same output as NavProperty.orderBy()
-        NavProperty.NavQuery<Object> query = nav.select().orderBy(name.desc());
+        NavProperty.NavQuery<Object, Object> query = nav.select().orderBy(name.desc());
         assertEquals("Trips($orderby=Name desc)", query.toODataExpand());
     }
 
@@ -105,7 +105,7 @@ class NavPropertyExpandTest {
     void navPropertyExpandWithNestedNavProperty() {
         NavProperty<Object, Object> trips = new NavProperty<>("Trips", Object.class, Object.class);
         NavProperty<Object, Object> planItems = new NavProperty<>("PlanItems", Object.class, Object.class);
-        NavProperty.NavQuery<Object> query = trips.expand(planItems);
+        NavProperty.NavQuery<Object, Object> query = trips.expand(planItems);
         assertEquals("Trips($expand=PlanItems)", query.toODataExpand());
     }
 
@@ -113,7 +113,7 @@ class NavPropertyExpandTest {
     void navPropertyExpandWithNestedNavQuery() {
         NavProperty<Object, Object> trips = new NavProperty<>("Trips", Object.class, Object.class);
         NavProperty<Object, Object> planItems = new NavProperty<>("PlanItems", Object.class, Object.class);
-        NavProperty.NavQuery<Object> query = trips.expand(planItems.select());
+        NavProperty.NavQuery<Object, Object> query = trips.expand(planItems.select());
         assertEquals("Trips($expand=PlanItems)", query.toODataExpand());
     }
 
@@ -122,7 +122,7 @@ class NavPropertyExpandTest {
         NavProperty<Object, Object> trips = new NavProperty<>("Trips", Object.class, Object.class);
         NavProperty<Object, Object> planItems = new NavProperty<>("PlanItems", Object.class, Object.class);
         StringProperty<Object> name = new StringProperty<>("Name", null);
-        NavProperty.NavQuery<Object> query = trips.select(name)
+        NavProperty.NavQuery<Object, Object> query = trips.select(name)
                 .expand(planItems.select());
         assertEquals("Trips($select=Name;$expand=PlanItems)", query.toODataExpand());
     }
@@ -132,7 +132,7 @@ class NavPropertyExpandTest {
         NavProperty<Object, Object> trips = new NavProperty<>("Trips", Object.class, Object.class);
         NavProperty<Object, Object> planItems = new NavProperty<>("PlanItems", Object.class, Object.class);
         NavProperty<Object, Object> airline = new NavProperty<>("Airline", Object.class, Object.class);
-        NavProperty.NavQuery<Object> query = trips.expand(planItems.select(), airline.select());
+        NavProperty.NavQuery<Object, Object> query = trips.expand(planItems.select(), airline.select());
         assertEquals("Trips($expand=PlanItems,Airline)", query.toODataExpand());
     }
 
@@ -141,7 +141,7 @@ class NavPropertyExpandTest {
         NavProperty<Object, Object> people = new NavProperty<>("People", Object.class, Object.class);
         NavProperty<Object, Object> trips = new NavProperty<>("Trips", Object.class, Object.class);
         NavProperty<Object, Object> planItems = new NavProperty<>("PlanItems", Object.class, Object.class);
-        NavProperty.NavQuery<Object> query = people.expand(
+        NavProperty.NavQuery<Object, Object> query = people.expand(
                 trips.expand(planItems.select()));
         assertEquals("People($expand=Trips($expand=PlanItems))", query.toODataExpand());
     }
@@ -152,7 +152,7 @@ class NavPropertyExpandTest {
         NavProperty<Object, Object> trips = new NavProperty<>("Trips", Object.class, Object.class);
         NavProperty<Object, Object> planItems = new NavProperty<>("PlanItems", Object.class, Object.class);
         StringProperty<Object> name = new StringProperty<>("Name", null);
-        NavProperty.NavQuery<Object> query = people
+        NavProperty.NavQuery<Object, Object> query = people
                 .expand(trips.select(name).expand(planItems.select(name)));
         assertEquals("People($expand=Trips($select=Name;$expand=PlanItems($select=Name)))",
                 query.toODataExpand());

@@ -1,6 +1,6 @@
 package io.github.akbarhusain.odata.runtime.query;
 
-public final class EnumProperty<E, V extends Enum<V>> implements PropertyExpression<V> {
+public final class EnumProperty<E, V extends Enum<V>> implements PropertyExpression<E, V> {
     private final String edmName;
     private final Class<E> entityType;
     private final Class<V> enumType;
@@ -29,16 +29,16 @@ public final class EnumProperty<E, V extends Enum<V>> implements PropertyExpress
     public String getODataPath() { return edmName; }
 
     @Override
-    public OrderExpression<V> asc() { return cast(new OrderedProperty(edmName, true)); }
+    public OrderExpression<E, V> asc() { return cast(new OrderedProperty(edmName, true)); }
 
     @Override
-    public OrderExpression<V> desc() { return cast(new OrderedProperty(edmName, false)); }
+    public OrderExpression<E, V> desc() { return cast(new OrderedProperty(edmName, false)); }
 
     @Override
-    public OrderExpression<V> nullsFirst() { return cast(new OrderedProperty(edmName, true, true, false)); }
+    public OrderExpression<E, V> nullsFirst() { return cast(new OrderedProperty(edmName, true, true, false)); }
 
     @Override
-    public OrderExpression<V> nullsLast() { return cast(new OrderedProperty(edmName, true, false, true)); }
+    public OrderExpression<E, V> nullsLast() { return cast(new OrderedProperty(edmName, true, false, true)); }
 
     public FilterExpression<E> equalTo(V value) {
         return new RawFilterExpression(edmName + " eq " + getODataEnumName(value));
@@ -62,7 +62,7 @@ public final class EnumProperty<E, V extends Enum<V>> implements PropertyExpress
     }
 
     @SuppressWarnings("unchecked")
-    private OrderExpression<V> cast(OrderExpression<?> expr) {
-        return (OrderExpression<V>) expr;
+    private OrderExpression<E, V> cast(OrderExpression<?, ?> expr) {
+        return (OrderExpression<E, V>) expr;
     }
 }
