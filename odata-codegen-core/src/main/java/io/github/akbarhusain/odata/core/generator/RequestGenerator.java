@@ -75,8 +75,8 @@ public class RequestGenerator {
         sb.append("\n");
 
         sb.append("public class ").append(className).append(" {\n\n");
-        sb.append("    protected final Context context;\n");
-        sb.append("    protected final ContextPath contextPath;\n\n");
+        sb.append("    private final Context context;\n");
+        sb.append("    private final ContextPath contextPath;\n\n");
         sb.append("    public ").append(className).append("(Context context, ContextPath contextPath) {\n");
         sb.append("        this.context = context;\n");
         sb.append("        this.contextPath = contextPath;\n");

@@ -547,14 +547,17 @@ Making the operators null-safe is the least surprising choice and keeps users fr
 
 **Tests:** `TripPinGeneratedClientTest.createAndDeletePerson` now creates and deletes a real Person without a catch block; full reactor (450 tests) verifies no regressions.
 
-### 36. `@SafeVarargs` on Generated Varargs Query Methods
+### 36. `@SafeVarargs` and Private Request State
 
-**Decision:** Generated collection-request varargs methods (`select`, `expand`, `orderBy`) are annotated with `@SafeVarargs` and declared `public final` to suppress the compiler warning "Possible heap pollution from parameterized vararg type".
+**Decision:** Generated request classes are `final`, their `context`/`contextPath` fields are `private final`, and the varargs query methods are `public final` with `@SafeVarargs`.
 
-**Reason:** The type-safe query API uses bounded wildcard varargs such as `PropertyExpression<? super E, ?>...`. Java warns about heap pollution for any parameterized vararg unless the method is `final` and the author asserts safety with `@SafeVarargs`.
+**Reason:** 
+- The type-safe query API uses bounded wildcard varargs such as `PropertyExpression<? super E, ?>...`. Java warns about heap pollution for any parameterized vararg unless the method is `final` and the author asserts safety with `@SafeVarargs`.
+- `context` and `contextPath` are internal request state; exposing them as `protected` leaks implementation details and invites subclass coupling. Generated request classes are not designed for inheritance.
 
 **Approach:**
 - Changed generated collection-request classes from `public class` to `public final class`.
+- Changed `context` and `contextPath` fields from `protected final` to `private final` in both collection and entity request generation.
 - Declared the four varargs methods (`select`, `expand(NavProperty...)`, `expand(NavQuery...)`, `orderBy`) as `public final`.
 - Added `@SafeVarargs` to each of them.
 
