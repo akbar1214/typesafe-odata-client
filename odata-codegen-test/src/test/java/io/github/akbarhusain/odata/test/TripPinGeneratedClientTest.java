@@ -200,21 +200,15 @@ class TripPinGeneratedClientTest {
                 .build();
 
         ContextPath path = context.basePath().addSegment("People");
-        try {
-            EntityOperations.executePostEntity(context, path, newPerson, Person.class);
+        EntityOperations.executePostEntity(context, path, newPerson, Person.class);
 
-            Person created = client.people().personByUserName(testUserName).get();
-            assertNotNull(created);
-            assertEquals(testUserName, created.getUserName());
-            assertEquals("Test", created.getFirstName());
+        Person created = client.people().personByUserName(testUserName).get();
+        assertNotNull(created);
+        assertEquals(testUserName, created.getUserName());
+        assertEquals("Test", created.getFirstName());
 
-            String etag = created.getETag().orElse(null);
-            client.people().personByUserName(testUserName).deleteWithETag(etag);
-        } catch (io.github.akbarhusain.odata.runtime.exception.ODataException e) {
-            // TripPin may reject due to strict field validation
-            // The important thing is that the generated client API compiles and runs
-            System.out.println("TripPin rejected create: " + e.getMessage());
-        }
+        String etag = created.getETag().orElse(null);
+        client.people().personByUserName(testUserName).deleteWithETag(etag);
     }
 
     @Test

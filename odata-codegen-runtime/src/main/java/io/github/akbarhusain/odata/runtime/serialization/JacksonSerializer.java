@@ -18,19 +18,30 @@ public class JacksonSerializer implements Serializer {
     private static final ObjectMapper MAPPER_PRETTY = createMapperPretty();
 
     private static ObjectMapper createMapper() {
-        return baseMapper()
-                .setSerializationInclusion(JsonInclude.Include.NON_NULL);
+        return configureCollectionInclusion(baseMapper()
+                .setSerializationInclusion(JsonInclude.Include.NON_ABSENT));
     }
 
     private static ObjectMapper createMapperIncludeNulls() {
-        return baseMapper()
-                .setSerializationInclusion(JsonInclude.Include.ALWAYS);
+        return configureCollectionInclusion(baseMapper()
+                .setSerializationInclusion(JsonInclude.Include.ALWAYS));
     }
 
     private static ObjectMapper createMapperPretty() {
-        return baseMapper()
-                .setSerializationInclusion(JsonInclude.Include.NON_NULL)
-                .enable(SerializationFeature.INDENT_OUTPUT);
+        return configureCollectionInclusion(baseMapper()
+                .setSerializationInclusion(JsonInclude.Include.NON_ABSENT)
+                .enable(SerializationFeature.INDENT_OUTPUT));
+    }
+
+    private static ObjectMapper configureCollectionInclusion(ObjectMapper mapper) {
+        // Empty collections (e.g. navigation properties set to List.of()) should not be
+        // serialized. Real services like TripPin reject POST bodies containing empty
+        // navigation arrays with a 500 "Sequence contains no matching element" error.
+        JsonInclude.Value nonEmpty = JsonInclude.Value.construct(JsonInclude.Include.NON_EMPTY, JsonInclude.Include.USE_DEFAULTS);
+        mapper.configOverride(java.util.Collection.class).setInclude(nonEmpty);
+        mapper.configOverride(java.util.List.class).setInclude(nonEmpty);
+        mapper.configOverride(java.util.Set.class).setInclude(nonEmpty);
+        return mapper;
     }
 
     private static ObjectMapper baseMapper() {

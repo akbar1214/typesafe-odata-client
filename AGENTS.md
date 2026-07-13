@@ -520,6 +520,33 @@ Making the operators null-safe is the least surprising choice and keeps users fr
 
 **Tests:** `StringPropertyTest` (5), `DateTimePropertyTest` (8), `NumberExpressionTest` (1), `CollectionPropertyTest` (3).
 
+### 35. Serialization Excludes Lifecycle Metadata and Empty Collections
+
+**Decision:** The default Jackson serializer omits `null`/empty `Optional` values, lifecycle metadata (`changedFields`, `key`, `etag`, `unmappedFields`, `contextPath`), and empty collections from serialized entity/complex-type bodies.
+
+**Reason:** The initial serializer produced POST/PATCH bodies like:
+```json
+{
+  "changedFields": ["UserName", ...],
+  "key": "testuser",
+  "Photo": null,
+  "@odata.etag": null,
+  "Friends": [],
+  "Trips": []
+}
+```
+- `@odata.etag: null` caused TripPin to reject the request: "The 'odata.etag' instance or property annotation has a null value."
+- Empty navigation arrays (`Friends: []`, `Trips: []`) caused TripPin to fail with "Sequence contains no matching element" while trying to resolve navigation links.
+- `changedFields` and `key` are client-side bookkeeping, not OData payload properties.
+
+**Approach:**
+- Added `@JsonIgnore` to `ODataType` and `ODataEntityType` interface methods (`getUnmappedFields`, `getContextPath`, `getChangedFields`, `getKey`, `getETag`) so Jackson never treats them as serializable properties.
+- Changed the default `ObjectMapper` serialization inclusion from `NON_NULL` to `NON_ABSENT` so empty `Optional` values (e.g. unset nullable nav properties) are omitted.
+- Added type-config overrides for `Collection`, `List`, and `Set` with `NON_EMPTY` so empty collections are omitted while empty strings and zero numbers are still serialized.
+- Kept `serializeIncludeNulls()` with `ALWAYS` for callers that explicitly need nulls.
+
+**Tests:** `TripPinGeneratedClientTest.createAndDeletePerson` now creates and deletes a real Person without a catch block; full reactor (450 tests) verifies no regressions.
+
 ---
 
 ## Architecture
