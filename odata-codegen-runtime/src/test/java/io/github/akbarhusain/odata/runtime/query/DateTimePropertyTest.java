@@ -25,4 +25,52 @@ class DateTimePropertyTest {
         FilterExpression<Object> expr = created.notEqualTo(null);
         assertEquals("Created ne null", expr.toODataExpression());
     }
+
+    @Test
+    void year() {
+        NumberExpression<Integer, Object> expr = created.year();
+        assertEquals("year(Created)", expr.toODataExpression());
+    }
+
+    @Test
+    void month() {
+        NumberExpression<Integer, Object> expr = created.month();
+        assertEquals("month(Created)", expr.toODataExpression());
+    }
+
+    @Test
+    void day() {
+        NumberExpression<Integer, Object> expr = created.day();
+        assertEquals("day(Created)", expr.toODataExpression());
+    }
+
+    @Test
+    void hour() {
+        NumberExpression<Integer, Object> expr = created.hour();
+        assertEquals("hour(Created)", expr.toODataExpression());
+    }
+
+    @Test
+    void minute() {
+        NumberExpression<Integer, Object> expr = created.minute();
+        assertEquals("minute(Created)", expr.toODataExpression());
+    }
+
+    @Test
+    void second() {
+        NumberExpression<Integer, Object> expr = created.second();
+        assertEquals("second(Created)", expr.toODataExpression());
+    }
+
+    @Test
+    void date() {
+        DateTimeProperty<Object> expr = created.date();
+        assertEquals("date(Created)", expr.toODataExpression());
+    }
+
+    @Test
+    void time() {
+        DateTimeProperty<Object> expr = created.time();
+        assertEquals("time(Created)", expr.toODataExpression());
+    }
 }

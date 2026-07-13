@@ -36,6 +36,28 @@ public final class CollectionProperty<E, T, F> extends NavProperty<E, T> {
         return new RawFilterExpression<>(edmName + "/all(x: " + result.toODataExpression() + ")");
     }
 
+    public FilterExpression<E> contains(T value) {
+        return new RawFilterExpression<>("contains(" + edmName + "," + formatElement(value) + ")");
+    }
+
+    public NumberExpression<Integer, E> length() {
+        return new NumberExpression<>("length(" + edmName + ")", entityType);
+    }
+
+    @SuppressWarnings("unchecked")
+    private String formatElement(T value) {
+        if (value == null) {
+            return "null";
+        }
+        if (elementType != null && CharSequence.class.isAssignableFrom(elementType)) {
+            return "'" + String.valueOf(value).replace("'", "''") + "'";
+        }
+        if (value instanceof String) {
+            return "'" + String.valueOf(value).replace("'", "''") + "'";
+        }
+        return String.valueOf(value);
+    }
+
     /**
      * Stringly-typed filterable element for primitive collection types (e.g. {@code Collection(Edm.String)}).
      * Entity and complex-type collections should use the generated per-type {@code Filterable} class instead.

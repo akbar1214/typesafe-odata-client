@@ -81,4 +81,37 @@ public final class DateTimeProperty<E> implements PropertyExpression<E, String> 
     public FilterExpression<E> isNotNull() {
         return new RawFilterExpression(edmName + " ne null");
     }
+
+    // Date/time extraction functions
+    public NumberExpression<Integer, E> year() {
+        return new NumberExpression<>("year(" + edmName + ")", entityType);
+    }
+
+    public NumberExpression<Integer, E> month() {
+        return new NumberExpression<>("month(" + edmName + ")", entityType);
+    }
+
+    public NumberExpression<Integer, E> day() {
+        return new NumberExpression<>("day(" + edmName + ")", entityType);
+    }
+
+    public NumberExpression<Integer, E> hour() {
+        return new NumberExpression<>("hour(" + edmName + ")", entityType);
+    }
+
+    public NumberExpression<Integer, E> minute() {
+        return new NumberExpression<>("minute(" + edmName + ")", entityType);
+    }
+
+    public NumberExpression<Integer, E> second() {
+        return new NumberExpression<>("second(" + edmName + ")", entityType);
+    }
+
+    public DateTimeProperty<E> date() {
+        return new DateTimeProperty<>("date(" + edmName + ")", entityType);
+    }
+
+    public DateTimeProperty<E> time() {
+        return new DateTimeProperty<>("time(" + edmName + ")", entityType);
+    }
 }

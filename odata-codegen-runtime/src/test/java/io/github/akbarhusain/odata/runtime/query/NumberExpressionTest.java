@@ -79,4 +79,10 @@ class NumberExpressionTest {
         FilterExpression<Object> expr = price.notEqualTo(null);
         assertEquals("Price ne null", expr.toODataExpression());
     }
+
+    @Test
+    void negate() {
+        NumberExpression<Double, Object> expr = price.negate();
+        assertEquals("(-Price)", expr.toODataExpression());
+    }
 }

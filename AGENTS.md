@@ -484,7 +484,7 @@ Keeping two copies made bug fixes and consistency work (e.g., reserved-word sani
 - New: `odata-codegen-core/.../generator/AbstractTypeGenerator.java`
 - Modified: `odata-codegen-core/.../generator/EntityGenerator.java`, `ComplexTypeGenerator.java`
 
-**Tests:** Full `odata-codegen-core` test suite (122 tests) plus the cross-module reactor (433 tests) verifies generated output is byte-identical.
+**Tests:** Full `odata-codegen-core` test suite (122 tests) plus the cross-module reactor (450 tests) verifies generated output is byte-identical.
 
 ### 33. Null-Safe Property Comparison Operators
 
@@ -504,6 +504,21 @@ Making the operators null-safe is the least surprising choice and keeps users fr
 - Comparison operators (`greaterThan`, etc.) are left unchanged; passing `null` to those is a programming error and should be caught early.
 
 **Tests:** `StringPropertyTest`, `NumberExpressionTest`, `DateTimePropertyTest`, `BooleanPropertyTest`, `EnumPropertyTest` — 2 null-handling tests each.
+
+### 34. Query API Completeness
+
+**Decision:** Implement documented query methods that were missing from the runtime rather than trimming the docs.
+
+**Reason:** The documentation already described several operations (`StringProperty.equalToIgnoreCase`, `DateTimeProperty.year`, `NumberExpression.negate`, `CollectionProperty.contains`, etc.) but the runtime did not expose them. Trimming the docs would reduce API surface; implementing them makes the typed query API feel complete and consistent.
+
+**Approach:**
+- `StringProperty`: added `equalToIgnoreCase(String)`, `notEqualToIgnoreCase(String)` (null-safe), `concat(String)`, and `concat(StringProperty<E>)`.
+- `DateTimeProperty`: added `year()`, `month()`, `day()`, `hour()`, `minute()`, `second()` returning `NumberExpression<Integer, E>`, plus `date()` and `time()` returning `DateTimeProperty<E>`.
+- `NumberExpression`: added `negate()` returning `NumberExpression<N, E>`.
+- `BooleanProperty`: `notEqualTo(boolean)` / `notEqualTo(Boolean)` were already added for null handling (#3).
+- `CollectionProperty`: added `contains(T value)` with type-aware string quoting and `length()` returning `NumberExpression<Integer, E>`.
+
+**Tests:** `StringPropertyTest` (5), `DateTimePropertyTest` (8), `NumberExpressionTest` (1), `CollectionPropertyTest` (3).
 
 ---
 
@@ -542,11 +557,11 @@ Run `mvn test` from the repo root. All modules build in one reactor; the runtime
 - **Entity generator abstract-type unit tests:** Abstract entity generation — abstract base declares no `with*()`, concrete subtype extends it + has `with*()`, and the pair compiles (`EntityGeneratorAbstractTest` 3)
 - **Request generator tests:** Media-stream, `$apply` expression, composite-key, narrowed query bounds, pagination helpers (`RequestGeneratorMediaTest` 3, `RequestGeneratorApplyTest` 3, `RequestGeneratorKeyTest` 2, `RequestGeneratorNarrowQueryTest` 5, `RequestGeneratorPaginationTest` 4)
 - **Open-type generator tests:** Generated entity/complex-type captures undeclared JSON fields into `unmappedFields`; open subtype of non-open base captures via inherited root map; non-open complex type doesn't reference unmappedFields (`OpenTypeGeneratorTest` 6)
-- **Runtime tests:** 209 (live TripPin & Northwind integration, query expression, context path, batch, exceptions, transport, **media `$value` stream/put via mock transport** — `EntityOperationsMediaTest` 3, **`$apply` builder** — `ApplyExpressionTest` 8, **collection parse** — `EntityOperationsCollectionParseTest` 6, **batch changeset encode/decode/round-trip** — `MultipartHelperTest` 14, `BatchRequestTest` 10, **typed collection lambdas** — `CollectionPropertyTypedLambdaTest` 2, **count endpoint** — `EntityOperationsCountTest` 4, **ContextPath next-link/count-segment** — `ContextPathTest` additions 7, **structured OData error in exceptions** — `ODataExceptionTest` 14, **null-safe property comparisons** — `StringPropertyTest`/`NumberExpressionTest`/`DateTimePropertyTest`/`BooleanPropertyTest`/`EnumPropertyTest` additions 11)
+- **Runtime tests:** 226 (live TripPin & Northwind integration, query expression, context path, batch, exceptions, transport, **media `$value` stream/put via mock transport** — `EntityOperationsMediaTest` 3, **`$apply` builder** — `ApplyExpressionTest` 8, **collection parse** — `EntityOperationsCollectionParseTest` 6, **batch changeset encode/decode/round-trip** — `MultipartHelperTest` 14, `BatchRequestTest` 10, **typed collection lambdas** — `CollectionPropertyTypedLambdaTest` 2, **count endpoint** — `EntityOperationsCountTest` 4, **ContextPath next-link/count-segment** — `ContextPathTest` additions 7, **structured OData error in exceptions** — `ODataExceptionTest` 14, **null-safe property comparisons** — `StringPropertyTest`/`NumberExpressionTest`/`DateTimePropertyTest`/`BooleanPropertyTest`/`EnumPropertyTest` additions 11, **query API completeness** — `StringPropertyTest`/`DateTimePropertyTest`/`NumberExpressionTest`/`CollectionPropertyTest` additions 17)
 - **Generated client tests (92):** `NorthwindGeneratedClientTest` (24), `ODataDemoGeneratedClientTest` (23, exercises `FeaturedProduct extends Product`, `Customer`/`Employee extends Person`, `Event`/`PlanItem`), `TripPinGeneratedClientTest` (24, exercises `Flight`/`PublicTransportation`/`PlanItem` hierarchy, type-safe + nested `$expand` with materialized getters), `TripPinInheritanceTest` (11, exercises generated **complex-type** inheritance `EventLocation`/`AirportLocation extends Location` + **entity** inheritance `Flight → PublicTransportation → PlanItem`: `instanceof`/polymorphic assignment, subtype `with*` copy-on-write preserving inherited fields, base `builder()` scoping, live `AirportLocation` deserialization), `ODataDemoMediaTest` (2, live media streams: `Advertisement` `HasStream` via `streamMedia()` at `.../Advertisements(id)/$value`, `PersonDetail.Photo` `Edm.Stream` named stream via `streamPhoto()` at `.../PersonDetails(id)/Photo`), `OpenTypeDynamicPropertyTest` (8, deserialization captures dynamic props into `unmappedFields`/`getDynamicProperty`, typed `getDynamicProperty(String, Class)` coercion to a POJO/number, round-trips on serialize, filters `@odata.*` control fields)
 - **Generator unit tests (22 new):** `WithMethodCopyOnWriteTest` 5 (copy-on-write defensive copying of collections and unmappedFields), `NavReservedWordTest` 3 (nav getter/with-method sanitization for `class` and other Object-method collisions), `EntityGeneratorFilterableTest` 5 (typed Filterable inner class for `any`/`all` lambdas), `EntityGeneratorSimplifiedDeserializationTest` 5 (no `@JsonCreator`, no wide-entity switch, public no-args constructor + `@JsonProperty` setters), `ComplexTypeGeneratorSimplifiedDeserializationTest` 4 (same simplification for complex types)
 - **Query type-safety tests:** `QueryTypeSafetyCompilationTest` 1 (negative compile test proving cross-entity `select`/`orderBy`/`expand` fails)
-- **Total: 433 tests passing** (122 core + 209 runtime + 10 maven + 92 test module)
+- **Total: 450 tests passing** (122 core + 226 runtime + 10 maven + 92 test module)
 - **Future:** Cancellable streaming, Content-ID resolution in changesets
 
 ---

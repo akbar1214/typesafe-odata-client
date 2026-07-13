@@ -82,6 +82,10 @@ public class NumberExpression<N, E> implements OrderExpression<E, N> {
         return new NumberExpression<>("(" + expression + " mod " + formatValue(value) + ")", entityType);
     }
 
+    public NumberExpression<N, E> negate() {
+        return new NumberExpression<>("(-" + expression + ")", entityType);
+    }
+
     public FilterExpression<E> isNull() {
         return new RawFilterExpression(expression + " eq null");
     }
