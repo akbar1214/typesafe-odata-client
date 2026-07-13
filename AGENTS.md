@@ -458,9 +458,31 @@ BatchResponse response = context.batch()
 - On subsequent runs, if the marker exists, the hash matches, and at least one `.java` file is present, generation is skipped and the existing source root is reused.
 - URL metadata is downloaded to a temp file so it can be hashed before parsing.
 
----
+### 32. Shared `AbstractTypeGenerator` Base Class
 
-## Architecture
+**Decision:** `EntityGenerator` and `ComplexTypeGenerator` extend a common `AbstractTypeGenerator` base class that houses duplicated helper logic.
+
+**Reason:** The two generators were independently maintaining near-identical code for:
+- Type resolution (`resolvePropertyJavaType`, `resolveSingleJavaType`, `resolveTypeDefinition`)
+- Cross-schema package/type resolution (`basePackageForType`)
+- Import collection (`addPropertyImports`, `addNavImports`)
+- Navigation-property rendering (`navJavaType`, `navGetterName`, `navWithMethod`, `generateNavGetter`)
+- Typed `Filterable` inner-class generation for collection lambdas (`any`/`all`)
+
+Keeping two copies made bug fixes and consistency work (e.g., reserved-word sanitization, cross-namespace resolution) error-prone. A shared base means a fix in one place benefits both entity and complex-type generation.
+
+**Approach:**
+- `AbstractTypeGenerator` is package-visible abstract infrastructure; it does **not** generate code on its own.
+- It exposes `protected` helper methods that preserve the exact generated strings and semantics of the previously duplicated code.
+- It stores `basePackage`, `schemaPackages`, `defaultBasePackage`, `allSchemas`, and `effectiveSchemas` so cross-schema helpers work uniformly.
+- Inheritance walking (`findBase`, `inheritedProperties`, `inheritedNavProperties`, `openTypeResolved`, `subtreeHasOpen`) remains in each subclass because it is tightly coupled to `EntityTypeModel` vs `ComplexTypeModel`.
+- `with*`/`Builder` generation and lifecycle-field handling also remain subclass-specific because entities track `changedFields`, `etag`, and `contextPath` while complex types do not.
+
+**Files:**
+- New: `odata-codegen-core/.../generator/AbstractTypeGenerator.java`
+- Modified: `odata-codegen-core/.../generator/EntityGenerator.java`, `ComplexTypeGenerator.java`
+
+**Tests:** Full `odata-codegen-core` test suite (122 tests) plus the cross-module reactor (414 tests) verifies generated output is byte-identical.
 
 ---
 

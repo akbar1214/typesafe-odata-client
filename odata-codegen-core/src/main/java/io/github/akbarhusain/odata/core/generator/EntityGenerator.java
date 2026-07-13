@@ -13,13 +13,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 
-public class EntityGenerator {
-
-    private final String basePackage;
-    private final Map<String, String> schemaPackages;
-    private final String defaultBasePackage;
-    private final List<SchemaModel> allSchemas;
-    private List<SchemaModel> effectiveSchemas;
+public class EntityGenerator extends AbstractTypeGenerator {
 
     public EntityGenerator(String basePackage, Map<String, String> schemaPackages) {
         this(basePackage, schemaPackages, null, List.of());
@@ -30,10 +24,7 @@ public class EntityGenerator {
     }
 
     public EntityGenerator(String basePackage, Map<String, String> schemaPackages, String defaultBasePackage, List<SchemaModel> allSchemas) {
-        this.basePackage = basePackage;
-        this.schemaPackages = schemaPackages;
-        this.defaultBasePackage = defaultBasePackage;
-        this.allSchemas = allSchemas;
+        super(basePackage, schemaPackages, defaultBasePackage, allSchemas);
     }
 
     public EntityGenerator(String basePackage) {
@@ -137,7 +128,7 @@ public class EntityGenerator {
         if (!entityType.navigationProperties().isEmpty()) sb.append("\n");
 
         // Typed filterable for collection lambda operators (any/all)
-        sb.append(generateFilterableClass(entityType, schema, className));
+        sb.append(generateFilterableClass(allProps, allNavs, className, schema));
 
         for (PropertyModel prop : ownProps) {
             String javaType = resolvePropertyJavaType(prop, schema, true);
@@ -457,73 +448,6 @@ public class EntityGenerator {
         }
     }
 
-    private String generateFilterableClass(EntityTypeModel entityType, SchemaModel schema, String className) {
-        List<PropertyModel> allProps = new ArrayList<>(inheritedProperties(entityType, schema));
-        allProps.addAll(entityType.properties());
-        List<NavigationPropertyModel> allNavs = new ArrayList<>(inheritedNavProperties(entityType, schema));
-        allNavs.addAll(entityType.navigationProperties());
-
-        StringBuilder sb = new StringBuilder();
-        sb.append("    public static class Filterable {\n");
-        for (PropertyModel prop : allProps) {
-            sb.append(generateFilterablePropertyField(prop, className, schema));
-        }
-        for (NavigationPropertyModel nav : allNavs) {
-            if (Names.isCollectionType(nav.type())) {
-                sb.append(generateFilterableNavPropertyField(nav, className, schema));
-            }
-        }
-        sb.append("    }\n\n");
-        return sb.toString();
-    }
-
-    private String generateFilterablePropertyField(PropertyModel prop, String className, SchemaModel schema) {
-        String edmType = prop.edmType();
-        String constantName = Names.toConstantName(prop.name());
-
-        if (Names.isCollectionType(edmType)) {
-            String elementType = Names.unwrapCollectionType(edmType);
-            String elementClassName = resolveClassNameForConstant(elementType, schema);
-            Names.TypeKind kind = Names.resolveTypeKind(elementType, effectiveSchemas);
-            if (kind == Names.TypeKind.ENTITY || kind == Names.TypeKind.COMPLEX) {
-                return "    public final CollectionProperty<" + className + ", " + elementClassName
-                        + ", " + elementClassName + ".Filterable> " + constantName
-                        + " = new CollectionProperty<>(\"x/" + prop.name() + "\", " + className + ".class, "
-                        + elementClassName + ".class, " + elementClassName + ".Filterable::new);\n";
-            } else {
-                return "    public final CollectionProperty<" + className + ", " + elementClassName
-                        + ", CollectionProperty.FilterableElement<" + elementClassName + ">> " + constantName
-                        + " = new CollectionProperty<>(\"x/" + prop.name() + "\", " + className + ".class, "
-                        + elementClassName + ".class, CollectionProperty.FilterableElement::new);\n";
-            }
-        }
-
-        String constantType = getPropertyConstantType(edmType, schema);
-        if (constantType == null) {
-            return ""; // Binary, Stream, Geography, Geometry — not filterable
-        }
-        String typeParams = switch (constantType) {
-            case "EnumProperty" -> "<" + className + ", " + resolveClassNameForConstant(edmType, schema) + ">";
-            case "NumberProperty" -> "<" + className + ", " + getNumberJavaType(edmType) + ">";
-            default -> "<" + className + ">";
-        };
-
-        return "    public final " + constantType + typeParams + " " + constantName
-                + " = new " + constantType + "<>(\"x/" + prop.name() + "\", " + className + ".class"
-                + (constantType.equals("EnumProperty") ? ", " + resolveClassNameForConstant(edmType, schema) + ".class, \"" + edmType + "\"" : "")
-                + ");\n";
-    }
-
-    private String generateFilterableNavPropertyField(NavigationPropertyModel nav, String className, SchemaModel schema) {
-        String unwrapped = Names.unwrapCollectionType(nav.type());
-        String elementClassName = Names.resolvedClassName(unwrapped, effectiveSchemas);
-        String constantName = Names.toConstantName(nav.name());
-        return "    public final CollectionProperty<" + className + ", "
-                + elementClassName + ", " + elementClassName + ".Filterable> " + constantName
-                + " = new CollectionProperty<>(\"x/" + nav.name() + "\", " + className + ".class, "
-                + elementClassName + ".class, " + elementClassName + ".Filterable::new);\n";
-    }
-
     private String generateGetter(PropertyModel prop, SchemaModel schema) {
         String javaType = resolvePropertyJavaType(prop, schema, prop.nullable());
         String fn = Names.toJavaFieldName(prop.name());
@@ -544,39 +468,6 @@ public class EntityGenerator {
             sb.append("        return ").append(fn).append(";\n");
         }
         sb.append("    }\n\n");
-        return sb.toString();
-    }
-
-    private String navJavaType(NavigationPropertyModel nav, SchemaModel schema) {
-        String unwrapped = Names.unwrapCollectionType(nav.type());
-        String elementClassName = Names.resolvedClassName(unwrapped, effectiveSchemas);
-        if (Names.isCollectionType(nav.type())) {
-            return "List<" + elementClassName + ">";
-        }
-        return elementClassName;
-    }
-
-    private String navGetterName(NavigationPropertyModel nav) {
-        return Names.navGetterMethod(nav.name());
-    }
-
-    private String navWithMethod(NavigationPropertyModel nav) {
-        return Names.navWithMethod(nav.name());
-    }
-
-    private String generateNavGetter(NavigationPropertyModel nav, SchemaModel schema) {
-        String javaType = navJavaType(nav, schema);
-        String fn = Names.toJavaFieldName(nav.name());
-        StringBuilder sb = new StringBuilder();
-        if (Names.isCollectionType(nav.type())) {
-            sb.append("    public ").append(javaType).append(" ").append(navGetterName(nav)).append("() {\n");
-            sb.append("        return ").append(fn).append(" == null ? List.of() : Collections.unmodifiableList(").append(fn).append(");\n");
-            sb.append("    }\n\n");
-        } else {
-            sb.append("    public Optional<").append(javaType).append("> ").append(navGetterName(nav)).append("() {\n");
-            sb.append("        return Optional.ofNullable(").append(fn).append(");\n");
-            sb.append("    }\n\n");
-        }
         return sb.toString();
     }
 
@@ -729,110 +620,10 @@ public class EntityGenerator {
         return sb.toString();
     }
 
-    private String resolvePropertyJavaType(PropertyModel prop, SchemaModel schema, boolean boxed) {
-        String edmType = prop.edmType();
-
-        if (Names.isCollectionType(edmType)) {
-            String elementType = Names.unwrapCollectionType(edmType);
-            return "List<" + resolveSingleJavaType(elementType, schema, true) + ">";
-        }
-
-        return resolveSingleJavaType(edmType, schema, boxed);
-    }
-
-    private String resolveSingleJavaType(String edmType, SchemaModel schema, boolean boxed) {
-        String resolved = resolveTypeDefinition(edmType, schema);
-        if (Names.isPrimitiveType(resolved)) {
-            String javaType = Names.edmTypeToSimpleJavaType(resolved);
-            if (boxed) return javaType;
-            return switch (javaType) {
-                case "Boolean" -> "boolean";
-                case "Integer" -> "int";
-                case "Long" -> "long";
-                case "Float" -> "float";
-                case "Double" -> "double";
-                case "Byte" -> "byte";
-                case "Short" -> "short";
-                default -> javaType;
-            };
-        }
-        return Names.resolvedClassName(resolved, effectiveSchemas);
-    }
-
-    private String resolveClassNameForConstant(String edmType, SchemaModel schema) {
-        String resolved = resolveTypeDefinition(edmType, schema);
-        if (Names.isPrimitiveType(resolved)) {
-            return Names.edmTypeToSimpleJavaType(resolved);
-        }
-        return Names.resolvedClassName(resolved, effectiveSchemas);
-    }
-
-    private String getNumberJavaType(String edmType) {
-        return Names.edmTypeToSimpleJavaType(edmType);
-    }
-
-    private String getPropertyConstantType(String edmType, SchemaModel schema) {
-        String resolved = resolveTypeDefinition(edmType, schema);
-        if (Names.isStringType(resolved)) return "StringProperty";
-        if (Names.isBooleanType(resolved)) return "BooleanProperty";
-        if (Names.isDateTimeType(resolved)) return "DateTimeProperty";
-        if (isEnumType(resolved, schema)) return "EnumProperty";
-        if (Names.isNumericType(resolved)) return "NumberProperty";
-        return null; // Binary, Stream, Geography, Geometry — not filterable, no constant
-    }
-
-    private boolean isEnumType(String edmType, SchemaModel schema) {
-        return Names.resolveTypeKind(edmType, effectiveSchemas) == Names.TypeKind.ENUM;
-    }
-
-    // P0-4: Resolve TypeDefinition to its underlying Edm type (recursively)
-    private String resolveTypeDefinition(String edmType, SchemaModel schema) {
-        if (Names.isPrimitiveType(edmType)) return edmType;
-        String simpleName = Names.simpleNameFromFullName(edmType);
-        for (var td : schema.typeDefinitions()) {
-            if (td.name().equals(simpleName)) {
-                return resolveTypeDefinition(td.underlyingType(), schema);
-            }
-        }
-        return edmType;
-    }
-
-    // P0-3: Look up the base package for a cross-namespace type reference
-    private String basePackageForType(String edmType, SchemaModel schema) {
-        String namespace = Names.namespaceFromFullName(edmType);
-        if (namespace.isEmpty() || namespace.equals(schema.namespace())) {
-            return basePackage;
-        }
-        return schemaPackages.getOrDefault(namespace,
-                defaultBasePackage != null ? defaultBasePackage : Names.toPackageName(namespace));
-    }
-
     private boolean isBuiltinType(String name) {
         return switch (name) {
             case "String", "Boolean", "Integer", "Long", "Float", "Double", "Byte", "Short" -> true;
             default -> false;
         };
-    }
-
-    private void addPropertyImports(PropertyModel prop, Set<String> imports, SchemaModel schema) {
-        String edmType = resolveTypeDefinition(prop.edmType(), schema);
-        if (Names.isCollectionType(edmType)) {
-            imports.add("java.util.List");
-            String elementType = Names.unwrapCollectionType(edmType);
-            String resolvedElement = resolveTypeDefinition(elementType, schema);
-            if (Names.isPrimitiveType(resolvedElement)) {
-                String javaType = Names.edmTypeToSimpleJavaType(resolvedElement);
-                if (javaType.startsWith("java.")) imports.add(javaType);
-            } else {
-                String pkg = basePackageForType(resolvedElement, schema);
-                imports.add(pkg + Names.resolvedSuffix(resolvedElement, effectiveSchemas) + "." + Names.resolvedClassName(resolvedElement, effectiveSchemas));
-            }
-        } else if (Names.isPrimitiveType(edmType)) {
-            String javaType = Names.edmTypeToSimpleJavaType(edmType);
-            if (javaType.startsWith("java.")) imports.add(javaType);
-        } else {
-            String pkg = basePackageForType(edmType, schema);
-            imports.add(pkg + Names.resolvedSuffix(edmType, effectiveSchemas) + "." + Names.resolvedClassName(edmType, effectiveSchemas));
-        }
     }
 }
