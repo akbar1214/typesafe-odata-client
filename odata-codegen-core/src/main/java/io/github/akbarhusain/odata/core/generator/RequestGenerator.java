@@ -215,8 +215,8 @@ public class RequestGenerator {
         sb.append("\n");
 
         sb.append("public final class ").append(className).append(" {\n\n");
-        sb.append("    protected final Context context;\n");
-        sb.append("    protected final ContextPath contextPath;\n");
+        sb.append("    private final Context context;\n");
+        sb.append("    private final ContextPath contextPath;\n");
         sb.append("    private final java.util.List<String> filters = new java.util.ArrayList<>();\n");
         sb.append("    private final java.util.List<String> selects = new java.util.ArrayList<>();\n");
         sb.append("    private final java.util.List<String> expands = new java.util.ArrayList<>();\n");
