@@ -547,6 +547,19 @@ Making the operators null-safe is the least surprising choice and keeps users fr
 
 **Tests:** `TripPinGeneratedClientTest.createAndDeletePerson` now creates and deletes a real Person without a catch block; full reactor (450 tests) verifies no regressions.
 
+### 36. `@SafeVarargs` on Generated Varargs Query Methods
+
+**Decision:** Generated collection-request varargs methods (`select`, `expand`, `orderBy`) are annotated with `@SafeVarargs` and declared `public final` to suppress the compiler warning "Possible heap pollution from parameterized vararg type".
+
+**Reason:** The type-safe query API uses bounded wildcard varargs such as `PropertyExpression<? super E, ?>...`. Java warns about heap pollution for any parameterized vararg unless the method is `final` and the author asserts safety with `@SafeVarargs`.
+
+**Approach:**
+- Changed generated collection-request classes from `public class` to `public final class`.
+- Declared the four varargs methods (`select`, `expand(NavProperty...)`, `expand(NavQuery...)`, `orderBy`) as `public final`.
+- Added `@SafeVarargs` to each of them.
+
+**Tests:** Full reactor (450 tests) compiles without varargs heap-pollution warnings; `TripPinGeneratedClientTest`, `NorthwindGeneratedClientTest`, and `ODataDemoGeneratedClientTest` exercise the generated methods at runtime.
+
 ---
 
 ## Architecture

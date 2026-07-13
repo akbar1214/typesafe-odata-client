@@ -214,7 +214,7 @@ public class RequestGenerator {
         }
         sb.append("\n");
 
-        sb.append("public class ").append(className).append(" {\n\n");
+        sb.append("public final class ").append(className).append(" {\n\n");
         sb.append("    protected final Context context;\n");
         sb.append("    protected final ContextPath contextPath;\n");
         sb.append("    private final java.util.List<String> filters = new java.util.ArrayList<>();\n");
@@ -240,28 +240,32 @@ public class RequestGenerator {
         sb.append("    }\n\n");
 
         // Type-safe select
-        sb.append("    public ").append(className).append(" select(PropertyExpression<? super ").append(entityClassName).append(", ?>... properties) {\n");
+        sb.append("    @SafeVarargs\n");
+        sb.append("    public final ").append(className).append(" select(PropertyExpression<? super ").append(entityClassName).append(", ?>... properties) {\n");
         sb.append("        ").append(className).append(" next = copy();\n");
         sb.append("        for (var p : properties) next.selects.add(p.getEdmName());\n");
         sb.append("        return next;\n");
         sb.append("    }\n\n");
 
         // Type-safe expand
-        sb.append("    public ").append(className).append(" expand(NavProperty<? super ").append(entityClassName).append(", ?>... properties) {\n");
+        sb.append("    @SafeVarargs\n");
+        sb.append("    public final ").append(className).append(" expand(NavProperty<? super ").append(entityClassName).append(", ?>... properties) {\n");
         sb.append("        ").append(className).append(" next = copy();\n");
         sb.append("        for (var p : properties) next.expands.add(p.getEdmName());\n");
         sb.append("        return next;\n");
         sb.append("    }\n\n");
 
         // Expand with nested options (select, filter, orderby, top)
-        sb.append("    public ").append(className).append(" expand(NavProperty.NavQuery<? super ").append(entityClassName).append(", ?>... queries) {\n");
+        sb.append("    @SafeVarargs\n");
+        sb.append("    public final ").append(className).append(" expand(NavProperty.NavQuery<? super ").append(entityClassName).append(", ?>... queries) {\n");
         sb.append("        ").append(className).append(" next = copy();\n");
         sb.append("        for (var q : queries) next.expands.add(q.toODataExpand());\n");
         sb.append("        return next;\n");
         sb.append("    }\n\n");
 
         // Type-safe orderBy
-        sb.append("    public ").append(className).append(" orderBy(OrderExpression<? super ").append(entityClassName).append(", ?>... expressions) {\n");
+        sb.append("    @SafeVarargs\n");
+        sb.append("    public final ").append(className).append(" orderBy(OrderExpression<? super ").append(entityClassName).append(", ?>... expressions) {\n");
         sb.append("        ").append(className).append(" next = copy();\n");
         sb.append("        for (var e : expressions) next.orderings.add(e.getODataPath());\n");
         sb.append("        return next;\n");
