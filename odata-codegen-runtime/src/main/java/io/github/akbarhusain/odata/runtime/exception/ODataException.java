@@ -54,8 +54,14 @@ public class ODataException extends RuntimeException {
             case 403 -> new ForbiddenException(text, error);
             case 404 -> new NotFoundException(text, error);
             case 409 -> new ConflictException(text, error);
+            case 412 -> new PreconditionFailedException(text, error);
             case 429 -> new RateLimitException(response);
-            default -> new ODataException(code, "HTTP " + code + ": " + text, error);
+            default -> {
+                if (code >= 500 && code < 600) {
+                    yield new ServerException(code, "HTTP " + code + ": " + text, error);
+                }
+                yield new ODataException(code, "HTTP " + code + ": " + text, error);
+            }
         };
     }
 }

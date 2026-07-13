@@ -35,4 +35,18 @@ class EnumPropertyTest {
         String expr = prop.equalTo(PersonGender.Male).toODataExpression();
         assertEquals("Gender eq PersonGender'Male'", expr);
     }
+
+    @Test
+    void equalToNullRoutesToIsNull() {
+        EnumProperty<Object, PersonGender> prop = new EnumProperty<>("Gender", Object.class, PersonGender.class);
+        String expr = prop.equalTo(null).toODataExpression();
+        assertEquals("Gender eq null", expr);
+    }
+
+    @Test
+    void notEqualToNullRoutesToIsNotNull() {
+        EnumProperty<Object, PersonGender> prop = new EnumProperty<>("Gender", Object.class, PersonGender.class);
+        String expr = prop.notEqualTo(null).toODataExpression();
+        assertEquals("Gender ne null", expr);
+    }
 }

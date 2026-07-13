@@ -33,10 +33,16 @@ public class NumberExpression<N, E> implements OrderExpression<E, N> {
     }
 
     public FilterExpression<E> equalTo(N value) {
+        if (value == null) {
+            return isNull();
+        }
         return new RawFilterExpression(expression + " eq " + formatValue(value));
     }
 
     public FilterExpression<E> notEqualTo(N value) {
+        if (value == null) {
+            return isNotNull();
+        }
         return new RawFilterExpression(expression + " ne " + formatValue(value));
     }
 

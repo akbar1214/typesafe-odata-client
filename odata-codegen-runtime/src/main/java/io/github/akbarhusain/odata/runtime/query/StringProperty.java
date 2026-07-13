@@ -37,10 +37,16 @@ public final class StringProperty<E> implements PropertyExpression<E, String> {
 
     // Equality operators
     public FilterExpression<E> equalTo(String value) {
+        if (value == null) {
+            return isNull();
+        }
         return new RawFilterExpression(edmName + " eq '" + escape(value) + "'");
     }
 
     public FilterExpression<E> notEqualTo(String value) {
+        if (value == null) {
+            return isNotNull();
+        }
         return new RawFilterExpression(edmName + " ne '" + escape(value) + "'");
     }
 

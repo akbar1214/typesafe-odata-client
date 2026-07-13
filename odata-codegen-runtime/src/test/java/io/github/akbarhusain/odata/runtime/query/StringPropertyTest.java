@@ -117,6 +117,18 @@ class StringPropertyTest {
     }
 
     @Test
+    void equalToNullRoutesToIsNull() {
+        FilterExpression<Object> expr = name.equalTo(null);
+        assertEquals("Name eq null", expr.toODataExpression());
+    }
+
+    @Test
+    void notEqualToNullRoutesToIsNotNull() {
+        FilterExpression<Object> expr = name.notEqualTo(null);
+        assertEquals("Name ne null", expr.toODataExpression());
+    }
+
+    @Test
     void asc() {
         OrderExpression<Object, String> ordered = name.asc();
         assertEquals("Name", ordered.getODataPath());

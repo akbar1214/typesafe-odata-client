@@ -72,7 +72,7 @@
 
 **Error Handling:**
 
-- Typed exceptions: `BadRequestException` (400), `UnauthorizedException` (401), `ForbiddenException` (403), `NotFoundException` (404), `ConflictException` (409), `RateLimitException` (429, with `retryAfter`)
+- Typed exceptions: `BadRequestException` (400), `UnauthorizedException` (401), `ForbiddenException` (403), `NotFoundException` (404), `ConflictException` (409), `PreconditionFailedException` (412), `RateLimitException` (429, with `retryAfter`), `ServerException` (5xx)
 - `ODataException` base with `fromResponse(HttpResponse)` factory
 - ETag support for optimistic concurrency
 - Middleware chain for `HttpInterceptor`s

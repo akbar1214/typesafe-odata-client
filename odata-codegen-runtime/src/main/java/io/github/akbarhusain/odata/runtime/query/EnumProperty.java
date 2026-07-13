@@ -41,10 +41,16 @@ public final class EnumProperty<E, V extends Enum<V>> implements PropertyExpress
     public OrderExpression<E, V> nullsLast() { return cast(new OrderedProperty(edmName, true, false, true)); }
 
     public FilterExpression<E> equalTo(V value) {
+        if (value == null) {
+            return isNull();
+        }
         return new RawFilterExpression(edmName + " eq " + getODataEnumName(value));
     }
 
     public FilterExpression<E> notEqualTo(V value) {
+        if (value == null) {
+            return isNotNull();
+        }
         return new RawFilterExpression(edmName + " ne " + getODataEnumName(value));
     }
 

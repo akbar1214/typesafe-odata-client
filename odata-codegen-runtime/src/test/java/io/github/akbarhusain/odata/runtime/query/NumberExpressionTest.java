@@ -67,4 +67,16 @@ class NumberExpressionTest {
         FilterExpression<Object> expr = price.isNull();
         assertEquals("Price eq null", expr.toODataExpression());
     }
+
+    @Test
+    void equalToNullRoutesToIsNull() {
+        FilterExpression<Object> expr = price.equalTo(null);
+        assertEquals("Price eq null", expr.toODataExpression());
+    }
+
+    @Test
+    void notEqualToNullRoutesToIsNotNull() {
+        FilterExpression<Object> expr = price.notEqualTo(null);
+        assertEquals("Price ne null", expr.toODataExpression());
+    }
 }

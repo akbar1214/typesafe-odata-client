@@ -39,6 +39,24 @@ public final class BooleanProperty<E> implements PropertyExpression<E, Boolean> 
         return new RawFilterExpression(edmName + " eq " + value);
     }
 
+    public FilterExpression<E> equalTo(Boolean value) {
+        if (value == null) {
+            return isNull();
+        }
+        return equalTo(value.booleanValue());
+    }
+
+    public FilterExpression<E> notEqualTo(boolean value) {
+        return new RawFilterExpression(edmName + " ne " + value);
+    }
+
+    public FilterExpression<E> notEqualTo(Boolean value) {
+        if (value == null) {
+            return isNotNull();
+        }
+        return notEqualTo(value.booleanValue());
+    }
+
     public FilterExpression<E> isTrue() {
         return new RawFilterExpression(edmName + " eq true");
     }

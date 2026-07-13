@@ -45,10 +45,16 @@ public final class DateTimeProperty<E> implements PropertyExpression<E, String> 
 
     // OData datetime comparisons - values are NOT quoted
     public FilterExpression<E> equalTo(String value) {
+        if (value == null) {
+            return isNull();
+        }
         return new RawFilterExpression(edmName + " eq " + value);
     }
 
     public FilterExpression<E> notEqualTo(String value) {
+        if (value == null) {
+            return isNotNull();
+        }
         return new RawFilterExpression(edmName + " ne " + value);
     }
 

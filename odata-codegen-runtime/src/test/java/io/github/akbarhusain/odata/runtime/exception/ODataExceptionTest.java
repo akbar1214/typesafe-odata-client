@@ -45,8 +45,24 @@ class ODataExceptionTest {
     }
 
     @Test
-    void fromResponseMaps500ToGenericODataException() {
-        assertInstanceOf(ODataException.class, ODataException.fromResponse(response(500)));
+    void fromResponseMaps412ToPreconditionFailedException() {
+        assertInstanceOf(PreconditionFailedException.class, ODataException.fromResponse(response(412)));
+    }
+
+    @Test
+    void fromResponseMaps500ToServerException() {
+        assertInstanceOf(ServerException.class, ODataException.fromResponse(response(500)));
+    }
+
+    @Test
+    void fromResponseMaps503ToServerException() {
+        ServerException ex = (ServerException) ODataException.fromResponse(response(503));
+        assertEquals(503, ex.getStatusCode());
+    }
+
+    @Test
+    void fromResponseMaps418ToGenericODataException() {
+        assertInstanceOf(ODataException.class, ODataException.fromResponse(response(418)));
     }
 
     @Test
@@ -62,12 +78,12 @@ class ODataExceptionTest {
     }
 
     @Test
-    void fromResponseSurfacesODataErrorInBaseExceptionForUnknownStatus() {
+    void fromResponseSurfacesODataErrorInServerException() {
         String json = "{\"error\":{\"code\":\"InternalServerError\",\"message\":\"Something went wrong\"}}";
         HttpResponse response = new HttpResponse(500, Map.of(), json.getBytes());
 
         ODataException ex = ODataException.fromResponse(response);
-        assertEquals(ODataException.class, ex.getClass());
+        assertInstanceOf(ServerException.class, ex);
         assertNotNull(ex.getError());
         assertEquals("InternalServerError", ex.getError().getCode());
         assertEquals("Something went wrong", ex.getError().getMessage());

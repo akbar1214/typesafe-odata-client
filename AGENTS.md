@@ -144,12 +144,14 @@ Navigation **requests** (which require `Context` for HTTP execution) remain on t
 **Our approach:**
 ```java
 ODataException (base)
-├── NotFoundException (404)
+├── BadRequestException (400)
 ├── UnauthorizedException (401)
 ├── ForbiddenException (403)
-├── BadRequestException (400)
+├── NotFoundException (404)
 ├── ConflictException (409)
-└── RateLimitException (429, with retryAfter)
+├── PreconditionFailedException (412)
+├── RateLimitException (429, with retryAfter)
+└── ServerException (5xx)
 ```
 
 ### 8. Serialization-Agnostic Model
@@ -482,7 +484,26 @@ Keeping two copies made bug fixes and consistency work (e.g., reserved-word sani
 - New: `odata-codegen-core/.../generator/AbstractTypeGenerator.java`
 - Modified: `odata-codegen-core/.../generator/EntityGenerator.java`, `ComplexTypeGenerator.java`
 
-**Tests:** Full `odata-codegen-core` test suite (122 tests) plus the cross-module reactor (414 tests) verifies generated output is byte-identical.
+**Tests:** Full `odata-codegen-core` test suite (122 tests) plus the cross-module reactor (433 tests) verifies generated output is byte-identical.
+
+### 33. Null-Safe Property Comparison Operators
+
+**Decision:** `equalTo(null)` and `notEqualTo(null)` on typed property expressions route to `isNull()` and `isNotNull()` instead of throwing or emitting invalid OData.
+
+**Reason:** The query API docs already show `equalTo(null)` as the natural way to express a null check. The behavior was inconsistent and broken:
+- `StringProperty.equalTo(null)` threw NPE inside `escape(value)`
+- `NumberProperty.equalTo(null)` silently emitted `Field eq null`
+- `DateTimeProperty.equalTo(null)` threw NPE
+- `BooleanProperty`/`EnumProperty` threw NPE
+
+Making the operators null-safe is the least surprising choice and keeps users from having to switch between `equalTo(value)` and `isNull()` depending on whether the value is known at compile time.
+
+**Approach:**
+- Added null checks in `StringProperty.equalTo`/`notEqualTo`, `NumberExpression.equalTo`/`notEqualTo`, `DateTimeProperty.equalTo`/`notEqualTo`, and `EnumProperty.equalTo`/`notEqualTo`.
+- Added `BooleanProperty.equalTo(Boolean)` and `notEqualTo(Boolean)` overloads (the primitive `equalTo(boolean)`/`notEqualTo(boolean)` variants remain unchanged). Null `Boolean` routes to `isNull()`/`isNotNull()`.
+- Comparison operators (`greaterThan`, etc.) are left unchanged; passing `null` to those is a programming error and should be caught early.
+
+**Tests:** `StringPropertyTest`, `NumberExpressionTest`, `DateTimePropertyTest`, `BooleanPropertyTest`, `EnumPropertyTest` — 2 null-handling tests each.
 
 ---
 
@@ -521,11 +542,11 @@ Run `mvn test` from the repo root. All modules build in one reactor; the runtime
 - **Entity generator abstract-type unit tests:** Abstract entity generation — abstract base declares no `with*()`, concrete subtype extends it + has `with*()`, and the pair compiles (`EntityGeneratorAbstractTest` 3)
 - **Request generator tests:** Media-stream, `$apply` expression, composite-key, narrowed query bounds, pagination helpers (`RequestGeneratorMediaTest` 3, `RequestGeneratorApplyTest` 3, `RequestGeneratorKeyTest` 2, `RequestGeneratorNarrowQueryTest` 5, `RequestGeneratorPaginationTest` 4)
 - **Open-type generator tests:** Generated entity/complex-type captures undeclared JSON fields into `unmappedFields`; open subtype of non-open base captures via inherited root map; non-open complex type doesn't reference unmappedFields (`OpenTypeGeneratorTest` 6)
-- **Runtime tests:** 190 (live TripPin & Northwind integration, query expression, context path, batch, exceptions, transport, **media `$value` stream/put via mock transport** — `EntityOperationsMediaTest` 3, **`$apply` builder** — `ApplyExpressionTest` 8, **collection parse** — `EntityOperationsCollectionParseTest` 6, **batch changeset encode/decode/round-trip** — `MultipartHelperTest` 14, `BatchRequestTest` 10, **typed collection lambdas** — `CollectionPropertyTypedLambdaTest` 2, **count endpoint** — `EntityOperationsCountTest` 4, **ContextPath next-link/count-segment** — `ContextPathTest` additions 7, **structured OData error in exceptions** — `ODataExceptionTest` additions 4)
+- **Runtime tests:** 209 (live TripPin & Northwind integration, query expression, context path, batch, exceptions, transport, **media `$value` stream/put via mock transport** — `EntityOperationsMediaTest` 3, **`$apply` builder** — `ApplyExpressionTest` 8, **collection parse** — `EntityOperationsCollectionParseTest` 6, **batch changeset encode/decode/round-trip** — `MultipartHelperTest` 14, `BatchRequestTest` 10, **typed collection lambdas** — `CollectionPropertyTypedLambdaTest` 2, **count endpoint** — `EntityOperationsCountTest` 4, **ContextPath next-link/count-segment** — `ContextPathTest` additions 7, **structured OData error in exceptions** — `ODataExceptionTest` 14, **null-safe property comparisons** — `StringPropertyTest`/`NumberExpressionTest`/`DateTimePropertyTest`/`BooleanPropertyTest`/`EnumPropertyTest` additions 11)
 - **Generated client tests (92):** `NorthwindGeneratedClientTest` (24), `ODataDemoGeneratedClientTest` (23, exercises `FeaturedProduct extends Product`, `Customer`/`Employee extends Person`, `Event`/`PlanItem`), `TripPinGeneratedClientTest` (24, exercises `Flight`/`PublicTransportation`/`PlanItem` hierarchy, type-safe + nested `$expand` with materialized getters), `TripPinInheritanceTest` (11, exercises generated **complex-type** inheritance `EventLocation`/`AirportLocation extends Location` + **entity** inheritance `Flight → PublicTransportation → PlanItem`: `instanceof`/polymorphic assignment, subtype `with*` copy-on-write preserving inherited fields, base `builder()` scoping, live `AirportLocation` deserialization), `ODataDemoMediaTest` (2, live media streams: `Advertisement` `HasStream` via `streamMedia()` at `.../Advertisements(id)/$value`, `PersonDetail.Photo` `Edm.Stream` named stream via `streamPhoto()` at `.../PersonDetails(id)/Photo`), `OpenTypeDynamicPropertyTest` (8, deserialization captures dynamic props into `unmappedFields`/`getDynamicProperty`, typed `getDynamicProperty(String, Class)` coercion to a POJO/number, round-trips on serialize, filters `@odata.*` control fields)
 - **Generator unit tests (22 new):** `WithMethodCopyOnWriteTest` 5 (copy-on-write defensive copying of collections and unmappedFields), `NavReservedWordTest` 3 (nav getter/with-method sanitization for `class` and other Object-method collisions), `EntityGeneratorFilterableTest` 5 (typed Filterable inner class for `any`/`all` lambdas), `EntityGeneratorSimplifiedDeserializationTest` 5 (no `@JsonCreator`, no wide-entity switch, public no-args constructor + `@JsonProperty` setters), `ComplexTypeGeneratorSimplifiedDeserializationTest` 4 (same simplification for complex types)
 - **Query type-safety tests:** `QueryTypeSafetyCompilationTest` 1 (negative compile test proving cross-entity `select`/`orderBy`/`expand` fails)
-- **Total: 414 tests passing** (122 core + 190 runtime + 10 maven + 92 test module)
+- **Total: 433 tests passing** (122 core + 209 runtime + 10 maven + 92 test module)
 - **Future:** Cancellable streaming, Content-ID resolution in changesets
 
 ---
