@@ -44,19 +44,42 @@ public class GenerateMojo extends AbstractMojo {
     @Parameter
     private List<SchemaMapping> schemaPackages = new ArrayList<>();
 
+    @Parameter(property = "odata.skip", defaultValue = "false")
+    private boolean skip;
+
+    @Parameter(property = "odata.forceRegenerate", defaultValue = "false")
+    private boolean forceRegenerate;
+
     @Parameter(defaultValue = "${project}", readonly = true, required = true)
     private MavenProject project;
 
+    private static final String MARKER_FILE = ".odata-generation-marker";
+
     @Override
     public void execute() throws MojoExecutionException, MojoFailureException {
+        if (skip) {
+            getLog().info("OData code generation skipped (odata.skip=true)");
+            return;
+        }
+
         if (metadataUrl == null && metadataFile == null) {
             throw new MojoExecutionException("Either metadataUrl or metadataFile must be specified");
         }
 
         try {
-            CsdlModel model = parseMetadata();
             Path outputDir = outputDirectory.toPath();
             Files.createDirectories(outputDir);
+
+            Path metadataPath = resolveMetadataPath();
+            String currentHash = hashFile(metadataPath);
+
+            if (!forceRegenerate && isUpToDate(outputDir, currentHash)) {
+                getLog().info("OData client is up-to-date; skipping generation (metadata hash unchanged). Use odata.forceRegenerate=true to override.");
+                project.addCompileSourceRoot(outputDir.toFile().getAbsolutePath());
+                return;
+            }
+
+            CsdlModel model = parseMetadata(metadataPath);
 
             Map<String, String> packages = new HashMap<>();
             for (SchemaMapping mapping : schemaPackages) {
@@ -65,6 +88,8 @@ public class GenerateMojo extends AbstractMojo {
 
             Generator generator = new Generator(outputDir, packages, basePackage);
             generator.generate(model);
+
+            writeMarker(outputDir, currentHash);
 
             // Add generated sources to Maven project
             project.addCompileSourceRoot(outputDir.toFile().getAbsolutePath());
@@ -75,27 +100,27 @@ public class GenerateMojo extends AbstractMojo {
         }
     }
 
-    private CsdlModel parseMetadata() throws Exception {
-        StaxCsdlParser parser = new StaxCsdlParser();
-        InputStream is;
-
+    private Path resolveMetadataPath() throws Exception {
         if (metadataFile != null) {
             if (!metadataFile.exists()) {
                 throw new MojoFailureException("Metadata file not found: " + metadataFile.getAbsolutePath());
             }
             getLog().info("Parsing metadata from file: " + metadataFile.getAbsolutePath());
-            is = new FileInputStream(metadataFile);
-        } else {
-            getLog().info("Downloading metadata from: " + metadataUrl);
-            is = downloadMetadata(metadataUrl);
+            return metadataFile.toPath();
         }
 
-        try (is) {
+        getLog().info("Downloading metadata from: " + metadataUrl);
+        return downloadMetadata(metadataUrl);
+    }
+
+    private CsdlModel parseMetadata(Path metadataPath) throws Exception {
+        StaxCsdlParser parser = new StaxCsdlParser();
+        try (InputStream is = new BufferedInputStream(new FileInputStream(metadataPath.toFile()))) {
             return parser.parse(is);
         }
     }
 
-    private InputStream downloadMetadata(String url) throws Exception {
+    private Path downloadMetadata(String url) throws Exception {
         HttpClient client = HttpClient.newHttpClient();
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(url))
@@ -121,9 +146,50 @@ public class GenerateMojo extends AbstractMojo {
             throw new MojoFailureException("Failed to download metadata: HTTP " + response.statusCode());
         }
 
-        // Cache to a temp file so we can return an InputStream
+        // Cache to a temp file so we can hash and parse it reliably
         Path tempFile = Files.createTempFile("odata-metadata-", ".xml");
         Files.copy(response.body(), tempFile, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-        return new BufferedInputStream(new FileInputStream(tempFile.toFile()));
+        return tempFile;
+    }
+
+    private String hashFile(Path path) throws Exception {
+        java.security.MessageDigest digest = java.security.MessageDigest.getInstance("MD5");
+        try (InputStream is = new BufferedInputStream(new FileInputStream(path.toFile()))) {
+            byte[] buffer = new byte[8192];
+            int read;
+            while ((read = is.read(buffer)) != -1) {
+                digest.update(buffer, 0, read);
+            }
+        }
+        return bytesToHex(digest.digest());
+    }
+
+    private static String bytesToHex(byte[] bytes) {
+        StringBuilder sb = new StringBuilder(bytes.length * 2);
+        for (byte b : bytes) {
+            sb.append(String.format("%02x", b));
+        }
+        return sb.toString();
+    }
+
+    private boolean isUpToDate(Path outputDir, String currentHash) throws Exception {
+        Path marker = outputDir.resolve(MARKER_FILE);
+        if (!Files.exists(marker)) {
+            return false;
+        }
+        String previousHash = Files.readString(marker).trim();
+        if (!currentHash.equals(previousHash)) {
+            return false;
+        }
+        // Ensure there is at least one generated Java file; an empty directory with a stale marker is not up-to-date.
+        try (var stream = Files.find(outputDir, Integer.MAX_VALUE,
+                (path, attrs) -> path.toString().endsWith(".java"))) {
+            return stream.findAny().isPresent();
+        }
+    }
+
+    private void writeMarker(Path outputDir, String hash) throws Exception {
+        Path marker = outputDir.resolve(MARKER_FILE);
+        Files.writeString(marker, hash);
     }
 }

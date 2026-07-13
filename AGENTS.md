@@ -445,6 +445,19 @@ BatchResponse response = context.batch()
 - `ODataException.fromResponse()` parses `ODataError` once and passes it into typed exception constructors; the generic fallback for unmapped codes now also carries the error.
 - Removed the duplicated `error` field from `BadRequestException`, `UnauthorizedException`, `ForbiddenException`, `NotFoundException`, `ConflictException`, and `RateLimitException`.
 
+### 31. Maven Plugin Incremental Build
+
+**Decision:** `GenerateMojo` supports incremental generation via an MD5 hash marker file and exposes `skip` and `forceRegenerate` parameters.
+
+**Reason:** The plugin previously parsed metadata and regenerated every file on every build, wasting time for large schemas when the metadata had not changed.
+
+**Implementation:**
+- Added `skip` parameter (`-Dodata.skip=true`) to bypass generation entirely.
+- Added `forceRegenerate` parameter (`-Dodata.forceRegenerate=true`) to override incremental behavior.
+- The plugin computes an MD5 hash of the resolved metadata (file or downloaded URL) and stores it in `.odata-generation-marker` inside the output directory.
+- On subsequent runs, if the marker exists, the hash matches, and at least one `.java` file is present, generation is skipped and the existing source root is reused.
+- URL metadata is downloaded to a temp file so it can be hashed before parsing.
+
 ---
 
 ## Architecture
@@ -490,7 +503,7 @@ Run `mvn test` from the repo root. All modules build in one reactor; the runtime
 - **Generated client tests (92):** `NorthwindGeneratedClientTest` (24), `ODataDemoGeneratedClientTest` (23, exercises `FeaturedProduct extends Product`, `Customer`/`Employee extends Person`, `Event`/`PlanItem`), `TripPinGeneratedClientTest` (24, exercises `Flight`/`PublicTransportation`/`PlanItem` hierarchy, type-safe + nested `$expand` with materialized getters), `TripPinInheritanceTest` (11, exercises generated **complex-type** inheritance `EventLocation`/`AirportLocation extends Location` + **entity** inheritance `Flight → PublicTransportation → PlanItem`: `instanceof`/polymorphic assignment, subtype `with*` copy-on-write preserving inherited fields, base `builder()` scoping, live `AirportLocation` deserialization), `ODataDemoMediaTest` (2, live media streams: `Advertisement` `HasStream` via `streamMedia()` at `.../Advertisements(id)/$value`, `PersonDetail.Photo` `Edm.Stream` named stream via `streamPhoto()` at `.../PersonDetails(id)/Photo`), `OpenTypeDynamicPropertyTest` (8, deserialization captures dynamic props into `unmappedFields`/`getDynamicProperty`, typed `getDynamicProperty(String, Class)` coercion to a POJO/number, round-trips on serialize, filters `@odata.*` control fields)
 - **Generator unit tests (22 new):** `WithMethodCopyOnWriteTest` 5 (copy-on-write defensive copying of collections and unmappedFields), `NavReservedWordTest` 3 (nav getter/with-method sanitization for `class` and other Object-method collisions), `EntityGeneratorFilterableTest` 5 (typed Filterable inner class for `any`/`all` lambdas), `EntityGeneratorSimplifiedDeserializationTest` 5 (no `@JsonCreator`, no wide-entity switch, public no-args constructor + `@JsonProperty` setters), `ComplexTypeGeneratorSimplifiedDeserializationTest` 4 (same simplification for complex types)
 - **Query type-safety tests:** `QueryTypeSafetyCompilationTest` 1 (negative compile test proving cross-entity `select`/`orderBy`/`expand` fails)
-- **Total: 409 tests passing** (122 core + 190 runtime + 5 maven + 92 test module)
+- **Total: 414 tests passing** (122 core + 190 runtime + 10 maven + 92 test module)
 - **Future:** Cancellable streaming, Content-ID resolution in changesets
 
 ---
