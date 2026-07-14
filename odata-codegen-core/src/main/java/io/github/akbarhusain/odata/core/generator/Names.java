@@ -274,17 +274,31 @@ public final class Names {
 
     public enum TypeKind { ENTITY, COMPLEX, ENUM, UNKNOWN }
 
+    private static final java.util.concurrent.ConcurrentHashMap<List<SchemaModel>, java.util.Map<String, TypeKind>> TYPE_KIND_CACHE = new java.util.concurrent.ConcurrentHashMap<>();
+
     public static TypeKind resolveTypeKind(String edmType, List<SchemaModel> allSchemas) {
-        String simpleName = simpleNameFromFullName(edmType);
-        String namespace = namespaceFromFullName(edmType);
-        for (SchemaModel s : allSchemas) {
-            if (namespace.isEmpty() || s.namespace().equals(namespace)) {
-                if (s.entityTypes().stream().anyMatch(e -> e.name().equals(simpleName))) return TypeKind.ENTITY;
-                if (s.complexTypes().stream().anyMatch(c -> c.name().equals(simpleName))) return TypeKind.COMPLEX;
-                if (s.enumTypes().stream().anyMatch(e -> e.name().equals(simpleName))) return TypeKind.ENUM;
+        java.util.Map<String, TypeKind> cache = TYPE_KIND_CACHE.computeIfAbsent(allSchemas, Names::buildTypeKindMap);
+        TypeKind kind = cache.get(edmType);
+        return kind != null ? kind : TypeKind.UNKNOWN;
+    }
+
+    public static java.util.Map<String, TypeKind> buildTypeKindMap(List<SchemaModel> schemas) {
+        java.util.Map<String, TypeKind> map = new java.util.HashMap<>();
+        for (SchemaModel s : schemas) {
+            for (var e : s.entityTypes()) {
+                map.put(s.namespace() + "." + e.name(), TypeKind.ENTITY);
+                map.put(e.name(), TypeKind.ENTITY);
+            }
+            for (var c : s.complexTypes()) {
+                map.put(s.namespace() + "." + c.name(), TypeKind.COMPLEX);
+                map.put(c.name(), TypeKind.COMPLEX);
+            }
+            for (var e : s.enumTypes()) {
+                map.put(s.namespace() + "." + e.name(), TypeKind.ENUM);
+                map.put(e.name(), TypeKind.ENUM);
             }
         }
-        return TypeKind.UNKNOWN;
+        return map;
     }
 
     public static String resolvedClassName(String edmType, List<SchemaModel> allSchemas) {

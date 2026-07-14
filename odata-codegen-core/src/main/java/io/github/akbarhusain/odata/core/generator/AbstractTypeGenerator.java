@@ -21,6 +21,7 @@ public abstract class AbstractTypeGenerator {
     protected final String defaultBasePackage;
     protected final List<SchemaModel> allSchemas;
     protected List<SchemaModel> effectiveSchemas;
+    private boolean effectiveSchemasInitialized;
 
     protected AbstractTypeGenerator(String basePackage, Map<String, String> schemaPackages,
                                     String defaultBasePackage, List<SchemaModel> allSchemas) {
@@ -28,6 +29,18 @@ public abstract class AbstractTypeGenerator {
         this.schemaPackages = schemaPackages;
         this.defaultBasePackage = defaultBasePackage;
         this.allSchemas = allSchemas;
+    }
+
+    /**
+     * Initializes {@code effectiveSchemas} once with a stable reference so the
+     * {@code Names.resolveTypeKind} cache key (the list object identity) stays
+     * consistent across all types within the same schema.
+     */
+    protected void initEffectiveSchemas(SchemaModel schema) {
+        if (!effectiveSchemasInitialized) {
+            effectiveSchemasInitialized = true;
+            effectiveSchemas = allSchemas.isEmpty() ? List.of(schema) : allSchemas;
+        }
     }
 
     // ------------------------------------------------------------------
@@ -89,16 +102,20 @@ public abstract class AbstractTypeGenerator {
         return Names.resolvedClassName(resolved, effectiveSchemas);
     }
 
+    private java.util.Map<String, String> typeDefCache;
+
     // Resolve TypeDefinition to its underlying Edm type (recursively)
     protected String resolveTypeDefinition(String edmType, SchemaModel schema) {
         if (Names.isPrimitiveType(edmType)) return edmType;
-        String simpleName = Names.simpleNameFromFullName(edmType);
-        for (var td : schema.typeDefinitions()) {
-            if (td.name().equals(simpleName)) {
-                return resolveTypeDefinition(td.underlyingType(), schema);
+        if (typeDefCache == null) {
+            typeDefCache = new java.util.HashMap<>();
+            for (var td : schema.typeDefinitions()) {
+                typeDefCache.put(td.name(), resolveTypeDefinition(td.underlyingType(), schema));
             }
         }
-        return edmType;
+        String simpleName = Names.simpleNameFromFullName(edmType);
+        String resolved = typeDefCache.get(simpleName);
+        return resolved != null ? resolved : edmType;
     }
 
     // ------------------------------------------------------------------

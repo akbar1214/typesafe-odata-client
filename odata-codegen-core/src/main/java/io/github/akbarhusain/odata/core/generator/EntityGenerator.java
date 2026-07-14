@@ -7,6 +7,7 @@ import io.github.akbarhusain.odata.core.model.CsdlModel.PropertyModel;
 import io.github.akbarhusain.odata.core.model.CsdlModel.SchemaModel;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -14,6 +15,10 @@ import java.util.Set;
 import java.util.TreeSet;
 
 public class EntityGenerator extends AbstractTypeGenerator {
+
+    private Map<String, EntityTypeModel> entityTypeMap;
+    private Set<String> extendedBases;
+    private Set<String> openRootNames;
 
     public EntityGenerator(String basePackage, Map<String, String> schemaPackages) {
         this(basePackage, schemaPackages, null, List.of());
@@ -32,36 +37,31 @@ public class EntityGenerator extends AbstractTypeGenerator {
     }
 
     public String generate(EntityTypeModel entityType, SchemaModel schema) {
-        effectiveSchemas = allSchemas.isEmpty() ? List.of(schema) : allSchemas;
+        initEffectiveSchemas(schema);
+        ensureSchemaCache(schema);
         String pkg = basePackage + Names.packageNameSuffixEntity();
         String className = Names.entityClassName(entityType.name());
-        EntityTypeModel base = findBase(entityType, schema);
+        EntityTypeModel base = findBase(entityType);
         String baseSimpleName = base != null ? Names.entityClassName(base.name()) : null;
 
-        Set<String> extendedBases = new HashSet<>();
-        for (EntityTypeModel et : schema.entityTypes()) {
-            if (et.baseType() != null && !et.baseType().isBlank()) {
-                extendedBases.add(Names.entityClassName(Names.simpleNameFromFullName(et.baseType())));
-            }
-        }
         boolean isBase = extendedBases.contains(className);
 
         List<PropertyModel> ownProps = entityType.properties();
-        List<PropertyModel> inheritedProps = inheritedProperties(entityType, schema);
+        List<PropertyModel> inheritedProps = inheritedProperties(entityType);
         List<PropertyModel> allProps = new ArrayList<>(inheritedProps);
         allProps.addAll(ownProps);
 
-        List<NavigationPropertyModel> inheritedNavs = inheritedNavProperties(entityType, schema);
+        List<NavigationPropertyModel> inheritedNavs = inheritedNavProperties(entityType);
         List<NavigationPropertyModel> allNavs = new ArrayList<>(inheritedNavs);
         allNavs.addAll(entityType.navigationProperties());
         List<NavigationPropertyModel> ownNavs = entityType.navigationProperties();
 
-        List<KeyModel> keys = resolvedKeys(entityType, schema);
+        List<KeyModel> keys = resolvedKeys(entityType);
 
         // OpenType dynamic-property support: capture undeclared JSON fields into unmappedFields.
-        boolean openType = openTypeResolved(entityType, schema);
-        boolean firstOpen = openType && (base == null || !openTypeResolved(base, schema));
-        boolean rootMutableMap = base == null && subtreeHasOpen(entityType, schema);
+        boolean openType = openTypeResolved(entityType);
+        boolean firstOpen = openType && (base == null || !openTypeResolved(base));
+        boolean rootMutableMap = base == null && subtreeHasOpen(entityType);
 
         StringBuilder sb = new StringBuilder();
         sb.append("package ").append(pkg).append(";\n\n");
@@ -296,51 +296,61 @@ public class EntityGenerator extends AbstractTypeGenerator {
         return sb.toString();
     }
 
+    private void ensureSchemaCache(SchemaModel schema) {
+        if (entityTypeMap != null) return;
+        entityTypeMap = new HashMap<>();
+        Set<String> extBases = new HashSet<>();
+        for (EntityTypeModel et : schema.entityTypes()) {
+            entityTypeMap.put(Names.entityClassName(et.name()), et);
+            if (et.baseType() != null && !et.baseType().isBlank()) {
+                extBases.add(Names.entityClassName(Names.simpleNameFromFullName(et.baseType())));
+            }
+        }
+        extendedBases = extBases;
+
+        Set<String> openRoots = new HashSet<>();
+        for (EntityTypeModel et : schema.entityTypes()) {
+            if (openTypeResolved(et)) {
+                openRoots.add(Names.entityClassName(rootOf(et).name()));
+            }
+        }
+        openRootNames = openRoots;
+    }
+
     // True if this type or any ancestor declares OpenType="true" (OpenType propagates to subtypes).
-    private boolean openTypeResolved(EntityTypeModel entityType, SchemaModel schema) {
+    private boolean openTypeResolved(EntityTypeModel entityType) {
         if (entityType.openType()) {
             return true;
         }
-        EntityTypeModel base = findBase(entityType, schema);
-        return base != null && openTypeResolved(base, schema);
+        EntityTypeModel base = findBase(entityType);
+        return base != null && openTypeResolved(base);
     }
 
-    private EntityTypeModel rootOf(EntityTypeModel entityType, SchemaModel schema) {
-        EntityTypeModel base = findBase(entityType, schema);
-        return base == null ? entityType : rootOf(base, schema);
+    private EntityTypeModel rootOf(EntityTypeModel entityType) {
+        EntityTypeModel base = findBase(entityType);
+        return base == null ? entityType : rootOf(base);
     }
 
     // True if any type in the hierarchy rooted at this type is open (so the root must hold a
     // mutable unmappedFields map that @JsonAnySetter can populate for the open subtype).
-    private boolean subtreeHasOpen(EntityTypeModel root, SchemaModel schema) {
-        for (EntityTypeModel et : schema.entityTypes()) {
-            if (rootOf(et, schema).name().equals(root.name()) && openTypeResolved(et, schema)) {
-                return true;
-            }
-        }
-        return openTypeResolved(root, schema);
+    private boolean subtreeHasOpen(EntityTypeModel root) {
+        return openRootNames.contains(Names.entityClassName(root.name()));
     }
 
-    private EntityTypeModel findBase(EntityTypeModel entityType, SchemaModel schema) {
+    private EntityTypeModel findBase(EntityTypeModel entityType) {
         String bt = entityType.baseType();
         if (bt == null || bt.isBlank()) {
             return null;
         }
-        String baseSimple = Names.entityClassName(Names.simpleNameFromFullName(bt));
-        for (EntityTypeModel et : schema.entityTypes()) {
-            if (Names.entityClassName(et.name()).equals(baseSimple)) {
-                return et;
-            }
-        }
-        return null;
+        return entityTypeMap.get(Names.entityClassName(Names.simpleNameFromFullName(bt)));
     }
 
-    private List<PropertyModel> inheritedProperties(EntityTypeModel entityType, SchemaModel schema) {
-        EntityTypeModel base = findBase(entityType, schema);
+    private List<PropertyModel> inheritedProperties(EntityTypeModel entityType) {
+        EntityTypeModel base = findBase(entityType);
         if (base == null) {
             return List.of();
         }
-        List<PropertyModel> result = new ArrayList<>(inheritedProperties(base, schema));
+        List<PropertyModel> result = new ArrayList<>(inheritedProperties(base));
         Set<String> seen = new HashSet<>();
         for (PropertyModel p : result) {
             seen.add(p.name());
@@ -353,12 +363,12 @@ public class EntityGenerator extends AbstractTypeGenerator {
         return result;
     }
 
-    private List<NavigationPropertyModel> inheritedNavProperties(EntityTypeModel entityType, SchemaModel schema) {
-        EntityTypeModel base = findBase(entityType, schema);
+    private List<NavigationPropertyModel> inheritedNavProperties(EntityTypeModel entityType) {
+        EntityTypeModel base = findBase(entityType);
         if (base == null) {
             return List.of();
         }
-        List<NavigationPropertyModel> result = new ArrayList<>(inheritedNavProperties(base, schema));
+        List<NavigationPropertyModel> result = new ArrayList<>(inheritedNavProperties(base));
         Set<String> seen = new HashSet<>();
         for (NavigationPropertyModel n : result) {
             seen.add(n.name());
@@ -371,15 +381,15 @@ public class EntityGenerator extends AbstractTypeGenerator {
         return result;
     }
 
-    private List<KeyModel> resolvedKeys(EntityTypeModel entityType, SchemaModel schema) {
+    private List<KeyModel> resolvedKeys(EntityTypeModel entityType) {
         if (!entityType.keys().isEmpty()) {
             return entityType.keys();
         }
-        EntityTypeModel base = findBase(entityType, schema);
+        EntityTypeModel base = findBase(entityType);
         if (base == null) {
             return List.of();
         }
-        return resolvedKeys(base, schema);
+        return resolvedKeys(base);
     }
 
     private String getterCall(String propName, List<PropertyModel> props) {

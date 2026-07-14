@@ -6,6 +6,7 @@ import io.github.akbarhusain.odata.core.model.CsdlModel.PropertyModel;
 import io.github.akbarhusain.odata.core.model.CsdlModel.SchemaModel;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -13,6 +14,9 @@ import java.util.Set;
 import java.util.TreeSet;
 
 public class ComplexTypeGenerator extends AbstractTypeGenerator {
+
+    private Map<String, ComplexTypeModel> complexTypeMap;
+    private Set<String> openRootNames;
 
     public ComplexTypeGenerator(String basePackage, Map<String, String> schemaPackages) {
         this(basePackage, schemaPackages, null, List.of());
@@ -31,29 +35,30 @@ public class ComplexTypeGenerator extends AbstractTypeGenerator {
     }
 
     public String generate(ComplexTypeModel complexType, SchemaModel schema) {
-        effectiveSchemas = allSchemas.isEmpty() ? List.of(schema) : allSchemas;
+        initEffectiveSchemas(schema);
+        ensureSchemaCache(schema);
         String pkg = basePackage + Names.packageNameSuffixComplexType();
         String className = Names.complexTypeClassName(complexType.name());
-        ComplexTypeModel base = findBase(complexType, schema);
+        ComplexTypeModel base = findBase(complexType);
         String baseSimpleName = base != null ? Names.complexTypeClassName(Names.simpleNameFromFullName(complexType.baseType())) : null;
 
         List<PropertyModel> ownProps = complexType.properties();
-        List<PropertyModel> inheritedProps = inheritedProperties(complexType, schema);
+        List<PropertyModel> inheritedProps = inheritedProperties(complexType);
         List<PropertyModel> allProps = new ArrayList<>(inheritedProps);
         allProps.addAll(ownProps);
 
         List<NavigationPropertyModel> ownNavs = complexType.navigationProperties();
-        List<NavigationPropertyModel> inheritedNavs = inheritedNavProperties(complexType, schema);
+        List<NavigationPropertyModel> inheritedNavs = inheritedNavProperties(complexType);
         List<NavigationPropertyModel> allNavs = new ArrayList<>(inheritedNavs);
         allNavs.addAll(ownNavs);
 
         // OpenType dynamic-property support: capture undeclared JSON fields into unmappedFields.
-        boolean openType = openTypeResolved(complexType, schema);
-        boolean firstOpen = openType && (base == null || !openTypeResolved(base, schema));
-        boolean rootMutableMap = base == null && subtreeHasOpen(complexType, schema);
+        boolean openType = openTypeResolved(complexType);
+        boolean firstOpen = openType && (base == null || !openTypeResolved(base));
+        boolean rootMutableMap = base == null && subtreeHasOpen(complexType);
         // hierarchyHasOpen: true when any type in the hierarchy is open.
         // Used for internal constructor and with*() — subtypes also need to preserve unmappedFields.
-        boolean hierarchyHasOpen = subtreeHasOpen(rootOf(complexType, schema), schema);
+        boolean hierarchyHasOpen = subtreeHasOpen(rootOf(complexType));
 
         StringBuilder sb = new StringBuilder();
         sb.append("package ").append(pkg).append(";\n\n");
@@ -116,7 +121,7 @@ public class ComplexTypeGenerator extends AbstractTypeGenerator {
             sb.append("    protected ").append(navJavaType(nav, schema)).append(" ")
               .append(Names.toJavaFieldName(nav.name())).append(";\n");
         }
-        if (base == null && subtreeHasOpen(complexType, schema)) {
+        if (base == null && subtreeHasOpen(complexType)) {
             sb.append("    protected java.util.Map<String, Object> unmappedFields;\n");
         }
         sb.append("\n");
@@ -343,42 +348,47 @@ public class ComplexTypeGenerator extends AbstractTypeGenerator {
         sb.append("    }\n\n");
     }
 
+    private void ensureSchemaCache(SchemaModel schema) {
+        if (complexTypeMap != null) return;
+        complexTypeMap = new HashMap<>();
+        for (ComplexTypeModel ct : schema.complexTypes()) {
+            complexTypeMap.put(Names.complexTypeClassName(ct.name()), ct);
+        }
+
+        Set<String> openRoots = new HashSet<>();
+        for (ComplexTypeModel ct : schema.complexTypes()) {
+            if (openTypeResolved(ct)) {
+                openRoots.add(Names.complexTypeClassName(rootOf(ct).name()));
+            }
+        }
+        openRootNames = openRoots;
+    }
+
     // True if this type or any ancestor declares OpenType="true" (propagates to subtypes).
-    private boolean openTypeResolved(ComplexTypeModel complexType, SchemaModel schema) {
+    private boolean openTypeResolved(ComplexTypeModel complexType) {
         if (complexType.openType()) {
             return true;
         }
-        ComplexTypeModel base = findBase(complexType, schema);
-        return base != null && openTypeResolved(base, schema);
+        ComplexTypeModel base = findBase(complexType);
+        return base != null && openTypeResolved(base);
     }
 
-    private ComplexTypeModel rootOf(ComplexTypeModel complexType, SchemaModel schema) {
-        ComplexTypeModel base = findBase(complexType, schema);
-        return base == null ? complexType : rootOf(base, schema);
+    private ComplexTypeModel rootOf(ComplexTypeModel complexType) {
+        ComplexTypeModel base = findBase(complexType);
+        return base == null ? complexType : rootOf(base);
     }
 
     // True if any type in the hierarchy rooted here is open (root must hold a mutable map).
-    private boolean subtreeHasOpen(ComplexTypeModel root, SchemaModel schema) {
-        for (ComplexTypeModel ct : schema.complexTypes()) {
-            if (rootOf(ct, schema).name().equals(root.name()) && openTypeResolved(ct, schema)) {
-                return true;
-            }
-        }
-        return openTypeResolved(root, schema);
+    private boolean subtreeHasOpen(ComplexTypeModel root) {
+        return openRootNames.contains(Names.complexTypeClassName(root.name()));
     }
 
-    private ComplexTypeModel findBase(ComplexTypeModel complexType, SchemaModel schema) {
+    private ComplexTypeModel findBase(ComplexTypeModel complexType) {
         String bt = complexType.baseType();
         if (bt == null || bt.isBlank()) {
             return null;
         }
-        String baseSimple = Names.complexTypeClassName(Names.simpleNameFromFullName(bt));
-        for (ComplexTypeModel ct : schema.complexTypes()) {
-            if (Names.complexTypeClassName(ct.name()).equals(baseSimple)) {
-                return ct;
-            }
-        }
-        return null;
+        return complexTypeMap.get(Names.complexTypeClassName(Names.simpleNameFromFullName(bt)));
     }
 
     private String generateNavWithMethod(NavigationPropertyModel nav, List<PropertyModel> allProps, List<NavigationPropertyModel> allNavs, String className, boolean hierarchyHasOpen, SchemaModel schema) {
@@ -416,12 +426,12 @@ public class ComplexTypeGenerator extends AbstractTypeGenerator {
         return sb.toString();
     }
 
-    private List<NavigationPropertyModel> inheritedNavProperties(ComplexTypeModel complexType, SchemaModel schema) {
-        ComplexTypeModel base = findBase(complexType, schema);
+    private List<NavigationPropertyModel> inheritedNavProperties(ComplexTypeModel complexType) {
+        ComplexTypeModel base = findBase(complexType);
         if (base == null) {
             return List.of();
         }
-        List<NavigationPropertyModel> result = new ArrayList<>(inheritedNavProperties(base, schema));
+        List<NavigationPropertyModel> result = new ArrayList<>(inheritedNavProperties(base));
         Set<String> seen = new HashSet<>();
         for (NavigationPropertyModel n : result) {
             seen.add(n.name());
@@ -434,12 +444,12 @@ public class ComplexTypeGenerator extends AbstractTypeGenerator {
         return result;
     }
 
-    private List<PropertyModel> inheritedProperties(ComplexTypeModel complexType, SchemaModel schema) {
-        ComplexTypeModel base = findBase(complexType, schema);
+    private List<PropertyModel> inheritedProperties(ComplexTypeModel complexType) {
+        ComplexTypeModel base = findBase(complexType);
         if (base == null) {
             return List.of();
         }
-        List<PropertyModel> result = new ArrayList<>(inheritedProperties(base, schema));
+        List<PropertyModel> result = new ArrayList<>(inheritedProperties(base));
         Set<String> seen = new HashSet<>();
         for (PropertyModel p : result) {
             seen.add(p.name());

@@ -6,6 +6,7 @@ import io.github.akbarhusain.odata.core.model.CsdlModel.NavigationPropertyModel;
 import io.github.akbarhusain.odata.core.model.CsdlModel.PropertyModel;
 import io.github.akbarhusain.odata.core.model.CsdlModel.SchemaModel;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -13,11 +14,14 @@ import java.util.TreeSet;
 
 public class RequestGenerator {
 
+    private Map<String, EntityTypeModel> entityTypeMap;
+
     private final String basePackage;
     private final Map<String, String> schemaPackages;
     private final String defaultBasePackage;
     private final List<SchemaModel> allSchemas;
     private List<SchemaModel> effectiveSchemas;
+    private boolean effectiveSchemasInitialized;
 
     public RequestGenerator(String basePackage) {
         this(basePackage, Map.of());
@@ -39,7 +43,8 @@ public class RequestGenerator {
     }
 
     public String generateEntityRequest(EntityTypeModel entityType, SchemaModel schema) {
-        effectiveSchemas = allSchemas.isEmpty() ? List.of(schema) : allSchemas;
+        initEffectiveSchemas(schema);
+        ensureSchemaCache(schema);
         String pkg = basePackage + Names.packageNameSuffixEntityRequest();
         String className = Names.entityRequestClassName(entityType.name());
         String entityClassName = Names.entityClassName(entityType.name());
@@ -189,7 +194,8 @@ public class RequestGenerator {
     }
 
     public String generateCollectionRequest(EntityTypeModel entityType, SchemaModel schema) {
-        effectiveSchemas = allSchemas.isEmpty() ? List.of(schema) : allSchemas;
+        initEffectiveSchemas(schema);
+        ensureSchemaCache(schema);
         String pkg = basePackage + Names.packageNameSuffixCollectionRequest();
         String className = Names.collectionRequestClassName(entityType.name());
         String entityClassName = Names.entityClassName(entityType.name());
@@ -429,13 +435,28 @@ public class RequestGenerator {
         return sb.toString();
     }
 
+    private void initEffectiveSchemas(SchemaModel schema) {
+        if (!effectiveSchemasInitialized) {
+            effectiveSchemasInitialized = true;
+            effectiveSchemas = allSchemas.isEmpty() ? List.of(schema) : allSchemas;
+        }
+    }
+
+    private void ensureSchemaCache(SchemaModel schema) {
+        if (entityTypeMap != null) return;
+        entityTypeMap = new HashMap<>();
+        for (EntityTypeModel et : schema.entityTypes()) {
+            entityTypeMap.put(Names.entityClassName(et.name()), et);
+        }
+    }
+
     private String resolveKeyType(EntityTypeModel entityType, String keyPropName, SchemaModel schema) {
         for (PropertyModel prop : entityType.properties()) {
             if (prop.name().equals(keyPropName)) {
                 return keyJavaType(prop.edmType(), schema);
             }
         }
-        EntityTypeModel base = findBase(entityType, schema);
+        EntityTypeModel base = findBase(entityType);
         if (base != null) {
             return resolveKeyType(base, keyPropName, schema);
         }
@@ -468,20 +489,17 @@ public class RequestGenerator {
         if (!entityType.keys().isEmpty()) {
             return entityType.keys();
         }
-        EntityTypeModel base = findBase(entityType, schema);
+        EntityTypeModel base = findBase(entityType);
         if (base == null) {
             return java.util.List.of();
         }
         return resolvedKeys(base, schema);
     }
 
-    private EntityTypeModel findBase(EntityTypeModel entityType, SchemaModel schema) {
-        if (entityType.baseType() == null) return null;
-        String baseName = Names.simpleNameFromFullName(entityType.baseType());
-        for (EntityTypeModel et : schema.entityTypes()) {
-            if (et.name().equals(baseName)) return et;
-        }
-        return null;
+    private EntityTypeModel findBase(EntityTypeModel entityType) {
+        String bt = entityType.baseType();
+        if (bt == null || bt.isBlank()) return null;
+        return entityTypeMap.get(Names.entityClassName(Names.simpleNameFromFullName(bt)));
     }
 
     // P0-3: Look up the base package for a cross-namespace type reference
