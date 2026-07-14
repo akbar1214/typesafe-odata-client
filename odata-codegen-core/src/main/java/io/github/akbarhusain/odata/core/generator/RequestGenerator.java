@@ -12,16 +12,9 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 
-public class RequestGenerator {
+public class RequestGenerator extends AbstractTypeGenerator {
 
     private Map<String, EntityTypeModel> entityTypeMap;
-
-    private final String basePackage;
-    private final Map<String, String> schemaPackages;
-    private final String defaultBasePackage;
-    private final List<SchemaModel> allSchemas;
-    private List<SchemaModel> effectiveSchemas;
-    private boolean effectiveSchemasInitialized;
 
     public RequestGenerator(String basePackage) {
         this(basePackage, Map.of());
@@ -36,10 +29,7 @@ public class RequestGenerator {
     }
 
     public RequestGenerator(String basePackage, Map<String, String> schemaPackages, String defaultBasePackage, List<SchemaModel> allSchemas) {
-        this.basePackage = basePackage;
-        this.schemaPackages = schemaPackages;
-        this.defaultBasePackage = defaultBasePackage;
-        this.allSchemas = allSchemas;
+        super(basePackage, schemaPackages, defaultBasePackage, allSchemas);
     }
 
     public String generateEntityRequest(EntityTypeModel entityType, SchemaModel schema) {
@@ -435,13 +425,6 @@ public class RequestGenerator {
         return sb.toString();
     }
 
-    private void initEffectiveSchemas(SchemaModel schema) {
-        if (!effectiveSchemasInitialized) {
-            effectiveSchemasInitialized = true;
-            effectiveSchemas = allSchemas.isEmpty() ? List.of(schema) : allSchemas;
-        }
-    }
-
     private void ensureSchemaCache(SchemaModel schema) {
         if (entityTypeMap != null) return;
         entityTypeMap = new HashMap<>();
@@ -473,18 +456,6 @@ public class RequestGenerator {
         return "Object";
     }
 
-    // P0-4: Resolve TypeDefinition to its underlying Edm type (recursively)
-    private String resolveTypeDefinition(String edmType, SchemaModel schema) {
-        if (Names.isPrimitiveType(edmType)) return edmType;
-        String simpleName = Names.simpleNameFromFullName(edmType);
-        for (var td : schema.typeDefinitions()) {
-            if (td.name().equals(simpleName)) {
-                return resolveTypeDefinition(td.underlyingType(), schema);
-            }
-        }
-        return edmType;
-    }
-
     private java.util.List<KeyModel> resolvedKeys(EntityTypeModel entityType, SchemaModel schema) {
         if (!entityType.keys().isEmpty()) {
             return entityType.keys();
@@ -500,16 +471,6 @@ public class RequestGenerator {
         String bt = entityType.baseType();
         if (bt == null || bt.isBlank()) return null;
         return entityTypeMap.get(Names.entityClassName(Names.simpleNameFromFullName(bt)));
-    }
-
-    // P0-3: Look up the base package for a cross-namespace type reference
-    private String basePackageForType(String edmType, SchemaModel schema) {
-        String namespace = Names.namespaceFromFullName(edmType);
-        if (namespace.isEmpty() || namespace.equals(schema.namespace())) {
-            return basePackage;
-        }
-        return schemaPackages.getOrDefault(namespace,
-                defaultBasePackage != null ? defaultBasePackage : Names.toPackageName(namespace));
     }
 
     private String generateNavMethod(NavigationPropertyModel nav, SchemaModel schema) {
