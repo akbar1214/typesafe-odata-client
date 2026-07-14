@@ -110,12 +110,27 @@ public abstract class AbstractTypeGenerator {
         if (typeDefCache == null) {
             typeDefCache = new java.util.HashMap<>();
             for (var td : schema.typeDefinitions()) {
-                typeDefCache.put(td.name(), resolveTypeDefinition(td.underlyingType(), schema));
+                typeDefCache.put(td.name(), resolveTypeDefinitionChain(td.name(), schema, new java.util.HashSet<>()));
             }
         }
         String simpleName = Names.simpleNameFromFullName(edmType);
         String resolved = typeDefCache.get(simpleName);
         return resolved != null ? resolved : edmType;
+    }
+
+    private String resolveTypeDefinitionChain(String typeName, SchemaModel schema, java.util.Set<String> visiting) {
+        if (!visiting.add(typeName)) {
+            throw new IllegalStateException("Circular TypeDefinition chain detected involving: " + typeName);
+        }
+        for (var td : schema.typeDefinitions()) {
+            if (td.name().equals(typeName)) {
+                String underlying = td.underlyingType();
+                if (Names.isPrimitiveType(underlying)) return underlying;
+                String underlyingSimple = Names.simpleNameFromFullName(underlying);
+                return resolveTypeDefinitionChain(underlyingSimple, schema, visiting);
+            }
+        }
+        return typeName;
     }
 
     // ------------------------------------------------------------------

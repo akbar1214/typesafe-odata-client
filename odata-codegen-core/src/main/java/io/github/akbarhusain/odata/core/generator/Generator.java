@@ -32,6 +32,7 @@ public class Generator {
     }
 
     public void generate(CsdlModel model) throws IOException {
+        Names.clearTypeKindCache();
         for (SchemaModel schema : model.schemas()) {
             String basePackage = schemaPackages.getOrDefault(schema.namespace(),
                     defaultBasePackage != null ? defaultBasePackage : Names.toPackageName(schema.namespace()));

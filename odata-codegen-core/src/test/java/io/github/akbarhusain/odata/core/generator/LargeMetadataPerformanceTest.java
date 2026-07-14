@@ -72,7 +72,7 @@ class LargeMetadataPerformanceTest {
         System.out.println("Total time: " + (System.currentTimeMillis() - t0) + " ms");
         System.out.println("=== End LargeMetadata Performance Test ===\n");
 
-        // Assert reasonable performance: 2000 entities should generate within 120 seconds
-        assertTrue(genTime < 120_000, "Generation took too long: " + genTime + " ms (limit: 120000 ms)");
+        // Assert reasonable performance: 2000 entities should generate within 60 seconds
+        assertTrue(genTime < 60_000, "Generation took too long: " + genTime + " ms (limit: 60000 ms)");
     }
 }

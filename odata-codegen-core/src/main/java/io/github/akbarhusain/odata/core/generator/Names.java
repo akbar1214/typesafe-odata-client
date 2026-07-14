@@ -282,20 +282,27 @@ public final class Names {
         return kind != null ? kind : TypeKind.UNKNOWN;
     }
 
+    /** Clears the global TypeKind cache. Called at the start of each generation run. */
+    public static void clearTypeKindCache() {
+        TYPE_KIND_CACHE.clear();
+    }
+
     public static java.util.Map<String, TypeKind> buildTypeKindMap(List<SchemaModel> schemas) {
         java.util.Map<String, TypeKind> map = new java.util.HashMap<>();
+        // Process schemas in order and use putIfAbsent for unqualified names so the
+        // first schema containing a simple-name type wins (matches original linear search).
         for (SchemaModel s : schemas) {
             for (var e : s.entityTypes()) {
                 map.put(s.namespace() + "." + e.name(), TypeKind.ENTITY);
-                map.put(e.name(), TypeKind.ENTITY);
+                map.putIfAbsent(e.name(), TypeKind.ENTITY);
             }
             for (var c : s.complexTypes()) {
                 map.put(s.namespace() + "." + c.name(), TypeKind.COMPLEX);
-                map.put(c.name(), TypeKind.COMPLEX);
+                map.putIfAbsent(c.name(), TypeKind.COMPLEX);
             }
             for (var e : s.enumTypes()) {
                 map.put(s.namespace() + "." + e.name(), TypeKind.ENUM);
-                map.put(e.name(), TypeKind.ENUM);
+                map.putIfAbsent(e.name(), TypeKind.ENUM);
             }
         }
         return map;
