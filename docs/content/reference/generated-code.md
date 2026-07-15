@@ -78,7 +78,7 @@ public final class Person implements ODataEntityType {
     public List<Trip> getTrips() { return trips == null ? List.of() : Collections.unmodifiableList(trips); }
     public Optional<Photo> getPhoto() { return Optional.ofNullable(photo); }
 
-    // Copy-on-write
+    // Copy-on-write (only when generateWithMethods=true — see note below)
     public Person withFirstName(String firstName) { ... }
     public Person withTrips(List<Trip> trips) { ... }
 
@@ -275,11 +275,22 @@ public class Location implements ODataType {
 }
 ```
 
+### Copy-on-Write (`with*()`) Generation
+
+`with*()` copy-on-write methods are **optional** — controlled by the
+`generateWithMethods` Maven plugin parameter (default `false`). When disabled,
+entities and complex types omit all `with*()` and `withNav*()` methods,
+reducing generated code volume significantly for large schemas.
+
+The `Builder` is always generated for root-level concrete types regardless of
+this flag, so creating new instances uses the builder pattern while mutation
+uses Jackson setters directly.
+
 ### Complex Type Inheritance
 
 Like entities, complex types honor `BaseType` and emit a real `extends` clause.
 Subtypes declare only their own fields (base fields live in the parent) and get
-`with*()` copy-on-write methods.
+`with*()` copy-on-write methods (only when `generateWithMethods=true`).
 
 The `Builder` is generated **only for concrete top-level complex types** — a
 static `builder()` in a subtype would clash with the inherited one (Java forbids

@@ -132,6 +132,50 @@ Serializer jackson = new JacksonSerializer();
 
 This means the same entity works with any JSON library.
 
+## Configuration: `generateWithMethods`
+
+Copy-on-write `with*()` methods are **optional** and disabled by default. Enable them in the Maven plugin:
+
+```xml
+<configuration>
+    <generateWithMethods>true</generateWithMethods>
+</configuration>
+```
+
+### Why Disabled by Default?
+
+For schemas with hundreds of entity types, `with*()` methods add significant
+code volume — each method copies all properties (including inherited and
+navigation properties) into a new instance, defensively deep-copying
+collections and `unmappedFields`. With 1700+ entity types, this can add
+hundreds of thousands of lines of generated code and slow down generation.
+
+The `Builder` (generated for root-level concrete types) and Jackson setters
+(input streams deserialize directly into fields) cover all common mutation
+patterns. Use `with*()` only if you need the fluent copy-on-write style.
+
+### With the Flag Disabled (default)
+
+```java
+// Use Builder for new instances and setters for updates
+Person person = Person.builder()
+    .userName("scott")
+    .firstName("Scott")
+    .build();
+
+// Update via Jackson setters (for deserialized entities)
+person.setFirstName("Scotty");
+```
+
+### With the Flag Enabled
+
+```java
+// Fluent copy-on-write
+Person updated = person
+    .withFirstName("Scotty")
+    .withAge(43L);
+```
+
 ## What's Next
 
 - [CSDL Metadata Parsing](csdl-parsing.md) — How metadata is processed

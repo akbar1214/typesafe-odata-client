@@ -29,7 +29,11 @@ public class EntityGenerator extends AbstractTypeGenerator {
     }
 
     public EntityGenerator(String basePackage, Map<String, String> schemaPackages, String defaultBasePackage, List<SchemaModel> allSchemas) {
-        super(basePackage, schemaPackages, defaultBasePackage, allSchemas);
+        this(basePackage, schemaPackages, defaultBasePackage, allSchemas, false);
+    }
+
+    public EntityGenerator(String basePackage, Map<String, String> schemaPackages, String defaultBasePackage, List<SchemaModel> allSchemas, boolean generateWithMethods) {
+        super(basePackage, schemaPackages, defaultBasePackage, allSchemas, generateWithMethods);
     }
 
     public EntityGenerator(String basePackage) {
@@ -202,8 +206,8 @@ public class EntityGenerator extends AbstractTypeGenerator {
             sb.append(generateBuilder(allProps, ownNavs, className, schema, keys, rootMutableMap));
         }
 
-        // with*() methods — skipped for abstract types, which cannot be instantiated
-        if (!entityType.abstractType()) {
+        // with*() methods — skipped for abstract types and when generateWithMethods is false
+        if (!entityType.abstractType() && generateWithMethods) {
             for (PropertyModel prop : allProps) {
                 sb.append(generateWithMethod(prop, allProps, allNavs, className, schema));
             }

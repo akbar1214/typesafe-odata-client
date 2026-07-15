@@ -27,7 +27,11 @@ public class ComplexTypeGenerator extends AbstractTypeGenerator {
     }
 
     public ComplexTypeGenerator(String basePackage, Map<String, String> schemaPackages, String defaultBasePackage, List<SchemaModel> allSchemas) {
-        super(basePackage, schemaPackages, defaultBasePackage, allSchemas);
+        this(basePackage, schemaPackages, defaultBasePackage, allSchemas, false);
+    }
+
+    public ComplexTypeGenerator(String basePackage, Map<String, String> schemaPackages, String defaultBasePackage, List<SchemaModel> allSchemas, boolean generateWithMethods) {
+        super(basePackage, schemaPackages, defaultBasePackage, allSchemas, generateWithMethods);
     }
 
     public ComplexTypeGenerator(String basePackage) {
@@ -183,7 +187,8 @@ public class ComplexTypeGenerator extends AbstractTypeGenerator {
         // subtypes can be modified immutably (the public all-args constructor is reused).
         // Inherited properties are referenced by field name (protected) to avoid wrapping
         // nullable getters' Optional<T> in the raw-typed constructor.
-        if (!complexType.abstractType()) {
+        // Skipped when generateWithMethods is false.
+        if (!complexType.abstractType() && generateWithMethods) {
             for (PropertyModel prop : allProps) {
                 sb.append(generateWithMethod(prop, allProps, allNavs, className, hierarchyHasOpen, schema));
             }

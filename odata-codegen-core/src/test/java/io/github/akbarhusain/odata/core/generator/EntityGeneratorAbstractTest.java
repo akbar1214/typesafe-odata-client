@@ -51,7 +51,9 @@ class EntityGeneratorAbstractTest {
                 .filter(e -> e.name().equals(typeName))
                 .findFirst()
                 .orElseThrow();
-        return new EntityGenerator(BASE_PACKAGE).generate(type, schema);
+        EntityGenerator gen = new EntityGenerator(BASE_PACKAGE);
+        gen.setGenerateWithMethods(true);
+        return gen.generate(type, schema);
     }
 
     @Test

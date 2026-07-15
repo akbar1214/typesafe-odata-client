@@ -39,7 +39,9 @@ class OpenTypeGeneratorTest {
                 .filter(e -> e.name().equals(name))
                 .findFirst()
                 .orElseThrow();
-        return new ComplexTypeGenerator("com.example.trippin").generate(type, schema);
+        ComplexTypeGenerator gen = new ComplexTypeGenerator("com.example.trippin");
+        gen.setGenerateWithMethods(true);
+        return gen.generate(type, schema);
     }
 
     @Test
@@ -107,7 +109,9 @@ class OpenTypeGeneratorTest {
                 .filter(e -> e.name().equals("City"))
                 .findFirst()
                 .orElseThrow();
-        String code = new ComplexTypeGenerator("com.example.trippin").generate(cityType, schema);
+        ComplexTypeGenerator gen = new ComplexTypeGenerator("com.example.trippin");
+        gen.setGenerateWithMethods(true);
+        String code = gen.generate(cityType, schema);
         assertFalse(code.contains("unmappedFields"),
                 "Non-open complex type City must not reference unmappedFields anywhere");
         assertFalse(code.contains("HashMap"),

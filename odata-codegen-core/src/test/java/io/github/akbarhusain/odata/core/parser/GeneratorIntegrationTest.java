@@ -32,6 +32,7 @@ class GeneratorIntegrationTest {
 
         Map<String, String> schemaPackages = Map.of(namespace, basePackage);
         Generator generator = new Generator(tempDir, schemaPackages);
+        generator.withGenerateWithMethods(true);
         generator.generate(trippinModel);
 
         // Verify key files were generated

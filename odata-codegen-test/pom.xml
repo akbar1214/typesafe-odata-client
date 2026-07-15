@@ -43,6 +43,9 @@
                 <groupId>io.github.akbarhusain</groupId>
                 <artifactId>odata-codegen-maven-plugin</artifactId>
                 <version>${project.version}</version>
+                <configuration>
+                    <generateWithMethods>true</generateWithMethods>
+                </configuration>
                 <executions>
                     <execution>
                         <id>generate-trippin</id>

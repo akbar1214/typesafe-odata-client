@@ -26,7 +26,9 @@ class ComplexTypeGeneratorInheritanceTest {
                     .filter(c -> c.name().equals(typeName))
                     .findFirst()
                     .orElseThrow();
-            return new ComplexTypeGenerator("com.example.trippin").generate(type, schema);
+            ComplexTypeGenerator gen = new ComplexTypeGenerator("com.example.trippin");
+            gen.setGenerateWithMethods(true);
+            return gen.generate(type, schema);
         }
     }
 

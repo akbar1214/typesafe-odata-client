@@ -35,7 +35,9 @@ class WithMethodCopyOnWriteTest {
                 .filter(e -> e.name().equals(name))
                 .findFirst()
                 .orElseThrow();
-        return new EntityGenerator("com.example.trippin").generate(type, schema);
+        EntityGenerator gen = new EntityGenerator("com.example.trippin");
+        gen.setGenerateWithMethods(true);
+        return gen.generate(type, schema);
     }
 
     @Test

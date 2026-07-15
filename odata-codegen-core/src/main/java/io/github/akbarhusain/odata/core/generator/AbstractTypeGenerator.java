@@ -22,13 +22,25 @@ public abstract class AbstractTypeGenerator {
     protected final List<SchemaModel> allSchemas;
     protected List<SchemaModel> effectiveSchemas;
     private boolean effectiveSchemasInitialized;
+    protected boolean generateWithMethods;
 
     protected AbstractTypeGenerator(String basePackage, Map<String, String> schemaPackages,
                                     String defaultBasePackage, List<SchemaModel> allSchemas) {
+        this(basePackage, schemaPackages, defaultBasePackage, allSchemas, false);
+    }
+
+    protected AbstractTypeGenerator(String basePackage, Map<String, String> schemaPackages,
+                                    String defaultBasePackage, List<SchemaModel> allSchemas,
+                                    boolean generateWithMethods) {
         this.basePackage = basePackage;
         this.schemaPackages = schemaPackages;
         this.defaultBasePackage = defaultBasePackage;
         this.allSchemas = allSchemas;
+        this.generateWithMethods = generateWithMethods;
+    }
+
+    final void setGenerateWithMethods(boolean generateWithMethods) {
+        this.generateWithMethods = generateWithMethods;
     }
 
     /**

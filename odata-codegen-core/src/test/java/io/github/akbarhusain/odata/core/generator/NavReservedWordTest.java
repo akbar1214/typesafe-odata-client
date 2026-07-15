@@ -30,7 +30,9 @@ class NavReservedWordTest {
                     .filter(e -> e.name().equals(name))
                     .findFirst()
                     .orElseThrow();
-            return new EntityGenerator("com.navtest").generate(type, schema);
+            EntityGenerator gen = new EntityGenerator("com.navtest");
+            gen.setGenerateWithMethods(true);
+            return gen.generate(type, schema);
         }
     }
 

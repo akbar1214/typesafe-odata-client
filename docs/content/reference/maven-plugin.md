@@ -35,6 +35,7 @@ Configure the `odata-codegen-maven-plugin` for code generation.
 | `metadataFile` | File | Yes* | Local path to CSDL metadata file |
 | `basePackage` | String | Yes | Base package for generated classes |
 | `schemaPackages` | List | No | Schema-to-package mappings (list of `<schema>` elements) |
+| `generateWithMethods` | Boolean | No | Generate `with*()` copy-on-write methods on entities and complex types (default `false`). See [Immutability](../concepts/immutability.md) for tradeoffs. |
 
 *Either `metadataUrl` or `metadataFile` is required.
 

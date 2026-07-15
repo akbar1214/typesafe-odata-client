@@ -121,6 +121,19 @@ Louis Sons
 ...
 ```
 
+## Optional: Copy-on-Write Methods
+
+By default, generated entities omit `with*()` copy-on-write methods for better
+performance with large schemas. To enable them:
+
+```xml
+<configuration>
+    <generateWithMethods>true</generateWithMethods>
+</configuration>
+```
+
+See [Entity Immutability](concepts/immutability.md) for the tradeoffs.
+
 ## Alternative: Local Metadata File
 
 If your OData service doesn't expose `$metadata` publicly, download it first:

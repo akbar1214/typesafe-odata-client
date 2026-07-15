@@ -20,6 +20,7 @@ public class Generator {
     private final Path outputDir;
     private final Map<String, String> schemaPackages = new HashMap<>();
     private final String defaultBasePackage;
+    private boolean generateWithMethods;
 
     public Generator(Path outputDir, Map<String, String> schemaPackages) {
         this(outputDir, schemaPackages, null);
@@ -29,6 +30,11 @@ public class Generator {
         this.outputDir = outputDir;
         this.schemaPackages.putAll(schemaPackages);
         this.defaultBasePackage = defaultBasePackage;
+    }
+
+    public Generator withGenerateWithMethods(boolean generateWithMethods) {
+        this.generateWithMethods = generateWithMethods;
+        return this;
     }
 
     public void generate(CsdlModel model) throws IOException {
@@ -43,9 +49,9 @@ public class Generator {
     private void generateSchema(SchemaModel schema, String basePackage, List<SchemaModel> allSchemas) throws IOException {
         log.info("Generating schema: {} -> {}", schema.namespace(), basePackage);
 
-        EntityGenerator entityGenerator = new EntityGenerator(basePackage, schemaPackages, defaultBasePackage, allSchemas);
+        EntityGenerator entityGenerator = new EntityGenerator(basePackage, schemaPackages, defaultBasePackage, allSchemas, generateWithMethods);
         EnumGenerator enumGenerator = new EnumGenerator(basePackage);
-        ComplexTypeGenerator complexTypeGenerator = new ComplexTypeGenerator(basePackage, schemaPackages, defaultBasePackage, allSchemas);
+        ComplexTypeGenerator complexTypeGenerator = new ComplexTypeGenerator(basePackage, schemaPackages, defaultBasePackage, allSchemas, generateWithMethods);
         RequestGenerator requestGenerator = new RequestGenerator(basePackage, schemaPackages, defaultBasePackage, allSchemas);
         ContainerGenerator containerGenerator = new ContainerGenerator(basePackage, schemaPackages, defaultBasePackage);
         SchemaInfoGenerator schemaInfoGenerator = new SchemaInfoGenerator(basePackage);

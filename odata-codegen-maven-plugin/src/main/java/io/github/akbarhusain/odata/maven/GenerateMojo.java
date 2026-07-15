@@ -50,6 +50,9 @@ public class GenerateMojo extends AbstractMojo {
     @Parameter(property = "odata.forceRegenerate", defaultValue = "false")
     private boolean forceRegenerate;
 
+    @Parameter(property = "odata.generateWithMethods", defaultValue = "false")
+    private boolean generateWithMethods;
+
     @Parameter(defaultValue = "${project}", readonly = true, required = true)
     private MavenProject project;
 
@@ -87,6 +90,7 @@ public class GenerateMojo extends AbstractMojo {
             }
 
             Generator generator = new Generator(outputDir, packages, basePackage);
+            generator.withGenerateWithMethods(generateWithMethods);
             generator.generate(model);
 
             writeMarker(outputDir, currentHash);
