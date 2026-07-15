@@ -104,6 +104,55 @@ class CrossNamespaceCompilationTest {
         assertTrue(bigFlagsCode.contains("Huge(1099511627776L)"),
                 "Int64 enum value 1099511627776 should use long literal. Got:\n" + bigFlagsCode);
 
+        // P1: Verify cross-schema entity inheritance — Manager extends EmployeeBase from CrossNs.Shared
+        File managerFile = javaFiles.stream()
+                .filter(f -> f.getName().equals("Manager.java"))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("Manager.java should be generated"));
+        String managerCode = Files.readString(managerFile.toPath());
+
+        assertTrue(managerCode.contains("extends EmployeeBase"),
+                "Manager must extend EmployeeBase (cross-schema). Got:\n" + managerCode);
+        assertTrue(managerCode.contains("import com.example.crossns.shared.entity.EmployeeBase"),
+                "Manager must import EmployeeBase from CrossNs.Shared package. Got:\n" + managerCode);
+        assertTrue(managerCode.contains("String department"),
+                "Manager must have own property 'department'. Got:\n" + managerCode);
+        // employeeId is inherited from EmployeeBase, so it shouldn't be declared in Manager
+        assertFalse(managerCode.contains("Integer employeeId"),
+                "Manager should NOT redeclare inherited field 'employeeId'. Got:\n" + managerCode);
+        // But Manager's toString/getKey should reference it
+        assertTrue(managerCode.contains("employeeId"),
+                "Manager must reference inherited 'employeeId' in toString/getKey. Got:\n" + managerCode);
+
+        // P1: Verify cross-schema complex type inheritance — OfficeLocation extends BaseLocation from CrossNs.Shared
+        File officeLocationFile = javaFiles.stream()
+                .filter(f -> f.getName().equals("OfficeLocation.java"))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("OfficeLocation.java should be generated"));
+        String officeLocationCode = Files.readString(officeLocationFile.toPath());
+
+        assertTrue(officeLocationCode.contains("extends BaseLocation"),
+                "OfficeLocation must extend BaseLocation (cross-schema). Got:\n" + officeLocationCode);
+        assertTrue(officeLocationCode.contains("import com.example.crossns.shared.complex.BaseLocation"),
+                "OfficeLocation must import BaseLocation from CrossNs.Shared package. Got:\n" + officeLocationCode);
+        assertTrue(officeLocationCode.contains("Integer floor"),
+                "OfficeLocation must have own property 'floor'. Got:\n" + officeLocationCode);
+        // address is inherited from BaseLocation, not redeclared
+        assertFalse(officeLocationCode.contains("String address"),
+                "OfficeLocation should NOT redeclare inherited field 'address'. Got:\n" + officeLocationCode);
+        assertTrue(officeLocationCode.contains("address"),
+                "OfficeLocation must reference inherited 'address' in toString. Got:\n" + officeLocationCode);
+
+        // P1: Verify Manager request classes were generated (entity set requires request classes)
+        File managerRequestFile = javaFiles.stream()
+                .filter(f -> f.getName().equals("ManagerEntityRequest.java"))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("ManagerEntityRequest.java should be generated"));
+        File managerCollectionRequestFile = javaFiles.stream()
+                .filter(f -> f.getName().equals("ManagerCollectionRequest.java"))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("ManagerCollectionRequest.java should be generated"));
+
         // Compile all generated code
         JavaCompiler compiler = ToolProvider.getSystemJavaCompiler();
         assertNotNull(compiler, "Java compiler not available");

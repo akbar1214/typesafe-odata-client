@@ -15,6 +15,7 @@ import java.util.TreeSet;
 public class RequestGenerator extends AbstractTypeGenerator {
 
     private Map<String, EntityTypeModel> entityTypeMap;
+    private Map<String, EntityTypeModel> entityTypeByQualifiedName;
 
     public RequestGenerator(String basePackage) {
         this(basePackage, Map.of());
@@ -428,9 +429,17 @@ public class RequestGenerator extends AbstractTypeGenerator {
     private void ensureSchemaCache(SchemaModel schema) {
         if (entityTypeMap != null) return;
         entityTypeMap = new HashMap<>();
-        for (EntityTypeModel et : schema.entityTypes()) {
-            entityTypeMap.put(Names.entityClassName(et.name()), et);
+        Map<String, EntityTypeModel> crossSchemaMap = new HashMap<>();
+        for (SchemaModel s : effectiveSchemas) {
+            for (EntityTypeModel et : s.entityTypes()) {
+                String qn = s.namespace() + "." + et.name();
+                crossSchemaMap.put(qn, et);
+                if (s.namespace().equals(schema.namespace())) {
+                    entityTypeMap.put(Names.entityClassName(et.name()), et);
+                }
+            }
         }
+        entityTypeByQualifiedName = crossSchemaMap;
     }
 
     private String resolveKeyType(EntityTypeModel entityType, String keyPropName, SchemaModel schema) {
@@ -470,6 +479,10 @@ public class RequestGenerator extends AbstractTypeGenerator {
     private EntityTypeModel findBase(EntityTypeModel entityType) {
         String bt = entityType.baseType();
         if (bt == null || bt.isBlank()) return null;
+        // Prefer qualified-name lookup (cross-schema)
+        EntityTypeModel base = entityTypeByQualifiedName.get(bt);
+        if (base != null) return base;
+        // Fallback: same-schema by simple name
         return entityTypeMap.get(Names.entityClassName(Names.simpleNameFromFullName(bt)));
     }
 

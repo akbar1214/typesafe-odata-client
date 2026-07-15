@@ -116,13 +116,17 @@ public abstract class AbstractTypeGenerator {
 
     private java.util.Map<String, String> typeDefCache;
 
-    // Resolve TypeDefinition to its underlying Edm type (recursively)
+    // Resolve TypeDefinition to its underlying Edm type (recursively) across all schemas.
     protected String resolveTypeDefinition(String edmType, SchemaModel schema) {
         if (Names.isPrimitiveType(edmType)) return edmType;
         if (typeDefCache == null) {
             typeDefCache = new java.util.HashMap<>();
-            for (var td : schema.typeDefinitions()) {
-                typeDefCache.put(td.name(), resolveTypeDefinitionChain(td.name(), schema, new java.util.HashSet<>()));
+            for (SchemaModel s : effectiveSchemas) {
+                for (var td : s.typeDefinitions()) {
+                    if (!typeDefCache.containsKey(td.name())) {
+                        typeDefCache.put(td.name(), resolveTypeDefinitionChain(td.name(), new java.util.HashSet<>()));
+                    }
+                }
             }
         }
         String simpleName = Names.simpleNameFromFullName(edmType);
@@ -130,16 +134,18 @@ public abstract class AbstractTypeGenerator {
         return resolved != null ? resolved : edmType;
     }
 
-    private String resolveTypeDefinitionChain(String typeName, SchemaModel schema, java.util.Set<String> visiting) {
+    private String resolveTypeDefinitionChain(String typeName, java.util.Set<String> visiting) {
         if (!visiting.add(typeName)) {
             throw new IllegalStateException("Circular TypeDefinition chain detected involving: " + typeName);
         }
-        for (var td : schema.typeDefinitions()) {
-            if (td.name().equals(typeName)) {
-                String underlying = td.underlyingType();
-                if (Names.isPrimitiveType(underlying)) return underlying;
-                String underlyingSimple = Names.simpleNameFromFullName(underlying);
-                return resolveTypeDefinitionChain(underlyingSimple, schema, visiting);
+        for (SchemaModel s : effectiveSchemas) {
+            for (var td : s.typeDefinitions()) {
+                if (td.name().equals(typeName)) {
+                    String underlying = td.underlyingType();
+                    if (Names.isPrimitiveType(underlying)) return underlying;
+                    String underlyingSimple = Names.simpleNameFromFullName(underlying);
+                    return resolveTypeDefinitionChain(underlyingSimple, visiting);
+                }
             }
         }
         return typeName;

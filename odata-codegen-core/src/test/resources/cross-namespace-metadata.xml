@@ -28,9 +28,20 @@
       <Property Name="Flags" Type="CrossNs.Main.BigFlags"/>
     </EntityType>
 
+    <!-- P1: cross-schema entity inheritance: child extends base from CrossNs.Shared -->
+    <EntityType Name="Manager" BaseType="CrossNs.Shared.EmployeeBase">
+      <Property Name="Department" Type="Edm.String"/>
+    </EntityType>
+
+    <!-- P1: cross-schema complex type inheritance -->
+    <ComplexType Name="OfficeLocation" BaseType="CrossNs.Shared.BaseLocation">
+      <Property Name="Floor" Type="Edm.Int32"/>
+    </ComplexType>
+
     <EntityContainer Name="Container">
       <EntitySet Name="People" EntityType="CrossNs.Main.Person"/>
       <EntitySet Name="SharedTags" EntityType="CrossNs.Shared.SharedTag"/>
+      <EntitySet Name="Managers" EntityType="CrossNs.Main.Manager"/>
     </EntityContainer>
   </Schema>
 
@@ -47,6 +58,20 @@
       </Key>
       <Property Name="Code" Type="Edm.String" Nullable="false"/>
     </EntityType>
+
+    <!-- P1: base entity type for cross-schema inheritance test -->
+    <EntityType Name="EmployeeBase">
+      <Key>
+        <PropertyRef Name="EmployeeId"/>
+      </Key>
+      <Property Name="EmployeeId" Type="Edm.Int32" Nullable="false"/>
+      <Property Name="Name" Type="Edm.String"/>
+    </EntityType>
+
+    <!-- P1: base complex type for cross-schema inheritance test -->
+    <ComplexType Name="BaseLocation">
+      <Property Name="Address" Type="Edm.String"/>
+    </ComplexType>
   </Schema>
   </edmx:DataServices>
 </edmx:Edmx>

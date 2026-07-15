@@ -16,7 +16,9 @@ import java.util.TreeSet;
 public class ComplexTypeGenerator extends AbstractTypeGenerator {
 
     private Map<String, ComplexTypeModel> complexTypeMap;
-    private Set<String> openRootNames;
+    private Map<String, ComplexTypeModel> complexTypeByQualifiedName;
+    private java.util.Map<ComplexTypeModel, String> complexTypeNamespace;
+    private java.util.Map<String, Set<String>> schemaOpenRootNames;
 
     public ComplexTypeGenerator(String basePackage, Map<String, String> schemaPackages) {
         this(basePackage, schemaPackages, null, List.of());
@@ -77,7 +79,7 @@ public class ComplexTypeGenerator extends AbstractTypeGenerator {
             imports.add("io.github.akbarhusain.odata.runtime.serialization.DynamicPropertyConverter");
         }
         if (base != null) {
-            imports.add(pkg + "." + baseSimpleName);
+            imports.add(basePackageForType(complexType.baseType(), schema) + Names.packageNameSuffixComplexType() + "." + baseSimpleName);
         }
         for (PropertyModel prop : allProps) {
             addPropertyImports(prop, imports, schema);
@@ -356,17 +358,25 @@ public class ComplexTypeGenerator extends AbstractTypeGenerator {
     private void ensureSchemaCache(SchemaModel schema) {
         if (complexTypeMap != null) return;
         complexTypeMap = new HashMap<>();
-        for (ComplexTypeModel ct : schema.complexTypes()) {
-            complexTypeMap.put(Names.complexTypeClassName(ct.name()), ct);
-        }
-
-        Set<String> openRoots = new HashSet<>();
-        for (ComplexTypeModel ct : schema.complexTypes()) {
-            if (openTypeResolved(ct)) {
-                openRoots.add(Names.complexTypeClassName(rootOf(ct).name()));
+        Map<String, ComplexTypeModel> crossSchemaMap = new HashMap<>();
+        for (SchemaModel s : effectiveSchemas) {
+            for (ComplexTypeModel ct : s.complexTypes()) {
+                String qn = s.namespace() + "." + ct.name();
+                crossSchemaMap.put(qn, ct);
+                if (s.namespace().equals(schema.namespace())) {
+                    complexTypeMap.put(Names.complexTypeClassName(ct.name()), ct);
+                }
             }
         }
-        openRootNames = openRoots;
+        complexTypeByQualifiedName = crossSchemaMap;
+        java.util.Map<ComplexTypeModel, String> ctNs = new java.util.HashMap<>();
+        for (SchemaModel s : effectiveSchemas) {
+            for (ComplexTypeModel ct : s.complexTypes()) {
+                ctNs.put(ct, s.namespace());
+            }
+        }
+        complexTypeNamespace = ctNs;
+        schemaOpenRootNames = new java.util.HashMap<>();
     }
 
     // True if this type or any ancestor declares OpenType="true" (propagates to subtypes).
@@ -384,8 +394,28 @@ public class ComplexTypeGenerator extends AbstractTypeGenerator {
     }
 
     // True if any type in the hierarchy rooted here is open (root must hold a mutable map).
+    private Set<String> openRootNamesForSchema(String namespace) {
+        return schemaOpenRootNames.computeIfAbsent(namespace, ns -> {
+            Set<String> roots = new HashSet<>();
+            for (SchemaModel s : effectiveSchemas) {
+                for (ComplexTypeModel ct : s.complexTypes()) {
+                    if (openTypeResolved(ct)) {
+                        ComplexTypeModel root = rootOf(ct);
+                        String rootNs = complexTypeNamespace.get(root);
+                        if (rootNs != null && rootNs.equals(ns)) {
+                            roots.add(Names.complexTypeClassName(root.name()));
+                        }
+                    }
+                }
+            }
+            return roots;
+        });
+    }
+
     private boolean subtreeHasOpen(ComplexTypeModel root) {
-        return openRootNames.contains(Names.complexTypeClassName(root.name()));
+        String ns = complexTypeNamespace.get(root);
+        if (ns == null) return false;
+        return openRootNamesForSchema(ns).contains(Names.complexTypeClassName(root.name()));
     }
 
     private ComplexTypeModel findBase(ComplexTypeModel complexType) {
@@ -393,6 +423,10 @@ public class ComplexTypeGenerator extends AbstractTypeGenerator {
         if (bt == null || bt.isBlank()) {
             return null;
         }
+        // Prefer qualified-name lookup (cross-schema)
+        ComplexTypeModel base = complexTypeByQualifiedName.get(bt);
+        if (base != null) return base;
+        // Fallback: same-schema by simple name
         return complexTypeMap.get(Names.complexTypeClassName(Names.simpleNameFromFullName(bt)));
     }
 

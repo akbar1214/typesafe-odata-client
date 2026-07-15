@@ -17,8 +17,10 @@ import java.util.TreeSet;
 public class EntityGenerator extends AbstractTypeGenerator {
 
     private Map<String, EntityTypeModel> entityTypeMap;
-    private Set<String> extendedBases;
-    private Set<String> openRootNames;
+    private Map<String, EntityTypeModel> entityTypeByQualifiedName;
+    private java.util.Map<EntityTypeModel, String> entityNamespace;
+    private java.util.Map<String, Set<String>> schemaExtendedBases;
+    private java.util.Map<String, Set<String>> schemaOpenRootNames;
 
     public EntityGenerator(String basePackage, Map<String, String> schemaPackages) {
         this(basePackage, schemaPackages, null, List.of());
@@ -48,7 +50,7 @@ public class EntityGenerator extends AbstractTypeGenerator {
         EntityTypeModel base = findBase(entityType);
         String baseSimpleName = base != null ? Names.entityClassName(base.name()) : null;
 
-        boolean isBase = extendedBases.contains(className);
+        boolean isBase = extendedBasesForSchema(schema).contains(className);
 
         List<PropertyModel> ownProps = entityType.properties();
         List<PropertyModel> inheritedProps = inheritedProperties(entityType);
@@ -98,7 +100,7 @@ public class EntityGenerator extends AbstractTypeGenerator {
             addPropertyImports(prop, imports, schema);
         }
         if (base != null) {
-            imports.add(pkg + "." + baseSimpleName);
+            imports.add(basePackageForType(entityType.baseType(), schema) + Names.packageNameSuffixEntity() + "." + baseSimpleName);
         }
 
         for (String imp : imports) {
@@ -303,22 +305,59 @@ public class EntityGenerator extends AbstractTypeGenerator {
     private void ensureSchemaCache(SchemaModel schema) {
         if (entityTypeMap != null) return;
         entityTypeMap = new HashMap<>();
-        Set<String> extBases = new HashSet<>();
-        for (EntityTypeModel et : schema.entityTypes()) {
-            entityTypeMap.put(Names.entityClassName(et.name()), et);
-            if (et.baseType() != null && !et.baseType().isBlank()) {
-                extBases.add(Names.entityClassName(Names.simpleNameFromFullName(et.baseType())));
+        Map<String, EntityTypeModel> crossSchemaMap = new HashMap<>();
+        java.util.Map<EntityTypeModel, String> nsMap = new java.util.HashMap<>();
+        for (SchemaModel s : effectiveSchemas) {
+            for (EntityTypeModel et : s.entityTypes()) {
+                String qn = s.namespace() + "." + et.name();
+                crossSchemaMap.put(qn, et);
+                nsMap.put(et, s.namespace());
+                if (s.namespace().equals(schema.namespace())) {
+                    entityTypeMap.put(Names.entityClassName(et.name()), et);
+                }
             }
         }
-        extendedBases = extBases;
+        entityTypeByQualifiedName = crossSchemaMap;
+        entityNamespace = nsMap;
+        schemaExtendedBases = new java.util.HashMap<>();
+        schemaOpenRootNames = new java.util.HashMap<>();
+    }
 
-        Set<String> openRoots = new HashSet<>();
-        for (EntityTypeModel et : schema.entityTypes()) {
-            if (openTypeResolved(et)) {
-                openRoots.add(Names.entityClassName(rootOf(et).name()));
+    private Set<String> extendedBasesForSchema(SchemaModel schema) {
+        return schemaExtendedBases.computeIfAbsent(schema.namespace(), ns -> {
+            Set<String> bases = new HashSet<>();
+            for (SchemaModel s : effectiveSchemas) {
+                for (EntityTypeModel et : s.entityTypes()) {
+                    String bt = et.baseType();
+                    if (bt != null && !bt.isBlank()) {
+                        String baseNs = Names.namespaceFromFullName(bt);
+                        if (baseNs.isEmpty()) baseNs = s.namespace();
+                        if (baseNs.equals(ns)) {
+                            bases.add(Names.entityClassName(Names.simpleNameFromFullName(bt)));
+                        }
+                    }
+                }
             }
-        }
-        openRootNames = openRoots;
+            return bases;
+        });
+    }
+
+    private Set<String> openRootNamesForSchema(String namespace) {
+        return schemaOpenRootNames.computeIfAbsent(namespace, ns -> {
+            Set<String> roots = new HashSet<>();
+            for (SchemaModel s : effectiveSchemas) {
+                for (EntityTypeModel et : s.entityTypes()) {
+                    if (openTypeResolved(et)) {
+                        EntityTypeModel root = rootOf(et);
+                        String rootNs = entityNamespace.get(root);
+                        if (rootNs != null && rootNs.equals(ns)) {
+                            roots.add(Names.entityClassName(root.name()));
+                        }
+                    }
+                }
+            }
+            return roots;
+        });
     }
 
     // True if this type or any ancestor declares OpenType="true" (OpenType propagates to subtypes).
@@ -338,7 +377,7 @@ public class EntityGenerator extends AbstractTypeGenerator {
     // True if any type in the hierarchy rooted at this type is open (so the root must hold a
     // mutable unmappedFields map that @JsonAnySetter can populate for the open subtype).
     private boolean subtreeHasOpen(EntityTypeModel root) {
-        return openRootNames.contains(Names.entityClassName(root.name()));
+        return openRootNamesForSchema(entityNamespace.getOrDefault(root, "")).contains(Names.entityClassName(root.name()));
     }
 
     private EntityTypeModel findBase(EntityTypeModel entityType) {
@@ -346,6 +385,10 @@ public class EntityGenerator extends AbstractTypeGenerator {
         if (bt == null || bt.isBlank()) {
             return null;
         }
+        // Prefer qualified-name lookup (cross-schema)
+        EntityTypeModel base = entityTypeByQualifiedName.get(bt);
+        if (base != null) return base;
+        // Fallback: same-schema by simple name
         return entityTypeMap.get(Names.entityClassName(Names.simpleNameFromFullName(bt)));
     }
 
