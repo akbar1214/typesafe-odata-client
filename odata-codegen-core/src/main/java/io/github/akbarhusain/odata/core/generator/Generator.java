@@ -10,8 +10,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 public class Generator {
 
@@ -21,6 +23,7 @@ public class Generator {
     private final Map<String, String> schemaPackages = new HashMap<>();
     private final String defaultBasePackage;
     private boolean generateWithMethods;
+    private final Set<Path> createdDirectories = new HashSet<>();
 
     public Generator(Path outputDir, Map<String, String> schemaPackages) {
         this(outputDir, schemaPackages, null);
@@ -92,7 +95,9 @@ public class Generator {
     private void writeCode(String packageName, String className, String code) throws IOException {
         String packageDir = packageName.replace('.', '/');
         Path dir = outputDir.resolve(packageDir);
-        Files.createDirectories(dir);
+        if (createdDirectories.add(dir)) {
+            Files.createDirectories(dir);
+        }
         Path file = dir.resolve(className + ".java");
         Files.writeString(file, code);
         log.debug("Wrote: {}", file);
