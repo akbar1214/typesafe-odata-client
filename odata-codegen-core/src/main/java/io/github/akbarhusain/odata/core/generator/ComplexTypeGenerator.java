@@ -17,7 +17,7 @@ public class ComplexTypeGenerator extends AbstractTypeGenerator {
 
     private Map<String, ComplexTypeModel> complexTypeMap;
     private Map<String, ComplexTypeModel> complexTypeByQualifiedName;
-    private java.util.Map<ComplexTypeModel, String> complexTypeNamespace;
+    private java.util.Map<String, String> complexTypeNamespace;
     private java.util.Map<String, Set<String>> schemaOpenRootNames;
 
     public ComplexTypeGenerator(String basePackage, Map<String, String> schemaPackages) {
@@ -369,10 +369,10 @@ public class ComplexTypeGenerator extends AbstractTypeGenerator {
             }
         }
         complexTypeByQualifiedName = crossSchemaMap;
-        java.util.Map<ComplexTypeModel, String> ctNs = new java.util.HashMap<>();
+        java.util.Map<String, String> ctNs = new java.util.HashMap<>();
         for (SchemaModel s : effectiveSchemas) {
             for (ComplexTypeModel ct : s.complexTypes()) {
-                ctNs.put(ct, s.namespace());
+                ctNs.put(Names.complexTypeClassName(ct.name()), s.namespace());
             }
         }
         complexTypeNamespace = ctNs;
@@ -401,7 +401,7 @@ public class ComplexTypeGenerator extends AbstractTypeGenerator {
                 for (ComplexTypeModel ct : s.complexTypes()) {
                     if (openTypeResolved(ct)) {
                         ComplexTypeModel root = rootOf(ct);
-                        String rootNs = complexTypeNamespace.get(root);
+                        String rootNs = complexTypeNamespace.get(Names.complexTypeClassName(root.name()));
                         if (rootNs != null && rootNs.equals(ns)) {
                             roots.add(Names.complexTypeClassName(root.name()));
                         }
@@ -413,7 +413,7 @@ public class ComplexTypeGenerator extends AbstractTypeGenerator {
     }
 
     private boolean subtreeHasOpen(ComplexTypeModel root) {
-        String ns = complexTypeNamespace.get(root);
+        String ns = complexTypeNamespace.get(Names.complexTypeClassName(root.name()));
         if (ns == null) return false;
         return openRootNamesForSchema(ns).contains(Names.complexTypeClassName(root.name()));
     }

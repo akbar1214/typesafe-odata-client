@@ -274,10 +274,22 @@ public final class Names {
 
     public enum TypeKind { ENTITY, COMPLEX, ENUM, UNKNOWN }
 
-    private static final java.util.concurrent.ConcurrentHashMap<List<SchemaModel>, java.util.Map<String, TypeKind>> TYPE_KIND_CACHE = new java.util.concurrent.ConcurrentHashMap<>();
+    // Identity-based key wrapper: avoids expensive List.hashCode() that traverses
+    // the entire model tree (2000 entities × 10 properties = 20k recursive hashes
+    // per lookup) when the same list reference is reused throughout generation.
+    private record SchemaListKey(List<SchemaModel> list) {
+        @Override public boolean equals(Object o) {
+            return o instanceof SchemaListKey k && list == k.list;
+        }
+        @Override public int hashCode() {
+            return System.identityHashCode(list);
+        }
+    }
+
+    private static final java.util.concurrent.ConcurrentHashMap<SchemaListKey, java.util.Map<String, TypeKind>> TYPE_KIND_CACHE = new java.util.concurrent.ConcurrentHashMap<>();
 
     public static TypeKind resolveTypeKind(String edmType, List<SchemaModel> allSchemas) {
-        java.util.Map<String, TypeKind> cache = TYPE_KIND_CACHE.computeIfAbsent(allSchemas, Names::buildTypeKindMap);
+        java.util.Map<String, TypeKind> cache = TYPE_KIND_CACHE.computeIfAbsent(new SchemaListKey(allSchemas), k -> buildTypeKindMap(k.list));
         TypeKind kind = cache.get(edmType);
         return kind != null ? kind : TypeKind.UNKNOWN;
     }

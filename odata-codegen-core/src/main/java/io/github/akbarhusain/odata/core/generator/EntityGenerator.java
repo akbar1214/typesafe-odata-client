@@ -18,7 +18,9 @@ public class EntityGenerator extends AbstractTypeGenerator {
 
     private Map<String, EntityTypeModel> entityTypeMap;
     private Map<String, EntityTypeModel> entityTypeByQualifiedName;
-    private java.util.Map<EntityTypeModel, String> entityNamespace;
+    // Keyed by entity class name (String, not EntityTypeModel record) to avoid
+    // expensive record hashCode() that iterates all properties.
+    private java.util.Map<String, String> entityNamespace;
     private java.util.Map<String, Set<String>> schemaExtendedBases;
     private java.util.Map<String, Set<String>> schemaOpenRootNames;
 
@@ -306,12 +308,12 @@ public class EntityGenerator extends AbstractTypeGenerator {
         if (entityTypeMap != null) return;
         entityTypeMap = new HashMap<>();
         Map<String, EntityTypeModel> crossSchemaMap = new HashMap<>();
-        java.util.Map<EntityTypeModel, String> nsMap = new java.util.HashMap<>();
+        java.util.Map<String, String> nsMap = new java.util.HashMap<>();
         for (SchemaModel s : effectiveSchemas) {
             for (EntityTypeModel et : s.entityTypes()) {
                 String qn = s.namespace() + "." + et.name();
                 crossSchemaMap.put(qn, et);
-                nsMap.put(et, s.namespace());
+                nsMap.put(Names.entityClassName(et.name()), s.namespace());
                 if (s.namespace().equals(schema.namespace())) {
                     entityTypeMap.put(Names.entityClassName(et.name()), et);
                 }
@@ -349,7 +351,7 @@ public class EntityGenerator extends AbstractTypeGenerator {
                 for (EntityTypeModel et : s.entityTypes()) {
                     if (openTypeResolved(et)) {
                         EntityTypeModel root = rootOf(et);
-                        String rootNs = entityNamespace.get(root);
+                        String rootNs = entityNamespace.get(Names.entityClassName(root.name()));
                         if (rootNs != null && rootNs.equals(ns)) {
                             roots.add(Names.entityClassName(root.name()));
                         }
@@ -377,7 +379,7 @@ public class EntityGenerator extends AbstractTypeGenerator {
     // True if any type in the hierarchy rooted at this type is open (so the root must hold a
     // mutable unmappedFields map that @JsonAnySetter can populate for the open subtype).
     private boolean subtreeHasOpen(EntityTypeModel root) {
-        return openRootNamesForSchema(entityNamespace.getOrDefault(root, "")).contains(Names.entityClassName(root.name()));
+        return openRootNamesForSchema(entityNamespace.getOrDefault(Names.entityClassName(root.name()), "")).contains(Names.entityClassName(root.name()));
     }
 
     private EntityTypeModel findBase(EntityTypeModel entityType) {
