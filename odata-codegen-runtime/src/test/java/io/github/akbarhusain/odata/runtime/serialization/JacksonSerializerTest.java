@@ -59,15 +59,17 @@ class JacksonSerializerTest {
     }
 
     @Test
-    void polymorphicSerializationRespectsDeclaredType() {
+    void polymorphicSerializationIncludesRuntimeTypeFields() {
         JacksonSerializer serializer = new JacksonSerializer();
         Dog dog = new Dog("Fido", "Labrador");
 
-        // Serialize as the base type — should only include base fields
+        // Serialize with the declared base type — the serializer must use the runtime
+        // type so subtype-only fields survive POST/PATCH via a base-typed collection
+        // (e.g. posting a FeaturedProduct to the Products entity set).
         byte[] bytes = serializer.serialize(dog, Animal.class);
         String json = new String(bytes, StandardCharsets.UTF_8);
 
         assertTrue(json.contains("name"), "Base type field 'name' should be present: " + json);
-        assertFalse(json.contains("breed"), "Subtype field 'breed' should NOT be present: " + json);
+        assertTrue(json.contains("breed"), "Subtype field 'breed' should be present: " + json);
     }
 }

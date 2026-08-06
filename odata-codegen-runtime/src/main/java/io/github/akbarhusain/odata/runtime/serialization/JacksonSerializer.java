@@ -54,7 +54,11 @@ public class JacksonSerializer implements Serializer {
     @Override
     public <T> byte[] serialize(T value, Class<T> type) {
         try {
-            return MAPPER.writerFor(type).writeValueAsBytes(value);
+            // Use the runtime class so subtype-only fields are preserved when a
+            // subtype is posted/patched through a base-typed collection request
+            // (e.g. posting a FeaturedProduct to the Products entity set).
+            Class<?> effectiveType = value == null ? type : value.getClass();
+            return MAPPER.writerFor(effectiveType).writeValueAsBytes(value);
         } catch (JsonProcessingException e) {
             throw new io.github.akbarhusain.odata.runtime.exception.ODataException(
                     "Serialization failed: " + e.getMessage(), e);
@@ -63,7 +67,8 @@ public class JacksonSerializer implements Serializer {
 
     public <T> byte[] serializeIncludeNulls(T value, Class<T> type) {
         try {
-            return MAPPER_INCLUDE_NULLS.writeValueAsBytes(value);
+            Class<?> effectiveType = value == null ? type : value.getClass();
+            return MAPPER_INCLUDE_NULLS.writerFor(effectiveType).writeValueAsBytes(value);
         } catch (JsonProcessingException e) {
             throw new io.github.akbarhusain.odata.runtime.exception.ODataException(
                     "Serialization failed: " + e.getMessage(), e);

@@ -94,7 +94,7 @@ Supported operators depend on property type:
 
 | Type | Example operators |
 |------|-------------------|
-| `StringProperty` | `equalTo`, `notEqualTo`, `contains`, `startsWith`, `endsWith`, `equalToIgnoreCase`, `concat` |
+| `StringProperty` | `equalTo`, `notEqualTo`, `contains`, `startsWith`, `endsWith`, `concat` |
 | `NumberProperty` | `equalTo`, `greaterThan`, `lessThan`, `between`, `multiply`, `negate` |
 | `DateTimeProperty` | `equalTo`, `greaterThan`, `year`, `month`, `day`, `hour`, `date`, `time` |
 | `BooleanProperty` | `equalTo`, `notEqualTo` |

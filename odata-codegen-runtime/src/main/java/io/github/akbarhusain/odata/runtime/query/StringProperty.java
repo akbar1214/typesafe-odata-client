@@ -92,20 +92,6 @@ public final class StringProperty<E> implements PropertyExpression<E, String> {
         return new StringProperty<>("concat(" + edmName + "," + other.toODataExpression() + ")", entityType);
     }
 
-    public FilterExpression<E> equalToIgnoreCase(String value) {
-        if (value == null) {
-            return isNull();
-        }
-        return new RawFilterExpression("tolower(" + edmName + ") eq '" + escape(value) + "'");
-    }
-
-    public FilterExpression<E> notEqualToIgnoreCase(String value) {
-        if (value == null) {
-            return isNotNull();
-        }
-        return new RawFilterExpression("tolower(" + edmName + ") ne '" + escape(value) + "'");
-    }
-
     public NumberExpression<Integer, E> indexOf(String value) {
         return new NumberExpression<>("indexof(" + edmName + ",'" + escape(value) + "')", entityType);
     }

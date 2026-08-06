@@ -202,6 +202,44 @@ class GenerateMojoIncrementalTest {
     }
 
     @Test
+    void changedConfigForcesRegenerationEvenWhenMetadataUnchanged() throws Exception {
+        File metadata = writeMetadata("""
+                <?xml version="1.0" encoding="utf-8"?>
+                <edmx:Edmx xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx" Version="4.0">
+                  <edmx:DataServices>
+                    <Schema xmlns="http://docs.oasis-open.org/odata/ns/edm" Namespace="TestNS">
+                      <EntityType Name="Person">
+                        <Key><PropertyRef Name="Id"/></Key>
+                        <Property Name="Id" Type="Edm.Int32" Nullable="false"/>
+                        <Property Name="Name" Type="Edm.String"/>
+                      </EntityType>
+                      <EntityContainer Name="Container">
+                        <EntitySet Name="People" EntityType="TestNS.Person"/>
+                      </EntityContainer>
+                    </Schema>
+                  </edmx:DataServices>
+                </edmx:Edmx>
+                """);
+        File outputDir = tempDir.resolve("out-config").toFile();
+
+        GenerateMojo first = createMojo(metadata, outputDir);
+        setField(first, "generateWithMethods", false);
+        first.execute();
+        int firstCount = countGeneratedFiles(outputDir);
+
+        // Metadata is unchanged; only the generateWithMethods config changes.
+        File generated = findAnyGeneratedFile(outputDir);
+        assertTrue(generated.delete(), "Should be able to delete a generated file for the test");
+
+        GenerateMojo second = createMojo(metadata, outputDir);
+        setField(second, "generateWithMethods", true);
+        second.execute();
+
+        assertEquals(firstCount, countGeneratedFiles(outputDir),
+                "Changing generateWithMethods should invalidate the marker and force regeneration");
+    }
+
+    @Test
     void forceRegenerateOverridesMarker() throws Exception {
         File metadata = writeMetadata("""
                 <?xml version="1.0" encoding="utf-8"?>

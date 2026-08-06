@@ -183,24 +183,6 @@ class StringPropertyTest {
     }
 
     @Test
-    void equalToIgnoreCase() {
-        FilterExpression<Object> expr = name.equalToIgnoreCase("Scott");
-        assertEquals("tolower(Name) eq 'Scott'", expr.toODataExpression());
-    }
-
-    @Test
-    void notEqualToIgnoreCase() {
-        FilterExpression<Object> expr = name.notEqualToIgnoreCase("Scott");
-        assertEquals("tolower(Name) ne 'Scott'", expr.toODataExpression());
-    }
-
-    @Test
-    void equalToIgnoreCaseNullRoutesToIsNull() {
-        FilterExpression<Object> expr = name.equalToIgnoreCase(null);
-        assertEquals("Name eq null", expr.toODataExpression());
-    }
-
-    @Test
     void concatWithString() {
         StringProperty<Object> expr = name.concat("suffix");
         assertEquals("concat(Name,'suffix')", expr.toODataExpression());

@@ -17,8 +17,6 @@ Complete reference for type-safe query operations.
 | `contains(value)` | `contains()` | Contains substring |
 | `startsWith(value)` | `startswith()` | Starts with |
 | `endsWith(value)` | `endswith()` | Ends with |
-| `equalToIgnoreCase(value)` | `tolower() eq` | Case-insensitive |
-| `notEqualToIgnoreCase(value)` | `tolower() ne` | Case-insensitive |
 | `length()` | `length()` | String length |
 | `indexOf(value)` | `indexof()` | Find position |
 | `substring(start, end)` | `substring()` | Substring |

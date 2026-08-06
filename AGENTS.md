@@ -512,7 +512,7 @@ Making the operators null-safe is the least surprising choice and keeps users fr
 **Reason:** The documentation already described several operations (`StringProperty.equalToIgnoreCase`, `DateTimeProperty.year`, `NumberExpression.negate`, `CollectionProperty.contains`, etc.) but the runtime did not expose them. Trimming the docs would reduce API surface; implementing them makes the typed query API feel complete and consistent.
 
 **Approach:**
-- `StringProperty`: added `equalToIgnoreCase(String)`, `notEqualToIgnoreCase(String)` (null-safe), `concat(String)`, and `concat(StringProperty<E>)`.
+- `StringProperty`: added `concat(String)` and `concat(StringProperty<E>)`. (`equalToIgnoreCase`/`notEqualToIgnoreCase` were added here but later removed — they are non-standard OData wrappers; `StringProperty.toLower().equalTo(...)` achieves the same with the real `tolower()` function.)
 - `DateTimeProperty`: added `year()`, `month()`, `day()`, `hour()`, `minute()`, `second()` returning `NumberExpression<Integer, E>`, plus `date()` and `time()` returning `DateTimeProperty<E>`.
 - `NumberExpression`: added `negate()` returning `NumberExpression<N, E>`.
 - `BooleanProperty`: `notEqualTo(boolean)` / `notEqualTo(Boolean)` were already added for null handling (#3).
