@@ -74,10 +74,10 @@ public class GenerateMojo extends AbstractMojo {
             Files.createDirectories(outputDir);
 
             Path metadataPath = resolveMetadataPath();
-            String currentHash = hashFile(metadataPath);
+            String currentHash = computeMarkerHash(metadataPath);
 
             if (!forceRegenerate && isUpToDate(outputDir, currentHash)) {
-                getLog().info("OData client is up-to-date; skipping generation (metadata hash unchanged). Use odata.forceRegenerate=true to override.");
+                getLog().info("OData client is up-to-date; skipping generation (metadata and config unchanged). Use odata.forceRegenerate=true to override.");
                 project.addCompileSourceRoot(outputDir.toFile().getAbsolutePath());
                 return;
             }
@@ -165,6 +165,27 @@ public class GenerateMojo extends AbstractMojo {
                 digest.update(buffer, 0, read);
             }
         }
+        return bytesToHex(digest.digest());
+    }
+
+    /**
+     * Marker hash folds in generation configuration so that changing config
+     * (basePackage, generateWithMethods, schemaPackages, outputDirectory) after a
+     * prior run invalidates the marker and forces regeneration.
+     */
+    private String computeMarkerHash(Path metadataPath) throws Exception {
+        StringBuilder config = new StringBuilder();
+        config.append("basePackage=").append(basePackage == null ? "" : basePackage).append('\n');
+        config.append("generateWithMethods=").append(generateWithMethods).append('\n');
+        config.append("outputDirectory=").append(outputDirectory == null ? "" : outputDirectory.getAbsolutePath()).append('\n');
+        for (SchemaMapping mapping : schemaPackages) {
+            config.append("schema=").append(mapping.getNamespace()).append('=')
+                    .append(mapping.getPackageName()).append('\n');
+        }
+        java.security.MessageDigest digest = java.security.MessageDigest.getInstance("MD5");
+        digest.update(hashFile(metadataPath).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        digest.update((byte) '\n');
+        digest.update(config.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
         return bytesToHex(digest.digest());
     }
 

@@ -508,6 +508,6 @@ public class RequestGenerator extends AbstractTypeGenerator {
     }
 
     private boolean isComplexTypeNav(NavigationPropertyModel nav, SchemaModel schema) {
-        return Names.resolveTypeKind(nav.type(), allSchemas) == Names.TypeKind.COMPLEX;
+        return Names.resolveTypeKind(nav.type(), effectiveSchemas) == Names.TypeKind.COMPLEX;
     }
 }

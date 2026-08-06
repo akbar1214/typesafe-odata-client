@@ -45,9 +45,9 @@ client.people()
     .filter(Person.FIRST_NAME.endsWith("ott"))
     .get();
 
-// Case-insensitive (converts to tolower() in OData)
+// Case-insensitive (uses the tolower() OData function)
 client.people()
-    .filter(Person.FIRST_NAME.equalToIgnoreCase("scott"))
+    .filter(Person.FIRST_NAME.toLower().equalTo("scott"))
     .get();
 ```
 

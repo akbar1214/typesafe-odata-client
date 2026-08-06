@@ -92,12 +92,12 @@ public class EntityOperations {
 
     public static void addRef(Context context, ContextPath navigationPath, String targetEntityUrl) {
         ContextPath refPath = navigationPath.addSegment("$ref");
-        byte[] body = new StringBuilder(targetEntityUrl.length() + 20)
-                .append("{\"@odata.id\":\"")
-                .append(targetEntityUrl)
-                .append("\"}")
-                .toString()
-                .getBytes(StandardCharsets.UTF_8);
+        byte[] body;
+        try {
+            body = COLLECTION_MAPPER.writeValueAsBytes(Map.of("@odata.id", targetEntityUrl));
+        } catch (IOException e) {
+            throw new ODataException("Failed to build $ref body: " + e.getMessage(), e);
+        }
         HttpResponse response = executeSync(context, HttpMethod.POST, refPath, body,
                 Map.of("Content-Type", "application/json"));
         checkResponse(response);
