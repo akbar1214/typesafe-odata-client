@@ -75,7 +75,10 @@ public class NumberExpression<N, E> implements OrderExpression<E, N> {
     }
 
     public NumberExpression<N, E> divide(N value) {
-        return new NumberExpression<>("(" + expression + " div " + formatValue(value) + ")", entityType);
+        // OData 'div' is truncating integer division; Double/Decimal/Single must use 'divby'
+        String op = (value instanceof Integer || value instanceof Long
+                || value instanceof Short || value instanceof Byte) ? " div " : " divby ";
+        return new NumberExpression<>("(" + expression + op + formatValue(value) + ")", entityType);
     }
 
     public NumberExpression<N, E> modulo(N value) {

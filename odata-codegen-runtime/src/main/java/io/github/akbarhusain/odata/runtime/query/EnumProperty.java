@@ -62,9 +62,25 @@ public final class EnumProperty<E, V extends Enum<V>> implements PropertyExpress
         return new RawFilterExpression(edmName + " ne null");
     }
 
+    /** Flags membership operator: {@code Gender has NS.PersonGender'Male'}. */
+    public FilterExpression<E> has(V value) {
+        if (value == null) {
+            throw new IllegalArgumentException("has(...) requires a non-null enum value");
+        }
+        return new RawFilterExpression(edmName + " has " + getODataEnumName(value));
+    }
+
     private String getODataEnumName(V value) {
-        String prefix = (typeName != null) ? typeName : enumType.getSimpleName();
-        return prefix + "'" + value.name() + "'";
+        if (typeName == null) {
+            // The simple-name fallback produced `Color'Red'` — rejected by strict services,
+            // which require the fully qualified `NS.Color'Red'`. There is no reliable way to
+            // derive the CSDL namespace from a Java class, so fail fast instead.
+            throw new IllegalStateException(
+                    "EnumProperty '" + edmName + "' has no fully qualified type name; construct it with "
+                            + "EnumProperty(edmName, entityType, enumType, \"Namespace.EnumName\"). "
+                            + "Generated property constants always pass the qualified name.");
+        }
+        return typeName + "'" + value.name() + "'";
     }
 
     @SuppressWarnings("unchecked")

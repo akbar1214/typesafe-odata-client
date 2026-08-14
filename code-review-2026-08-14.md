@@ -306,24 +306,35 @@ encoder/decoder.
 
 ### Query expressions (`odata-codegen-runtime/.../query/*`)
 
-**M7. `NavQuery` joins multiple `$filter` predicates with unparenthesized `and`.** `NavProperty.java:118`:
-`String.join(" and ", filters)`. A predicate containing `or` combined with a second `filter(...)` renders
-`A eq 1 or B eq 2 and Y eq true`, which parses as `A or (B and Y)` — silently wrong semantics.
-`RawFilterExpression.and/or` parenthesizes correctly; this join site doesn't. Fix: wrap each entry in `(...)` before
-joining.
+**M7. ~~`NavQuery` joins multiple `$filter` predicates with unparenthesized `and`.~~ ✅ Resolved**
+`toODataExpand` now wraps each predicate in `(...)` before joining when more than one `filter()` was applied (a single
+filter renders unchanged); `RawFilterExpression.and/or` already parenthesized its own operands. Test:
+`m7MultipleFiltersAreParenthesizedToPreservePrecedence` (TDD).
 
-**M8. `NumberExpression.divide` always emits `div`.** `NumberExpression.java:76-79`. OData v4 `div` is truncating
-integer division; `divby` is required for Double/Decimal/Single. `Price div 2.0` is rejected by strict services or
-truncates on lenient ones. Fix: choose `div`/`divby` by operand type.
+**M8. ~~`NumberExpression.divide` always emits `div`.~~ ✅ Resolved**
+`divide` now chooses `div` for `Integer`/`Long`/`Short`/`Byte` operands and `divby` for `Double`/`Float`/`BigDecimal`
+(and anything else non-integral), per OData v4 (`div` is truncating integer division). Covers `NumberProperty` via
+inheritance. Tests: `m8IntegerDivisionUsesDiv`, `m8FloatingPointDivisionUsesDivby` (TDD).
 
-**M9. `DateTimeProperty` concatenates raw user strings with no validation or escaping.** `DateTimeProperty.java:61-75` —
-`edmName + " gt " + value`. Unlike `StringProperty`, nothing validates the format, so `"2024-01-01' or '1' eq '1"`
-injects arbitrary predicates; `Edm.Duration` values are passed through without the `duration'...'`/`P...` form. Fix:
-validate against ISO/OData ABNF patterns and fail fast; add typed overloads (`equalTo(OffsetDateTime)` etc.).
+**M9. ~~`DateTimeProperty` concatenates raw user strings with no validation or escaping.~~ ✅ Resolved**
+String literals are validated against the OData ABNF (bare `Date` / `DateTimeOffset` / `TimeOfDay` and
+`duration'...'`); anything else — including injection attempts — throws `IllegalArgumentException` with the accepted
+forms listed. Typed values are now supported directly: the comparison operators accept `LocalDate`, `OffsetDateTime`,
+`LocalTime`, and `Duration` (formatted per the ABNF; `LocalTime` always renders `HH:mm:ss` since `toString` omits zero
+seconds, and `Duration` renders `duration'...'`). Implementation note: rather than one overload per type (which makes
+`equalTo(null)` ambiguous and would break the documented null-routing pattern of decision 33), a single
+`Object`-parameter operator formats by runtime type — `null` stays unambiguous and null-routes as before. Tests:
+`m9InvalidStringLiteralThrows`, `m9ValidLiteralFormsAccepted`, `m9TypedOverloadsFormatPerAbnf` (TDD).
 
-**M10. `EnumProperty` manual-construction fallback uses the simple name.** `EnumProperty.java:65-68` —
-`enumType.getSimpleName()` produces `Color'Red'`; OData requires the fully qualified `NS.Color'Red'`. (Generator-driven
-use passes the qualified name; only manual construction bites.) Also no `has(...)` operator for flags enums.
+**M10. ~~`EnumProperty` manual-construction fallback uses the simple name.~~ ✅ Resolved**
+The `enumType.getSimpleName()` fallback — which produced the invalid `Color'Red'` literal — is gone: rendering a
+literal without a fully-qualified type name now throws `IllegalStateException` explaining the 4-arg constructor
+(generated constants always pass the qualified name, so generated usage is unaffected). Flags enums additionally get
+the `has(V)` membership operator (`Gender has NS.PersonGender'Male'`). The two tests that had locked the invalid
+fallback were updated to the qualified form. Tests: `m10MissingTypeNameThrowsInsteadOfEmittingInvalidLiteral`,
+`m10HasOperatorRendersFlagsMembership` (TDD).
+
+Verification: 7 new tests; full reactor hermetic (414) and live (536) green.
 
 ### URL building / entity layer
 

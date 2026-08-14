@@ -159,4 +159,20 @@ class NavPropertyExpandTest {
         assertEquals("People($expand=Trips($select=Name;$expand=PlanItems($select=Name)))",
                 query.toODataExpand());
     }
+
+    @Test
+    void m7MultipleFiltersAreParenthesizedToPreservePrecedence() {
+        NavProperty<Object, Object> nav = new NavProperty<>("Trips", Object.class, Object.class);
+        NumberProperty<Object, Integer> budget = new NumberProperty<>("Budget", null);
+        StringProperty<Object> name = new StringProperty<>("Name", null);
+        NavProperty.NavQuery<Object, Object> query = nav
+                .filter(budget.greaterThan(5000).or(budget.lessThan(100)))
+                .filter(name.contains("trip"));
+        // RawFilterExpression.or() already parenthesizes its operands; the NavQuery join
+        // wraps each predicate so 'and' cannot bind inside the 'or' group
+        assertEquals("Trips($filter=((Budget gt 5000) or (Budget lt 100)) and (contains(Name,'trip')))",
+                query.toODataExpand(),
+                "joined $filter predicates must be parenthesized: unparenthesized 'or' + 'and' "
+                        + "changes semantics because 'and' binds tighter");
+    }
 }

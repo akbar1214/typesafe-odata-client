@@ -115,7 +115,14 @@ public class NavProperty<E, T> {
                 options.add("$select=" + String.join(",", selects));
             }
             if (!filters.isEmpty()) {
-                options.add("$filter=" + String.join(" and ", filters));
+                // Multiple filter() calls are ANDed. Parenthesize each predicate:
+                // 'and' binds tighter than 'or', so joining unparenthesized predicates
+                // containing 'or' silently changes the query semantics.
+                String joined = filters.size() == 1
+                        ? filters.get(0)
+                        : filters.stream().map(f -> "(" + f + ")")
+                                .collect(java.util.stream.Collectors.joining(" and "));
+                options.add("$filter=" + joined);
             }
             if (!orderings.isEmpty()) {
                 options.add("$orderby=" + String.join(",", orderings));

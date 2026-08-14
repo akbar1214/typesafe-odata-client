@@ -85,4 +85,17 @@ class NumberExpressionTest {
         NumberExpression<Double, Object> expr = price.negate();
         assertEquals("(-Price)", expr.toODataExpression());
     }
+
+    @Test
+    void m8IntegerDivisionUsesDiv() {
+        NumberExpression<Integer, Object> id = new NumberExpression<>("Id", Object.class);
+        assertEquals("(Id div 2)", id.divide(2).toODataExpression(),
+                "integer division uses the truncating 'div' operator");
+    }
+
+    @Test
+    void m8FloatingPointDivisionUsesDivby() {
+        assertEquals("(Price divby 2.0)", price.divide(2.0).toODataExpression(),
+                "OData 'div' is truncating integer division; Double/Decimal/Single must use 'divby'");
+    }
 }

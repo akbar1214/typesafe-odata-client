@@ -3,6 +3,7 @@ package io.github.akbarhusain.odata.runtime.query;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class DateTimePropertyTest {
 
@@ -72,5 +73,42 @@ class DateTimePropertyTest {
     void time() {
         DateTimeProperty<Object> expr = created.time();
         assertEquals("time(Created)", expr.toODataExpression());
+    }
+
+    @Test
+    void m9InvalidStringLiteralThrows() {
+        assertThrows(IllegalArgumentException.class,
+                () -> created.greaterThan("2024-01-01' or '1' eq '1"),
+                "unvalidated raw strings allow $filter predicate injection");
+        assertThrows(IllegalArgumentException.class,
+                () -> created.equalTo("2024-01-01 10:00"),
+                "a space-separated datetime is not an OData literal");
+        assertThrows(IllegalArgumentException.class,
+                () -> created.lessThan("P1D"),
+                "bare ISO durations are not valid unquoted OData duration literals");
+    }
+
+    @Test
+    void m9ValidLiteralFormsAccepted() {
+        assertEquals("Created eq 2024-01-01", created.equalTo("2024-01-01").toODataExpression());
+        assertEquals("Created ge 2024-01-01T10:00Z",
+                created.greaterThanOrEqualTo("2024-01-01T10:00Z").toODataExpression());
+        assertEquals("Created gt 10:15:30", created.greaterThan("10:15:30").toODataExpression());
+        assertEquals("Created lt duration'PT2H'", created.lessThan("duration'PT2H'").toODataExpression());
+    }
+
+    @Test
+    void m9TypedOverloadsFormatPerAbnf() {
+        assertEquals("Created eq 2024-01-01",
+                created.equalTo(java.time.LocalDate.of(2024, 1, 1)).toODataExpression());
+        assertEquals("Created gt 2024-01-01T10:15:30Z",
+                created.greaterThan(java.time.OffsetDateTime.parse("2024-01-01T10:15:30Z")).toODataExpression());
+        assertEquals("Created eq 10:15:30",
+                created.equalTo(java.time.LocalTime.of(10, 15, 30)).toODataExpression());
+        assertEquals("Created eq 10:15:00",
+                created.equalTo(java.time.LocalTime.of(10, 15)).toODataExpression(),
+                "LocalTime with zero seconds must still render HH:mm:ss (toString omits them)");
+        assertEquals("Created le duration'PT2H'",
+                created.lessThanOrEqualTo(java.time.Duration.ofHours(2)).toODataExpression());
     }
 }
