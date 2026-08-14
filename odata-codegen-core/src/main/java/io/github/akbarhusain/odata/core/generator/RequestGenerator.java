@@ -112,6 +112,19 @@ public class RequestGenerator extends AbstractTypeGenerator {
         sb.append("        return EntityOperations.executePatchEntityWithETag(context, contextPath, entity, ").append(entityClassName).append(".class, etag);\n");
         sb.append("    }\n\n");
 
+        sb.append("    public ").append(entityClassName).append(" put(").append(entityClassName).append(" entity) {\n");
+        sb.append("        return EntityOperations.executePutEntity(context, contextPath, entity, ").append(entityClassName).append(".class);\n");
+        sb.append("    }\n\n");
+
+        sb.append("    public ").append(entityClassName).append(" putWithETag(").append(entityClassName).append(" entity, String etag) {\n");
+        sb.append("        return EntityOperations.executePutEntityWithETag(context, contextPath, entity, ").append(entityClassName).append(".class, etag);\n");
+        sb.append("    }\n\n");
+
+        sb.append("    public BatchOperation putToBatchOperation(").append(entityClassName).append(" entity) {\n");
+        sb.append("        byte[] body = context.serializer().serialize(entity, ").append(entityClassName).append(".class);\n");
+        sb.append("        return BatchOperation.put(contextPath.toRelativeUrl(), body);\n");
+        sb.append("    }\n\n");
+
         sb.append("    public void delete() {\n");
         sb.append("        EntityOperations.executeDelete(context, contextPath);\n");
         sb.append("    }\n\n");
@@ -351,8 +364,17 @@ public class RequestGenerator extends AbstractTypeGenerator {
         sb.append("        return get().toList();\n");
         sb.append("    }\n\n");
 
+        sb.append("    public ").append(entityClassName).append(" create(").append(entityClassName).append(" entity) {\n");
+        sb.append("        return EntityOperations.executePostEntity(context, contextPath, entity, ").append(entityClassName).append(".class);\n");
+        sb.append("    }\n\n");
+
         sb.append("    public BatchOperation toBatchOperation() {\n");
         sb.append("        return BatchOperation.get(buildContext().toRelativeUrl());\n");
+        sb.append("    }\n\n");
+
+        sb.append("    public BatchOperation postToBatchOperation(").append(entityClassName).append(" entity) {\n");
+        sb.append("        byte[] body = context.serializer().serialize(entity, ").append(entityClassName).append(".class);\n");
+        sb.append("        return BatchOperation.post(contextPath.toRelativeUrl(), body);\n");
         sb.append("    }\n\n");
 
         // Pagination helper: fetch the next page from an @odata.nextLink URL

@@ -150,6 +150,53 @@ class ContextPathTest {
     }
 
     @Test
+    void fromNextLinkWithQueryThenAddQueryProducesSingleQuestionMark() {
+        ContextPath path = new ContextPath(BASE).addSegment("People");
+        ContextPath nextPath = path.fromNextLink(BASE + "/People?$skiptoken=abc");
+        ContextPath filtered = nextPath.addQuery("$filter", "Age gt 25");
+
+        assertEquals(BASE + "/People?$skiptoken=abc&$filter=Age%20gt%2025", filtered.toUrl(),
+                "chaining options onto a next page must not produce a double '?'");
+    }
+
+    @Test
+    void fromNextLinkWithMultipleQueryParamsPreservesAllParams() {
+        ContextPath path = new ContextPath(BASE).addSegment("People");
+        ContextPath nextPath = path.fromNextLink(BASE + "/People?$skip=10&$top=5");
+
+        assertEquals(BASE + "/People?$skip=10&$top=5", nextPath.toUrl());
+    }
+
+    @Test
+    void fromNextLinkWithEncodedQueryValuesRoundTrips() {
+        // %20 decodes and re-encodes to %20; %27 (' ) decodes and re-encodes to a literal
+        // quote because encodeQueryParam restores OData-safe characters (see lesson 12).
+        ContextPath path = new ContextPath(BASE).addSegment("People");
+        ContextPath nextPath = path.fromNextLink(BASE + "/People?$filter=Name%20eq%20%27Bob%27");
+
+        assertEquals(BASE + "/People?$filter=Name%20eq%20'Bob'", nextPath.toUrl(),
+                "decoded query values must re-encode per the OData-safe character rules");
+    }
+
+    @Test
+    void fromNextLinkRelativeWithQueryThenAddQueryProducesSingleQuestionMark() {
+        ContextPath path = new ContextPath(BASE).addSegment("People");
+        ContextPath nextPath = path.fromNextLink("People?$skiptoken=xyz");
+        ContextPath filtered = nextPath.addQuery("$top", "5");
+
+        assertEquals(BASE + "/People?$skiptoken=xyz&$top=5", filtered.toUrl());
+    }
+
+    @Test
+    void fromNextLinkWithQueryThenAddCountSegmentKeepsSingleQuestionMark() {
+        ContextPath path = new ContextPath(BASE).addSegment("People");
+        ContextPath nextPath = path.fromNextLink(BASE + "/People?$skiptoken=abc");
+        ContextPath countPath = nextPath.addCountSegment();
+
+        assertEquals(BASE + "/People/$count?$skiptoken=abc", countPath.toUrl());
+    }
+
+    @Test
     void fromNextLinkRejectsNullOrEmpty() {
         ContextPath path = new ContextPath(BASE);
         assertThrows(IllegalArgumentException.class, () -> path.fromNextLink(null));
