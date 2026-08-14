@@ -179,6 +179,29 @@ class ContextPathTest {
     }
 
     @Test
+    void fromNextLinkPreservesPlusInQueryValues() {
+        // H5: nextLink query strings are percent-encoded, NOT form-encoded. A literal '+'
+        // inside a $skiptoken (common in Graph-style continuation tokens) must survive as
+        // %2B, not be decoded as a space (URLDecoder) and corrupted into %20.
+        ContextPath path = new ContextPath(BASE).addSegment("People");
+        ContextPath nextPath = path.fromNextLink(BASE + "/People?$skiptoken=abc+def");
+
+        assertEquals(BASE + "/People?$skiptoken=abc%2Bdef", nextPath.toUrl(),
+                "literal '+' in nextLink values must round-trip as %2B");
+    }
+
+    @Test
+    void fromNextLinkDecodesPercentEncodedPlusAndReencodesAsPercent2B() {
+        ContextPath path = new ContextPath(BASE).addSegment("People");
+        ContextPath nextPath = path.fromNextLink(BASE + "/People?$skiptoken=a%2Bb%3Dc");
+
+        // %2B stays a literal plus (re-encoded as %2B); %3D ('=') is restored verbatim
+        // like other OData-safe characters (see the round-trip test above).
+        assertEquals(BASE + "/People?$skiptoken=a%2Bb=c", nextPath.toUrl(),
+                "%2B (literal plus) must not become a space");
+    }
+
+    @Test
     void fromNextLinkRelativeWithQueryThenAddQueryProducesSingleQuestionMark() {
         ContextPath path = new ContextPath(BASE).addSegment("People");
         ContextPath nextPath = path.fromNextLink("People?$skiptoken=xyz");

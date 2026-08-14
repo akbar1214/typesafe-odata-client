@@ -107,7 +107,12 @@ returns 204 (documented TripPin behavior, lesson 22).
 
 **Fix:** route lines 43, 93, 107 through the existing `deserializeOrNull`.
 
-### H5. `fromNextLink` uses `URLDecoder`, converting `+` to space — corrupting continuation tokens
+### H5. ~~`fromNextLink` uses `URLDecoder`, converting `+` to space — corrupting continuation tokens~~ ✅ Resolved
+
+**Resolution:** `ContextPath.fromNextLink` now decodes query pairs with a percent-only `decodePercent` helper (`%HH`
+escapes only; malformed escapes left verbatim) instead of `URLDecoder`, so literal `+` in `$skiptoken` values
+round-trips as `%2B`. Tests: 2 new `ContextPathTest` cases (literal `+` preserved as `%2B`; `%2B`/`%3D` round-trip),
+plus all 23 pre-existing nextLink/encoding tests unchanged.
 
 `odata-codegen-runtime/.../entity/ContextPath.java:97-98`
 
@@ -127,7 +132,15 @@ re-encodes as `abc%20def`, and the next-page request fails against the service.
 
 **Fix:** decode only `%HH` escapes (small custom decoder or parse via `URI.getRawQuery()`); never treat `+` as space.
 
-### H6. `Edm.Guid` filter literals are rendered quoted — invalid OData
+### H6. ~~`Edm.Guid` filter literals are rendered quoted — invalid OData~~ ✅ Resolved
+
+**Resolution:** new runtime class `GuidProperty<E>` (mirrors `StringProperty`'s shape: eq/ne, null checks, ordering,
+`getEdmName`) that validates the 8-4-4-4-12 shape and emits **unquoted** literals (`ShareId eq 0c5a...`), throwing on
+anything else. `AbstractTypeGenerator.getPropertyConstantType` maps `Edm.Guid` → `GuidProperty` before the String
+fallback, covering both static property constants and `Filterable` fields for entities and complex types; the generated
+`query.*` wildcard import picks the new class up with no import changes. Tests: `GuidPropertyTest` (7, runtime
+rendering/validation) + `GeneratorGuidPropertyTest` (3, generator content — TripPin `Trip.SHARE_ID` is now
+`GuidProperty<Trip>`, not `StringProperty<Trip>`). Full reactor: 516 tests green including live TripPin regeneration.
 
 `odata-codegen-core/.../generator/Names.java:166,185`; emitted via `AbstractTypeGenerator.java` constant construction
 

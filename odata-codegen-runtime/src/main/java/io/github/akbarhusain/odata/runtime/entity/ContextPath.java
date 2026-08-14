@@ -1,6 +1,5 @@
 package io.github.akbarhusain.odata.runtime.entity;
 
-import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -94,11 +93,37 @@ public record ContextPath(
                 int eq = pair.indexOf('=');
                 String name = eq >= 0 ? pair.substring(0, eq) : pair;
                 String value = eq >= 0 ? pair.substring(eq + 1) : "";
-                result = result.addQuery(URLDecoder.decode(name, StandardCharsets.UTF_8),
-                        URLDecoder.decode(value, StandardCharsets.UTF_8));
+                result = result.addQuery(decodePercent(name), decodePercent(value));
             }
         }
         return result;
+    }
+
+    /**
+     * Decodes only {@code %HH} escapes. NextLink query strings are percent-encoded, not
+     * form-encoded: a literal {@code +} inside a value (common in $skiptoken continuation
+     * tokens) must survive as a plus, so URLDecoder — which maps {@code +} to space —
+     * must not be used here. Malformed escapes are left verbatim.
+     */
+    private static String decodePercent(String value) {
+        if (value.indexOf('%') < 0) {
+            return value;
+        }
+        StringBuilder sb = new StringBuilder(value.length());
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            if (c == '%' && i + 2 < value.length()) {
+                int h1 = Character.digit(value.charAt(i + 1), 16);
+                int h2 = Character.digit(value.charAt(i + 2), 16);
+                if (h1 >= 0 && h2 >= 0) {
+                    sb.append((char) ((h1 << 4) | h2));
+                    i += 2;
+                    continue;
+                }
+            }
+            sb.append(c);
+        }
+        return sb.toString();
     }
 
     /**

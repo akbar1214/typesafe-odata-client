@@ -315,6 +315,9 @@ public abstract class AbstractTypeGenerator {
 
     protected String getPropertyConstantType(String edmType, SchemaModel schema) {
         String resolved = resolveTypeDefinition(edmType, schema);
+        // Edm.Guid literals are unquoted bare values in $filter (quoted strings are a type
+        // error), so Guid gets its own property class before the String mapping
+        if ("Edm.Guid".equals(resolved)) return "GuidProperty";
         if (Names.isStringType(resolved)) return "StringProperty";
         if (Names.isBooleanType(resolved)) return "BooleanProperty";
         if (Names.isDateTimeType(resolved)) return "DateTimeProperty";
