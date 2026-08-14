@@ -1,5 +1,6 @@
 package io.github.akbarhusain.odata.runtime.entity;
 
+import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -60,24 +61,44 @@ public record ContextPath(
 
     /**
      * Creates a ContextPath from an OData @odata.nextLink value.
-     * Handles absolute URLs and URLs relative to the current base path.
+     * Handles absolute URLs and URLs relative to the current base path, and parses
+     * any query string into the trailing query segment so that chaining further
+     * query options (filter, top, etc.) produces a single valid '?' in the URL.
      */
     public ContextPath fromNextLink(String nextLink) {
         if (nextLink == null || nextLink.trim().isEmpty()) {
             throw new IllegalArgumentException("nextLink cannot be null or empty");
         }
         String trimmed = nextLink.trim();
-        if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
-            return new ContextPath(trimmed);
+        String pathPart = trimmed;
+        String queryPart = null;
+        int queryIdx = trimmed.indexOf('?');
+        if (queryIdx >= 0) {
+            pathPart = trimmed.substring(0, queryIdx);
+            queryPart = trimmed.substring(queryIdx + 1);
         }
-        String base = basePath;
-        while (base.endsWith("/")) {
-            base = base.substring(0, base.length() - 1);
+        String base;
+        if (pathPart.startsWith("http://") || pathPart.startsWith("https://")) {
+            base = pathPart;
+        } else {
+            String root = basePath;
+            while (root.endsWith("/")) {
+                root = root.substring(0, root.length() - 1);
+            }
+            base = pathPart.startsWith("/") ? root + pathPart : root + "/" + pathPart;
         }
-        if (trimmed.startsWith("/")) {
-            return new ContextPath(base + trimmed);
+        ContextPath result = new ContextPath(base);
+        if (queryPart != null && !queryPart.isEmpty()) {
+            for (String pair : queryPart.split("&")) {
+                if (pair.isEmpty()) continue;
+                int eq = pair.indexOf('=');
+                String name = eq >= 0 ? pair.substring(0, eq) : pair;
+                String value = eq >= 0 ? pair.substring(eq + 1) : "";
+                result = result.addQuery(URLDecoder.decode(name, StandardCharsets.UTF_8),
+                        URLDecoder.decode(value, StandardCharsets.UTF_8));
+            }
         }
-        return new ContextPath(base + "/" + trimmed);
+        return result;
     }
 
     /**

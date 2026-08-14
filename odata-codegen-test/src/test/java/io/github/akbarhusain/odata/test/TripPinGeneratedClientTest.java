@@ -7,9 +7,7 @@ import com.example.trippin.entity.PlanItem;
 import com.example.trippin.entity.Photo;
 import com.example.trippin.enums.PersonGender;
 import io.github.akbarhusain.odata.runtime.entity.Context;
-import io.github.akbarhusain.odata.runtime.entity.ContextPath;
 import io.github.akbarhusain.odata.runtime.http.JdkHttpTransport;
-import io.github.akbarhusain.odata.runtime.client.EntityOperations;
 import io.github.akbarhusain.odata.runtime.paging.CollectionPage;
 import io.github.akbarhusain.odata.runtime.query.NavProperty;
 import org.junit.jupiter.api.BeforeAll;
@@ -199,13 +197,15 @@ class TripPinGeneratedClientTest {
                 .addressInfo(List.of())
                 .build();
 
-        ContextPath path = context.basePath().addSegment("People");
-        EntityOperations.executePostEntity(context, path, newPerson, Person.class);
+        Person createdResponse = client.people().create(newPerson);
 
         Person created = client.people().personByUserName(testUserName).get();
         assertNotNull(created);
         assertEquals(testUserName, created.getUserName());
         assertEquals("Test", created.getFirstName());
+        if (createdResponse != null) {
+            assertEquals(testUserName, createdResponse.getUserName());
+        }
 
         String etag = created.getETag().orElse(null);
         client.people().personByUserName(testUserName).deleteWithETag(etag);

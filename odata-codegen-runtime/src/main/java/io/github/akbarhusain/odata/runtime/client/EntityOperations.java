@@ -49,6 +49,38 @@ public class EntityOperations {
         HttpResponse response = executeSync(context, HttpMethod.POST, path, body,
                 Map.of("Content-Type", "application/json"));
         checkResponse(response);
+        return deserializeOrNull(response, context, responseType);
+    }
+
+    @SuppressWarnings("unchecked")
+    public static <T> T executePutEntity(Context context, ContextPath path, Object entity, Class<T> responseType) {
+        byte[] body = context.serializer().serialize((T) entity, responseType);
+        HttpResponse response = executeSync(context, HttpMethod.PUT, path, body,
+                Map.of("Content-Type", "application/json"));
+        checkResponse(response);
+        return deserializeOrNull(response, context, responseType);
+    }
+
+    @SuppressWarnings("unchecked")
+    public static <T> T executePutEntityWithETag(Context context, ContextPath path, Object entity,
+                                                   Class<T> responseType, String etag) {
+        byte[] body = context.serializer().serialize((T) entity, responseType);
+        Map<String, String> headers = new LinkedHashMap<>();
+        headers.put("Content-Type", "application/json");
+        if (etag != null && !etag.isEmpty()) {
+            headers.put("If-Match", etag);
+        }
+        HttpResponse response = executeSync(context, HttpMethod.PUT, path, body, headers);
+        checkResponse(response);
+        return deserializeOrNull(response, context, responseType);
+    }
+
+    private static <T> T deserializeOrNull(HttpResponse response, Context context, Class<T> responseType) {
+        // Some services return 204 (or an empty body) for POST/PUT. Return null rather
+        // than failing to deserialize an empty payload; the caller already has the entity.
+        if (response.body() == null || response.body().length == 0) {
+            return null;
+        }
         return context.serializer().deserialize(response.body(), responseType);
     }
 
