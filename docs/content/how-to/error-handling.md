@@ -22,7 +22,7 @@ ODataException (base)
 import io.github.akbarhusain.odata.runtime.exception.*;
 
 try {
-    Person person = client.peopleByUserName("nonexistent").get();
+    Person person = client.people().personByUserName("nonexistent").get();
 } catch (NotFoundException e) {
     System.out.println("Person not found: " + e.getMessage());
 }

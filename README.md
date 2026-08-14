@@ -8,13 +8,13 @@ A type-safe OData v4 client generator for Java. Parses CSDL XML metadata and gen
 - **Truly immutable entities** — All fields `final`; copy-on-write semantics
 - **Entity & complex-type inheritance** — Subtypes emit real Java `extends` clauses; base-type query predicates type-check against subtypes (e.g. `Flight` is a `PlanItem`, `EventLocation` is a `Location`)
 - **Nested `$expand`** — Type-safe `$expand=Trips($select=...;$filter=...;$top=...)` via `NavQuery`
-- **Pluggable HTTP** — `HttpTransport` interface; built-in JDK and Apache implementations
+- **Pluggable HTTP** — `HttpTransport` interface; built-in JDK `HttpClient` implementation
 - **Pluggable serialization** — `Serializer` interface; Jackson by default
 - **Typed exceptions** — `NotFoundException`, `UnauthorizedException`, `RateLimitException`, etc.
 - **ETag concurrency** — `If-Match` header support for optimistic locking
 - **`$count` support** — Get total count with collection queries
 - **`$ref` support** — Add/remove navigation property links
-- **Async-first** — `CompletableFuture`-based HTTP layer
+- **Async HTTP layer** — `HttpTransport` is `CompletableFuture`-based; generated request methods are synchronous on top of it
 
 ## Quick Start
 
@@ -90,7 +90,7 @@ long totalPeople = page.count().orElse(0L);
 
 ```java
 // Get entity by key
-PersonEntityRequest personReq = client.peopleByUserName("scottketchum");
+PersonEntityRequest personReq = client.people().personByUserName("scottketchum");
 Person person = personReq.get();
 
 // Navigate to collection
@@ -130,7 +130,7 @@ Person newPerson = Person.builder()
     .build();
 
 // PATCH with ETag
-PersonEntityRequest req = client.peopleByUserName("newuser");
+PersonEntityRequest req = client.people().personByUserName("newuser");
 Person existing = req.get();
 String etag = existing.getETag().orElse(null);
 
@@ -147,11 +147,11 @@ req.delete();
 
 ```java
 // Add friend
-client.peopleByUserName("scottketchum")
+client.people().personByUserName("scottketchum")
     .addFriendsRef("People('keithcombs')");
 
 // Remove friend
-client.peopleByUserName("scottketchum")
+client.people().personByUserName("scottketchum")
     .removeFriendsRef("keithcombs");
 ```
 
@@ -161,7 +161,7 @@ client.peopleByUserName("scottketchum")
 import io.github.akbarhusain.odata.runtime.exception.*;
 
 try {
-    Person person = client.peopleByUserName("nonexistent").get();
+    Person person = client.people().personByUserName("nonexistent").get();
 } catch (NotFoundException e) {
     System.out.println("Person not found: " + e.getMessage());
 } catch (UnauthorizedException e) {
@@ -184,20 +184,6 @@ Context ctx = Context.builder()
     .transport(new JavaNetHttpTransport())
     .authProvider(new BearerAuthProvider("your-token"))
     .build();
-```
-
-### Async Execution
-
-```java
-import java.util.concurrent.CompletableFuture;
-
-CompletableFuture<CollectionPage<Person>> future = client.people()
-    .filter(Person.FIRST_NAME.equalTo("Scott"))
-    .getAsync();
-
-future.thenAccept(people -> {
-    people.forEach(System.out::println);
-});
 ```
 
 ## Architecture

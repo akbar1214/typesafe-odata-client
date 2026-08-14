@@ -532,6 +532,11 @@ public class RequestGenerator extends AbstractTypeGenerator {
     }
 
     private boolean isComplexTypeNav(NavigationPropertyModel nav, SchemaModel schema) {
-        return Names.resolveTypeKind(nav.type(), effectiveSchemas) == Names.TypeKind.COMPLEX;
+        // Unwrap Collection(...) first: the raw collection form ("Collection(NS.Type)")
+        // never matches the type-kind map, so collection navs to complex types would
+        // fall through and emit references to CollectionRequest classes that are only
+        // generated for entity types — uncompilable output.
+        String unwrapped = Names.unwrapCollectionType(nav.type());
+        return Names.resolveTypeKind(unwrapped, effectiveSchemas) == Names.TypeKind.COMPLEX;
     }
 }

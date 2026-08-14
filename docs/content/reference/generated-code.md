@@ -192,8 +192,7 @@ public class PersonCollectionRequest {
     private final ContextPath path;
 
     public CollectionPage<Person> get() { ... }
-    public CollectionPage<Person> getAsync() { ... }
-    public Person post(Person person) { ... }
+    public Person create(Person person) { ... }
 
     // Query operations
     public PersonCollectionRequest filter(FilterExpression<Person> predicate) { ... }
@@ -228,11 +227,18 @@ public class DefaultContainer {
     public AirlineCollectionRequest airlines() { ... }
     public AirportCollectionRequest airports() { ... }
     public PhotoCollectionRequest photos() { ... }
-
-    // Entity by key
-    public PersonEntityRequest peopleByUserName(String userName) { ... }
-    public TripEntityRequest tripsByTripId(Long tripId) { ... }
 }
+```
+
+Entity-by-key accessors live on the **collection request**, not the container:
+
+```java
+// On PersonCollectionRequest / TripCollectionRequest
+public PersonEntityRequest personByUserName(String userName) { ... }
+public TripEntityRequest tripByTripId(Integer tripId) { ... }
+
+// Usage
+PersonEntityRequest req = client.people().personByUserName("scottketchum");
 ```
 
 ## Complex Type Classes

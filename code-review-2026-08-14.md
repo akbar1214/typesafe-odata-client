@@ -159,7 +159,13 @@ on the same property is broken/inconsistent.
 **Fix:** add a `GuidProperty<E>` that emits the value unquoted after validating the GUID shape (reuse `GUID_PATTERN`);
 stop mapping `Edm.Guid` into `isStringType`.
 
-### H7. Collection-of-complex navigation properties are not skipped — generated request classes don't compile
+### H7. ~~Collection-of-complex navigation properties are not skipped — generated request classes don't compile~~ ✅ Resolved
+
+**Resolution:** `RequestGenerator.isComplexTypeNav` now unwraps `Collection(...)` before the type-kind lookup, so
+collection navs to complex types are skipped in import/nav-method/`$ref` generation like the single-valued case. A
+`Collection(Dup.Main.HomeAddress)` nav was added to the multi-schema test metadata; tests:
+`RequestGeneratorCollectionComplexNavTest` (2, TDD — both failed before the fix) and `MultiSchemaSamePropNameTest`
+still compiles the regenerated entity.
 
 `odata-codegen-core/.../generator/RequestGenerator.java:534-536`
 
@@ -179,7 +185,16 @@ ever generated for **entity** types (`Generator.java:80`). The single-valued cas
 `Names.resolveTypeKind(Names.unwrapCollectionType(nav.type()), effectiveSchemas) == TypeKind.COMPLEX`. Add a
 `Collection(Complex)` nav to the test metadata.
 
-### H8. README/docs build on an API that does not exist (`peopleByUserName`, `getAsync`)
+### H8. ~~README/docs build on an API that does not exist (`peopleByUserName`, `getAsync`)~~ ✅ Resolved
+
+**Resolution:** all ~40 `client.peopleByUserName(...)` occurrences across README.md and `docs/content/**` replaced with
+the real API `client.people().personByUserName(...)`; `generated-code.md`'s container reference now documents key
+accessors on the collection request (also fixed `tripsByTripId(Long)` → `tripByTripId(Integer)` and collection
+`post(...)` → `create(...)` in the same reference). The README "Async Execution" section using the nonexistent
+`getAsync()` was removed; "Async-first" claims reworded to the truthful "async transport layer, synchronous request
+methods"; the false "Apache implementations" transport bullets were corrected in passing (part of L31). `executeAsync()`
+batch docs kept — that API is real. **Note:** `docs/site/**.html` is a committed MkDocs build artifact still containing
+the old examples — needs a docs rebuild.
 
 `README.md:93,133,150,154,164,189-201`; `docs/content/index.md`, `docs/content/tutorial/first-query.md`,
 `docs/content/how-to/crud.md` (7 uses), `how-to/ref.md`, `how-to/etag.md`, `how-to/error-handling.md`,

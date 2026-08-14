@@ -76,7 +76,7 @@ Entity or resource not found.
 
 ```java
 try {
-    client.peopleByUserName("nonexistent").get();
+    client.people().personByUserName("nonexistent").get();
 } catch (NotFoundException e) {
     System.out.println("Person not found");
 }

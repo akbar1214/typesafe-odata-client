@@ -8,7 +8,7 @@ those dynamic properties so they aren't lost.
 ## Reading a Dynamic Property
 
 ```java
-Person scott = client.peopleByUserName("russellwhyte").get();
+Person scott = client.people().personByUserName("russellwhyte").get();
 
 // Whole map of undeclared fields
 java.util.Map<String, Object> dynamic = scott.getUnmappedFields();
