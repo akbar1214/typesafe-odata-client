@@ -171,8 +171,13 @@ public class BatchRequest {
     private static String extractBoundary(String contentType) {
         for (String part : contentType.split(";")) {
             String trimmed = part.trim();
-            if (trimmed.startsWith("boundary=")) {
-                return trimmed.substring("boundary=".length()).strip();
+            if (trimmed.regionMatches(true, 0, "boundary=", 0, "boundary=".length())) {
+                String value = trimmed.substring("boundary=".length()).strip();
+                // RFC 2046 allows quoted boundary values; the quotes are not part of the boundary
+                if (value.length() >= 2 && value.startsWith("\"") && value.endsWith("\"")) {
+                    value = value.substring(1, value.length() - 1);
+                }
+                return value;
             }
         }
         return null;

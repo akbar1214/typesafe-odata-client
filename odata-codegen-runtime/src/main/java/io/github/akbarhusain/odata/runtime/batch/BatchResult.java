@@ -10,8 +10,21 @@ public record BatchResult<T>(
     int statusCode,
     Map<String, List<String>> headers,
     byte[] body,
-    Type targetType
+    Type targetType,
+    String contentId
 ) {
+    /**
+     * @param contentId the part-level Content-ID of the response part (null when the
+     *                  server sent none — e.g. standalone, non-changeset parts). Used to
+     *                  correlate changeset responses with requests.
+     */
+    public BatchResult {
+    }
+
+    public BatchResult(int statusCode, Map<String, List<String>> headers, byte[] body, Type targetType) {
+        this(statusCode, headers, body, targetType, null);
+    }
+
     public boolean isSuccessful() {
         return statusCode >= 200 && statusCode < 300;
     }

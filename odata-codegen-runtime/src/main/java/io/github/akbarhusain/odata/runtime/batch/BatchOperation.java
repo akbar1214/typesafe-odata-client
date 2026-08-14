@@ -10,6 +10,32 @@ public record BatchOperation(
     Map<String, List<String>> headers,
     byte[] body
 ) {
+    public BatchOperation {
+        // URLs and headers are written verbatim into multipart batch framing; CR/LF/NUL
+        // would inject forged headers or whole requests (M5)
+        Objects.requireNonNull(url, "url must not be null");
+        rejectLineBreaks("url", url);
+        for (var entry : headers.entrySet()) {
+            rejectLineBreaks("header name", entry.getKey());
+            for (String value : entry.getValue()) {
+                rejectLineBreaks("header '" + entry.getKey() + "'", value);
+            }
+        }
+    }
+
+    private static void rejectLineBreaks(String what, String value) {
+        if (value == null) {
+            return;
+        }
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            if (c == '\r' || c == '\n' || c == '\0') {
+                throw new IllegalArgumentException(
+                        what + " must not contain CR/LF/NUL (batch header injection): " + value);
+            }
+        }
+    }
+
     public static BatchOperation get(String url) {
         Objects.requireNonNull(url, "url must not be null");
         return new BatchOperation(HttpMethod.GET, url, Map.of(), null);

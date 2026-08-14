@@ -263,36 +263,46 @@ Apache-2.0 contribution terms.
 
 ### Batch / multipart (`odata-codegen-runtime/.../internal/MultipartHelper.java`, `batch/*`)
 
-**M1. Part-level `Content-ID` headers are parsed then discarded — changeset responses can't be correlated.**
-`decodePartOrNested` (`:164-199`) reads `partHeaders` only to detect nesting, then builds `BatchResult` from the inner
-HTTP headers only. Per the OData batch spec, changeset responses carry `Content-ID` in the *part* headers; a failing
-N-operation changeset collapses to a single error part, silently shifting every subsequent index, and there is no way to
-tell which operation failed. Fix: propagate part-level headers into `BatchResult` (e.g. a `contentId` field) and expose
-`BatchResponse.getByContentId(String)`.
+**M1. ~~Part-level `Content-ID` headers are parsed then discarded — changeset responses can't be correlated.~~ ✅ Resolved**
+`decodePartOrNested` now extracts the part-level `Content-ID` (scanning past `Content-Type`, which appears earlier in
+part headers) and propagates it into a new `BatchResult.contentId` component (also merged into the case-insensitive
+header map); `BatchResponse.getByContentId(String)` exposes the correlation. The 4-arg `BatchResult` constructor
+remains as a delegating overload. Tests: `m1ChangesetContentIdsPropagateToResults`,
+`m1BatchResponseGetByContentIdFindsResult` (TDD — failed before the fix).
 
-**M2. Changeset Content-ID numbering restarts at 1 per changeset — duplicate IDs across a batch.** `encodeChangeset` (
-`:63-68`) numbers from 1; `BatchRequest` accepts multiple changesets. Content-IDs must be unique across the whole batch
-request; duplicates make `$N` references and response correlation ambiguous even after M1 is fixed. Fix: thread a
-batch-wide counter (or UUIDs) from `encodeBatchRequest`.
+**M2. ~~Changeset Content-ID numbering restarts at 1 per changeset — duplicate IDs across a batch.~~ ✅ Resolved**
+`encodeBatchRequest` threads one batch-wide counter; `encodeChangeset` gained a `startContentId` overload (the 2-arg
+form still numbers from 1 for direct callers). Two 2-op changesets now emit Content-IDs 1-4. Test:
+`m2MultipleChangesetsGetUniqueContentIds` (TDD).
 
-**M3. Malformed responses silently yield empty/partial results.** Undecodable parts are dropped (`decodeSinglePart`
-returns null at `:227`), a missing closing boundary truncates the list (`:145`), and `BatchRequest.parseResponse` never
-checks decoded count vs. submitted count. A garbled response surfaces as an empty `BatchResponse` or bare
-`IndexOutOfBoundsException`. Fix: throw diagnostic `ODataException` on undecodable parts; validate counts.
+**M3. ~~Malformed responses silently yield empty/partial results.~~ ✅ Resolved**
+`decodeSinglePart` throws a diagnostic `ODataException` on unparseable status lines instead of returning null; missing
+opening/closing boundaries and parts without a header/body separator throw instead of silently truncating. **Not
+done:** count validation of decoded results vs. submitted operations — deliberately, because a failed changeset
+legitimately collapses N operations into one error part, making a naive count check wrong; Content-ID correlation
+(M1) is the correct mechanism. Tests: `m3UndecodablePartThrowsInsteadOfSilentDrop`,
+`m3MissingClosingBoundaryThrowsInsteadOfTruncating` (TDD).
 
-**M4. Delimiter matching isn't anchored to line start.** `decodeParts` searches for `--boundary` anywhere in the byte
-stream (`:124,143`). RFC 2046 requires the delimiter at the beginning of a line. The *response* boundary is
-server-chosen and can be predictable; a binary body containing those bytes splits at the wrong offset with no error.
-Fix: only accept a delimiter at `startPos` or preceded by `\n`, followed by `-` or CRLF/LF.
+**M4. ~~Delimiter matching isn't anchored to line start.~~ ✅ Resolved**
+New `indexOfBoundary` only accepts a delimiter at the start of a line (position 0 or preceded by `\n`) followed by
+`--`, a line break, or RFC 2046 transport padding; boundary bytes inside (binary) bodies no longer split parts. The
+old terminator logic turned out to never actually match (it silently exited via the failed next-delimiter search) —
+the closing delimiter is now detected at the match site. Test: `m4BoundaryBytesInsideBodyDoNotSplitParts` (TDD).
 
-**M5. CRLF injection via user-supplied URLs/headers.** `encodeOperation` (`:92-100`) writes `op.url()` and header values
-verbatim into the batch payload; a `\r\n` in either forges headers or embeds a whole extra request. Also, a
-caller-supplied `Content-Type` plus the unconditional one at `:94` produces duplicates. Fix: reject CR/LF/NUL in URLs
-and header names/values; skip the implicit Content-Type when the user set one.
+**M5. ~~CRLF injection via user-supplied URLs/headers.~~ ✅ Resolved**
+`BatchOperation`'s compact constructor rejects CR/LF/NUL in URLs, header names, and header values
+(`IllegalArgumentException` — fails at construction, covering every factory and direct use); `encodeOperation` skips
+the implicit `Content-Type: application/json` when the caller supplied one (case-insensitive check). Tests:
+`m5UrlWithLineBreakIsRejected`, `m5UserContentTypeNotDuplicated` (TDD).
 
-**M6. Quoted boundary values not handled.** The boundary regex keeps quotes (`:27`) and `BatchRequest`'s `boundary=`
-match is case-sensitive (`:171-179`); `boundary="batch_abc"` yields zero parts, silently empty response. Fix: strip
-quotes, case-insensitive match.
+**M6. ~~Quoted boundary values not handled.~~ ✅ Resolved**
+`BOUNDARY_PATTERN` accepts quoted values (`boundary="abc"` — quotes are not part of the boundary) for nested
+changeset decoding; `BatchRequest.extractBoundary` matches `boundary=` case-insensitively and strips quotes. Tests:
+`m6QuotedNestedBoundaryIsHandled`, `BatchRequestBoundaryTest` (2, stub-transport `execute()` path, TDD).
+
+Verification: 11 new tests (`MultipartHelperHardeningTest` 9 + `BatchRequestBoundaryTest` 2), all pre-existing batch
+tests unchanged, full reactor hermetic (407) and live (530) green — live TripPin batch round-trips pass over the new
+encoder/decoder.
 
 ### Query expressions (`odata-codegen-runtime/.../query/*`)
 
