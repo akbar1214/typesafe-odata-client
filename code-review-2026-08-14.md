@@ -22,7 +22,9 @@ source. All file:line references below were confirmed in the working tree at com
 
 ## High severity
 
-### H1. Enum member implicit value uses `members.size()` — violates the CSDL "previous + 1" rule
+### H1. ~~Enum member implicit value uses `members.size()` — violates the CSDL "previous + 1" rule~~ ✅ Resolved
+
+**Resolution:** `StaxCsdlParser.parseEnumType` now tracks the previous member's value; implicit members default to previous+1 (0 for the first). Tests: `StaxCsdlParserEnumMemberValueTest` (2, TDD — failed before the fix).
 
 `odata-codegen-core/.../parser/StaxCsdlParser.java:253`
 
@@ -38,7 +40,9 @@ values, so it's uncaught.
 
 **Fix:** track `lastValue` while parsing members; default to `lastValue + 1` (0 for the first member).
 
-### H2. `ServiceSchemaInfo` is overwritten once per schema when one `basePackage` covers multiple schemas
+### H2. ~~`ServiceSchemaInfo` is overwritten once per schema when one `basePackage` covers multiple schemas~~ ✅ Resolved
+
+**Resolution:** `Generator.generate` now groups schemas by output package and emits one aggregate `ServiceSchemaInfo` per package after the loop (`SchemaInfoGenerator.generate(List<SchemaModel>)` merges all schemas' registry entries). Single-schema output is unchanged. Tests: `GeneratorSchemaInfoAggregationTest` (2, TDD — aggregate assertion failed before the fix). Full reactor: 499 tests green.
 
 `odata-codegen-core/.../generator/Generator.java:45-92`
 

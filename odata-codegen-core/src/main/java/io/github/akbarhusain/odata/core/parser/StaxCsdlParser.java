@@ -243,6 +243,8 @@ public class StaxCsdlParser {
         boolean isFlags = "true".equals(getAttr(el, "IsFlags"));
 
         List<EnumMemberModel> members = new ArrayList<>();
+        // CSDL: a Member without Value defaults to the previous member's value + 1 (0 if first)
+        long lastValue = -1;
         while (reader.hasNext()) {
             XMLEvent event = reader.nextEvent();
             if (event.isStartElement() && "Member".equals(
@@ -250,7 +252,9 @@ public class StaxCsdlParser {
                 StartElement memberEl = event.asStartElement();
                 String memberName = getAttr(memberEl, "Name");
                 String valueStr = getAttr(memberEl, "Value");
-                long value = valueStr != null ? Long.parseLong(valueStr) : members.size();
+                long value = valueStr != null ? Long.parseLong(valueStr)
+                        : (lastValue < 0 ? 0 : lastValue + 1);
+                lastValue = value;
                 members.add(new EnumMemberModel(memberName, value));
             } else if (event.isEndElement() && isEdmElement(event.asEndElement(), "EnumType")) {
                 return new EnumTypeModel(name, underlyingType, isFlags, members);

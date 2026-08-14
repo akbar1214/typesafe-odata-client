@@ -11,6 +11,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -42,10 +43,19 @@ public class Generator {
 
     public void generate(CsdlModel model) throws IOException {
         Names.clearTypeKindCache();
+        // Schemas sharing an output package must share one aggregate ServiceSchemaInfo,
+        // so collect them per package while generating
+        Map<String, List<SchemaModel>> schemasByPackage = new LinkedHashMap<>();
         for (SchemaModel schema : model.schemas()) {
             String basePackage = schemaPackages.getOrDefault(schema.namespace(),
                     defaultBasePackage != null ? defaultBasePackage : Names.toPackageName(schema.namespace()));
             generateSchema(schema, basePackage, model.schemas());
+            schemasByPackage.computeIfAbsent(basePackage, k -> new ArrayList<>()).add(schema);
+        }
+        for (Map.Entry<String, List<SchemaModel>> entry : schemasByPackage.entrySet()) {
+            SchemaInfoGenerator schemaInfoGenerator = new SchemaInfoGenerator(entry.getKey());
+            writeCode(entry.getKey() + Names.packageNameSuffixSchema(), Names.schemaInfoClassName(),
+                    schemaInfoGenerator.generate(entry.getValue()));
         }
     }
 
@@ -57,7 +67,6 @@ public class Generator {
         ComplexTypeGenerator complexTypeGenerator = new ComplexTypeGenerator(basePackage, schemaPackages, defaultBasePackage, allSchemas, generateWithMethods);
         RequestGenerator requestGenerator = new RequestGenerator(basePackage, schemaPackages, defaultBasePackage, allSchemas);
         ContainerGenerator containerGenerator = new ContainerGenerator(basePackage, schemaPackages, defaultBasePackage);
-        SchemaInfoGenerator schemaInfoGenerator = new SchemaInfoGenerator(basePackage);
 
         for (EnumTypeModel enumType : schema.enumTypes()) {
             String code = enumGenerator.generate(enumType);
@@ -87,9 +96,6 @@ public class Generator {
             String code = containerGenerator.generate(container, schema);
             writeCode(basePackage + Names.packageNameSuffixContainer(), Names.containerClassName(container.name()), code);
         }
-
-        String schemaInfoCode = schemaInfoGenerator.generate(schema);
-        writeCode(basePackage + Names.packageNameSuffixSchema(), Names.schemaInfoClassName(), schemaInfoCode);
     }
 
     private void writeCode(String packageName, String className, String code) throws IOException {
