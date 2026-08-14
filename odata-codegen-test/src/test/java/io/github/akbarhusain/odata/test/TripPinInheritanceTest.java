@@ -16,6 +16,7 @@ import io.github.akbarhusain.odata.runtime.entity.ODataType;
 import io.github.akbarhusain.odata.runtime.http.JdkHttpTransport;
 import io.github.akbarhusain.odata.runtime.paging.CollectionPage;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -29,6 +30,7 @@ import static org.junit.jupiter.api.Assertions.*;
  *   <li>Entities: {@code Flight → PublicTransportation → PlanItem}, {@code Event → PlanItem}.</li>
  * </ul>
  */
+@Tag("live-service")
 class TripPinInheritanceTest {
 
     static DefaultContainer client;

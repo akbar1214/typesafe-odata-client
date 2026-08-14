@@ -211,7 +211,18 @@ Every one of these examples fails to compile as written — the docs are the fir
 **Fix:** global replace to `client.people().personByUserName(...)`; either remove the async section or generate
 `getAsync()` (the transport layer already supports it).
 
-### H9. ~120 live-network tests run untagged/unguarded under plain surefire, including destructive writes to the shared public TripPin service
+### H9. ~~120 live-network tests run untagged/unguarded under plain surefire, including destructive writes to the shared public TripPin service~~ ✅ Resolved
+
+**Resolution:** all 7 live classes (5 in `odata-codegen-test`, 2 runtime integration suites) are tagged
+`@Tag("live-service")`; the offline classes (`OpenTypeDynamicPropertyTest`, `ODataParsingTest`) are untagged. Root-pom
+surefire now excludes the tag by default, so plain `mvn test` is hermetic (396 offline tests, verified); a `live-tests`
+profile runs everything: `mvn test -Plive-tests` (518 tests, verified). Test smells fixed: `createAndDeletePerson` now
+`assertNotNull`s the create result and deletes in `finally` so failures don't leak entities on the shared service;
+`deletePerson` polls (up to 10×500ms) instead of a fixed `Thread.sleep(1000)`; the silent `return` on TripPin's known
+`$ref` 500 became `assumeTrue` (reported as skipped — visible as the 1 skipped test in the live run).
+**Workflow change:** live tests no longer run under plain `mvn test` — use `mvn test -Plive-tests`.
+**Not done:** moving destructive tests to WireMock (larger refactor); failsafe `*IT` rename (tag-based split achieves
+the same hermetic default with less churn).
 
 `odata-codegen-test/src/test/java/.../{TripPinGeneratedClientTest,NorthwindGeneratedClientTest,ODataDemoGeneratedClientTest,ODataDemoMediaTest,TripPinInheritanceTest}.java`;
 runtime `TripPinIntegrationTest`, `NorthwindIntegrationTest`
@@ -231,7 +242,12 @@ smells in the same files:
 replace the sleep with a poll loop; use `assumeTrue` for known server limitations; move destructive tests to WireMock (
 already a runtime-test pattern).
 
-### H10. No LICENSE file or POM license/scm/developers metadata despite claiming Apache 2.0
+### H10. ~~No LICENSE file or POM license/scm/developers metadata despite claiming Apache 2.0~~ ✅ Resolved
+
+**Resolution:** canonical Apache-2.0 `LICENSE` (from apache.org) and a `NOTICE` committed at repo root; root POM now
+declares `<url>`, `<licenses>` (Apache-2.0), `<developers>`, and `<scm>` pointing at
+`github.com/akbar1214/typesafe-odata-client`. **Not added:** `distributionManagement` (publishing target not yet
+decided — add when a registry is chosen).
 
 Root `pom.xml` (104 lines — no `<licenses>`, `<scm>`, `<developers>`, `<url>`, `distributionManagement`); no `LICENSE`/
 `NOTICE` tracked anywhere; yet `README.md:255-257` says "Apache License 2.0" and `docs/content/contributing.md` requires

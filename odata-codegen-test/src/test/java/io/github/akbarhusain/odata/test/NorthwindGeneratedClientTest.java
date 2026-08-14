@@ -6,6 +6,7 @@ import io.github.akbarhusain.odata.runtime.entity.Context;
 import io.github.akbarhusain.odata.runtime.http.JdkHttpTransport;
 import io.github.akbarhusain.odata.runtime.paging.CollectionPage;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
@@ -13,6 +14,7 @@ import java.math.BigDecimal;
 import static com.example.northwind.entity.Customer.*;
 import static org.junit.jupiter.api.Assertions.*;
 
+@Tag("live-service")
 class NorthwindGeneratedClientTest {
 
     static NorthwindEntities client;

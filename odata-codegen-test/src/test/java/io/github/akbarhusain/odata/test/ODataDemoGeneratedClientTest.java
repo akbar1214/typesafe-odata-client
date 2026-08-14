@@ -7,6 +7,7 @@ import io.github.akbarhusain.odata.runtime.entity.Context;
 import io.github.akbarhusain.odata.runtime.http.JdkHttpTransport;
 import io.github.akbarhusain.odata.runtime.paging.CollectionPage;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -21,6 +22,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * - Stream types (Edm.Stream → Object)
  * - Various EDM types: Guid (String), Byte, Single (Float), Int64 (Long), Double, Decimal
  */
+@Tag("live-service")
 class ODataDemoGeneratedClientTest {
 
     static DemoService client;
