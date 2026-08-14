@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<edmx:Edmx Version="4.0" xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx">
+  <edmx:DataServices>
+    <Schema Namespace="Test.Models" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+      <ComplexType Name="Shape" Abstract="true">
+        <Property Name="Name" Type="Edm.String" />
+      </ComplexType>
+      <ComplexType Name="Circle" BaseType="Test.Models.Shape">
+        <Property Name="Radius" Type="Edm.Double" />
+      </ComplexType>
+    </Schema>
+  </edmx:DataServices>
+</edmx:Edmx>

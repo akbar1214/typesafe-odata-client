@@ -57,7 +57,14 @@ types.
 **Fix:** generate one aggregate `ServiceSchemaInfo` after the loop (merge all schemas' registry entries), and/or make
 `writeCode` detect path collisions and fail instead of overwriting.
 
-### H3. Concrete subtypes of abstract base types silently drop all base properties on deserialization
+### H3. ~~Concrete subtypes of abstract base types silently drop all base properties on deserialization~~ ✅ Resolved
+
+**Resolution:** Both `EntityGenerator` and `ComplexTypeGenerator` now emit `@JsonProperty` setters for own props/navs
+unconditionally (abstract types included); each class in the chain owns its own properties' setters. Tests:
+`AbstractHierarchyDeserializationTest` (2, TDD — failed with `UnrecognizedPropertyException` on the base props before
+the fix; compiles generated abstract hierarchies and proves base properties round-trip through Jackson). Core gained a
+test-scoped dependency on `odata-codegen-runtime`, and runtime's dead main-scope dependency on core was removed
+(nothing in runtime imports core; it also created a reactor cycle against the new test dependency).
 
 `odata-codegen-core/.../generator/EntityGenerator.java:176` (same pattern in `ComplexTypeGenerator.java:152`)
 
@@ -78,7 +85,11 @@ declares no `Abstract="true"` entity types (verified), so live tests never exerc
 **Fix:** emit `@JsonProperty` setters for own props unconditionally (abstract classes already get a no-args constructor
 and getters; setters are harmless). Add a deserialization test for a concrete-subtype-of-abstract-base pair.
 
-### H4. PATCH (and single-entity GET) crash on 204/empty response bodies
+### H4. ~~PATCH (and single-entity GET) crash on 204/empty response bodies~~ ✅ Resolved
+
+**Resolution:** `executePatchEntity`, `executePatchEntityWithETag`, and `executeAndGetEntity` now route through the
+existing `deserializeOrNull` guard (returns `null` on 204/empty). Tests: `EntityOperationsEmptyBodyTest` (3, TDD —
+all three threw `ODataException` before the fix). Full reactor: 504 tests green.
 
 `odata-codegen-runtime/.../client/EntityOperations.java:43, 93, 107`
 

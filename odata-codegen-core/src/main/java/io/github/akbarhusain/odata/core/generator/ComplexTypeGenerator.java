@@ -148,24 +148,25 @@ public class ComplexTypeGenerator extends AbstractTypeGenerator {
         }
         sb.append("    }\n\n");
 
-        // Setters annotated with @JsonProperty for Jackson deserialization (also used by Builder/with*)
-        if (!complexType.abstractType()) {
-            for (PropertyModel prop : ownProps) {
-                String javaType = resolvePropertyJavaType(prop, schema);
-                String fn = Names.toJavaFieldName(prop.name());
-                sb.append("    @com.fasterxml.jackson.annotation.JsonProperty(\"").append(prop.name()).append("\")\n");
-                sb.append("    public void set").append(Names.capitalize(fn)).append("(").append(javaType).append(" value) {\n");
-                sb.append("        this.").append(fn).append(" = value;\n");
-                sb.append("    }\n\n");
-            }
-            for (NavigationPropertyModel nav : ownNavs) {
-                String javaType = navJavaType(nav, schema);
-                String fn = Names.toJavaFieldName(nav.name());
-                sb.append("    @com.fasterxml.jackson.annotation.JsonProperty(\"").append(nav.name()).append("\")\n");
-                sb.append("    public void set").append(Names.capitalize(fn)).append("(").append(javaType).append(" value) {\n");
-                sb.append("        this.").append(fn).append(" = value;\n");
-                sb.append("    }\n\n");
-            }
+        // Setters annotated with @JsonProperty for Jackson deserialization (also used by Builder/with*).
+        // Emitted for abstract types too: a concrete subtype of an abstract base has no setter
+        // for the base's own properties anywhere unless the base declares them, and Jackson would
+        // silently drop those properties on deserialization.
+        for (PropertyModel prop : ownProps) {
+            String javaType = resolvePropertyJavaType(prop, schema);
+            String fn = Names.toJavaFieldName(prop.name());
+            sb.append("    @com.fasterxml.jackson.annotation.JsonProperty(\"").append(prop.name()).append("\")\n");
+            sb.append("    public void set").append(Names.capitalize(fn)).append("(").append(javaType).append(" value) {\n");
+            sb.append("        this.").append(fn).append(" = value;\n");
+            sb.append("    }\n\n");
+        }
+        for (NavigationPropertyModel nav : ownNavs) {
+            String javaType = navJavaType(nav, schema);
+            String fn = Names.toJavaFieldName(nav.name());
+            sb.append("    @com.fasterxml.jackson.annotation.JsonProperty(\"").append(nav.name()).append("\")\n");
+            sb.append("    public void set").append(Names.capitalize(fn)).append("(").append(javaType).append(" value) {\n");
+            sb.append("        this.").append(fn).append(" = value;\n");
+            sb.append("    }\n\n");
         }
 
         // Getters (own props only; inherited getters are inherited from the parent)

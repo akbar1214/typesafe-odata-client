@@ -40,7 +40,7 @@ public class EntityOperations {
     public static <T> T executeAndGetEntity(Context context, ContextPath path, Class<T> type) {
         HttpResponse response = executeSync(context, HttpMethod.GET, path, null, null);
         checkResponse(response);
-        return context.serializer().deserialize(response.body(), type);
+        return deserializeOrNull(response, context, type);
     }
 
     @SuppressWarnings("unchecked")
@@ -76,8 +76,9 @@ public class EntityOperations {
     }
 
     private static <T> T deserializeOrNull(HttpResponse response, Context context, Class<T> responseType) {
-        // Some services return 204 (or an empty body) for POST/PUT. Return null rather
-        // than failing to deserialize an empty payload; the caller already has the entity.
+        // Some services return 204 (or an empty body) for POST/PUT/PATCH, and GET can return
+        // 204 for gone entities (e.g. TripPin). Return null rather than failing to deserialize
+        // an empty payload; the caller already has the entity for writes.
         if (response.body() == null || response.body().length == 0) {
             return null;
         }
@@ -90,7 +91,7 @@ public class EntityOperations {
         HttpResponse response = executeSync(context, HttpMethod.PATCH, path, body,
                 Map.of("Content-Type", "application/json"));
         checkResponse(response);
-        return context.serializer().deserialize(response.body(), responseType);
+        return deserializeOrNull(response, context, responseType);
     }
 
     @SuppressWarnings("unchecked")
@@ -104,7 +105,7 @@ public class EntityOperations {
         }
         HttpResponse response = executeSync(context, HttpMethod.PATCH, path, body, headers);
         checkResponse(response);
-        return context.serializer().deserialize(response.body(), responseType);
+        return deserializeOrNull(response, context, responseType);
     }
 
     public static void executeDelete(Context context, ContextPath path) {

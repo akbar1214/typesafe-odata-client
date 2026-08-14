@@ -30,5 +30,13 @@
             <version>${slf4j.version}</version>
             <scope>test</scope>
         </dependency>
+        <!-- Test-only: compile generated code against the runtime and deserialize it
+             with Jackson in the abstract-hierarchy deserialization tests. -->
+        <dependency>
+            <groupId>io.github.akbarhusain</groupId>
+            <artifactId>odata-codegen-runtime</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 </project>
