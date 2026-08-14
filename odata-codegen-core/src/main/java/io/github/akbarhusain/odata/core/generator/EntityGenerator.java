@@ -94,6 +94,11 @@ public class EntityGenerator extends AbstractTypeGenerator {
                 Names.TypeKind kind = Names.resolveTypeKind(elementType, effectiveSchemas);
                 String suffix = Names.resolvedSuffix(elementType, effectiveSchemas);
                 String navTargetClass = Names.resolvedClassName(elementType, effectiveSchemas);
+                // Skip self-referencing navs: importing the class being generated is a compile error
+                if (navTargetClass.equals(className)
+                        && (basePackageForType(elementType, schema) + suffix).equals(pkg)) {
+                    continue;
+                }
                 imports.add(basePackageForType(elementType, schema) + suffix + "." + navTargetClass);
             }
         }
@@ -272,16 +277,13 @@ public class EntityGenerator extends AbstractTypeGenerator {
             if (refs.size() == 1) {
                 sb.append("        return ").append(getterCall(refs.get(0), allProps)).append(";\n");
             } else {
-                sb.append("        return java.util.Map.of(\n");
-                for (int i = 0; i < refs.size(); i++) {
-                    sb.append("            \"").append(refs.get(i)).append("\", ").append(getterCall(refs.get(i), allProps));
-                    if (i < refs.size() - 1) {
-                        sb.append(",\n");
-                    } else {
-                        sb.append("\n");
-                    }
+                // HashMap (not Map.of) so a null key field doesn't throw NPE at runtime
+                sb.append("        java.util.Map<String, Object> key = new java.util.HashMap<>();\n");
+                for (String ref : refs) {
+                    sb.append("        key.put(\"").append(ref).append("\", ")
+                      .append(getterCall(ref, allProps)).append(");\n");
                 }
-                sb.append("        );\n");
+                sb.append("        return java.util.Collections.unmodifiableMap(key);\n");
             }
         } else {
             sb.append("        return null;\n");

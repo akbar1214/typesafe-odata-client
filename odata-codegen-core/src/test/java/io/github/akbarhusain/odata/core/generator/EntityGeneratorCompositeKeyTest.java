@@ -39,12 +39,14 @@ class EntityGeneratorCompositeKeyTest {
         int end = code.indexOf("    }\n\n", idx);
         String getKeyMethod = code.substring(idx, end);
 
-        assertTrue(getKeyMethod.contains("java.util.Map.of("),
-                "getKey() for composite keys should return java.util.Map.of(...)");
+        assertTrue(getKeyMethod.contains("java.util.HashMap<>"),
+                "getKey() for composite keys should build a HashMap (Map.of throws on null key values)");
         assertTrue(getKeyMethod.contains("\"OrderID\", this.orderID"),
                 "getKey() should include OrderID mapping");
         assertTrue(getKeyMethod.contains("\"ProductID\", this.productID"),
                 "getKey() should include ProductID mapping");
+        assertFalse(getKeyMethod.contains("Map.of("),
+                "getKey() must not use Map.of — it throws NPE on null key values");
         assertFalse(getKeyMethod.contains("return orderID"),
                 "getKey() should NOT return a single field value for composite keys");
     }

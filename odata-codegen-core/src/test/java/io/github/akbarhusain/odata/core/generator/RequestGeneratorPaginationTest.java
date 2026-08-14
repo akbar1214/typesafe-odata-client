@@ -49,6 +49,16 @@ class RequestGeneratorPaginationTest {
     }
 
     @Test
+    void countValueClearsTopAndSkip() throws Exception {
+        // M2: $count must not carry $top/$skip (forbidden by the OData spec).
+        String code = generatePeopleCollectionRequest();
+        assertTrue(code.contains("tmp.topValue = null;"),
+                "countValue should clear $top before appending /$count segment");
+        assertTrue(code.contains("tmp.skipValue = null;"),
+                "countValue should clear $skip before appending /$count segment");
+    }
+
+    @Test
     void countStillEmitsInlineCountQuery() throws Exception {
         String code = generatePeopleCollectionRequest();
         assertTrue(code.contains("ctx = ctx.addQuery(\"$count\", \"true\")"),

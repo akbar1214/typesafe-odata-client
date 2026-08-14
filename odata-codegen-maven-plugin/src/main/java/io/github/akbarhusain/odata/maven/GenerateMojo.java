@@ -53,6 +53,9 @@ public class GenerateMojo extends AbstractMojo {
     @Parameter(property = "odata.generateWithMethods", defaultValue = "false")
     private boolean generateWithMethods;
 
+    @Parameter(defaultValue = "${plugin.version}", readonly = true)
+    private String pluginVersion;
+
     @Parameter(defaultValue = "${project}", readonly = true, required = true)
     private MavenProject project;
 
@@ -125,35 +128,53 @@ public class GenerateMojo extends AbstractMojo {
     }
 
     private Path downloadMetadata(String url) throws Exception {
-        HttpClient client = HttpClient.newHttpClient();
-        HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(url))
-                .header("Accept", "application/xml, application/json")
+        HttpClient client = HttpClient.newBuilder()
+                .connectTimeout(java.time.Duration.ofSeconds(30))
+                .followRedirects(HttpClient.Redirect.NEVER)
                 .build();
+        URI current = URI.create(url);
 
-        HttpResponse<InputStream> response = client.send(request, HttpResponse.BodyHandlers.ofInputStream());
+        for (int hop = 0; hop < 5; hop++) {
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(current)
+                    .timeout(java.time.Duration.ofSeconds(60))
+                    .header("Accept", "application/xml, application/json")
+                    .build();
 
-        if (response.statusCode() >= 300 && response.statusCode() < 400) {
-            // Follow redirects
-            String location = response.headers().firstValue("Location").orElse(null);
-            if (location != null) {
-                getLog().info("Following redirect to: " + location);
-                HttpRequest redirectRequest = HttpRequest.newBuilder()
-                        .uri(URI.create(location))
-                        .header("Accept", "application/xml, application/json")
-                        .build();
-                response = client.send(redirectRequest, HttpResponse.BodyHandlers.ofInputStream());
+            HttpResponse<InputStream> response = client.send(request, HttpResponse.BodyHandlers.ofInputStream());
+
+            if (response.statusCode() >= 300 && response.statusCode() < 400) {
+                String location = response.headers().firstValue("Location").orElse(null);
+                if (location == null || location.isBlank()) {
+                    throw new MojoFailureException(
+                            "Redirect without Location header: HTTP " + response.statusCode());
+                }
+                current = resolveRedirectUri(current, location);
+                getLog().info("Following redirect to: " + current);
+                continue;
             }
+
+            if (response.statusCode() != 200) {
+                throw new MojoFailureException("Failed to download metadata: HTTP " + response.statusCode());
+            }
+
+            // Cache to a temp file so we can hash and parse it reliably.
+            Path tempFile = Files.createTempFile("odata-metadata-", ".xml");
+            tempFile.toFile().deleteOnExit();
+            Files.copy(response.body(), tempFile, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            return tempFile;
         }
 
-        if (response.statusCode() != 200) {
-            throw new MojoFailureException("Failed to download metadata: HTTP " + response.statusCode());
-        }
+        throw new MojoFailureException("Too many redirects downloading metadata from: " + url);
+    }
 
-        // Cache to a temp file so we can hash and parse it reliably
-        Path tempFile = Files.createTempFile("odata-metadata-", ".xml");
-        Files.copy(response.body(), tempFile, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-        return tempFile;
+    /**
+     * Resolves a redirect {@code Location} header against the current URI.
+     * Location may be absolute, root-relative, or relative to the current path.
+     */
+    static URI resolveRedirectUri(URI current, String location) {
+        URI loc = URI.create(location);
+        return loc.isAbsolute() ? loc : current.resolve(loc);
     }
 
     private String hashFile(Path path) throws Exception {
@@ -178,6 +199,7 @@ public class GenerateMojo extends AbstractMojo {
         config.append("basePackage=").append(basePackage == null ? "" : basePackage).append('\n');
         config.append("generateWithMethods=").append(generateWithMethods).append('\n');
         config.append("outputDirectory=").append(outputDirectory == null ? "" : outputDirectory.getAbsolutePath()).append('\n');
+        config.append("pluginVersion=").append(pluginVersion == null ? "" : pluginVersion).append('\n');
         for (SchemaMapping mapping : schemaPackages) {
             config.append("schema=").append(mapping.getNamespace()).append('=')
                     .append(mapping.getPackageName()).append('\n');

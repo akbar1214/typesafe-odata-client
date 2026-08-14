@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<edmx:Edmx xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx" Version="4.0">
+  <edmx:DataServices>
+    <Schema xmlns="http://docs.oasis-open.org/odata/ns/edm" Namespace="ReservedTest">
+      <EntityType Name="Filterable">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.Int32" Nullable="false"/>
+        <Property Name="Name" Type="Edm.String"/>
+        <Property Name="etag" Type="Edm.String"/>
+        <Property Name="builder" Type="Edm.String"/>
+        <Property Name="contextPath" Type="Edm.String"/>
+        <Property Name="changedFields" Type="Edm.String"/>
+        <Property Name="unmappedFields" Type="Edm.String"/>
+        <Property Name="2FA" Type="Edm.String"/>
+        <NavigationProperty Name="x-y" Type="Collection(ReservedTest.Filterable)"/>
+      </EntityType>
+      <EntityType Name="Order">
+        <Key>
+          <PropertyRef Name="OrderID"/>
+          <PropertyRef Name="ProductID"/>
+        </Key>
+        <Property Name="OrderID" Type="Edm.Int32" Nullable="false"/>
+        <Property Name="ProductID" Type="Edm.Int32" Nullable="false"/>
+      </EntityType>
+      <EntityContainer Name="Container">
+        <EntitySet Name="Filterables" EntityType="ReservedTest.Filterable"/>
+      </EntityContainer>
+    </Schema>
+  </edmx:DataServices>
+</edmx:Edmx>

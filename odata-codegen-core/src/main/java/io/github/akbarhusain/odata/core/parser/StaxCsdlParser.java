@@ -21,6 +21,7 @@ public class StaxCsdlParser {
 
     private static final String EDMX_NS = "http://docs.oasis-open.org/odata/ns/edmx";
     private static final String EDM_NS = "http://docs.oasis-open.org/odata/ns/edm";
+    private static final String EDMX_NS_V3 = "http://schemas.microsoft.com/ado/2007/06/edmx";
 
     private final List<String> warnings = new ArrayList<>();
 
@@ -30,6 +31,7 @@ public class StaxCsdlParser {
         factory.setProperty(XMLInputFactory.SUPPORT_DTD, false);
 
         XMLEventReader reader = factory.createXMLEventReader(xml);
+        validateRootElement(reader);
         List<SchemaModel> schemas = new ArrayList<>();
 
         while (reader.hasNext()) {
@@ -43,6 +45,34 @@ public class StaxCsdlParser {
         }
 
         return new CsdlModel(schemas, List.copyOf(warnings));
+    }
+
+    /**
+     * Validates that the document is an OData v4 CSDL document. The parser only
+     * understands the v4 namespaces; v3 or unknown documents must fail loudly
+     * instead of silently producing an empty model.
+     */
+    private void validateRootElement(XMLEventReader reader) throws XMLStreamException {
+        while (reader.hasNext()) {
+            XMLEvent event = reader.nextEvent();
+            if (event.isStartElement()) {
+                StartElement root = event.asStartElement();
+                String local = root.getName().getLocalPart();
+                String ns = root.getName().getNamespaceURI();
+                if ("Edmx".equals(local)) {
+                    if (EDMX_NS_V3.equals(ns)) {
+                        throw new IllegalArgumentException(
+                                "OData v3 metadata (" + ns + ") is not supported; only OData v4 (" + EDMX_NS + ") is supported");
+                    }
+                    if (!EDMX_NS.equals(ns)) {
+                        throw new IllegalArgumentException("Unsupported EDMX namespace: " + ns);
+                    }
+                    return;
+                }
+                throw new IllegalArgumentException("Not an OData CSDL document (root element: " + local + ")");
+            }
+        }
+        throw new IllegalArgumentException("Empty document: no root element found");
     }
 
     private void parseDataServices(XMLEventReader reader, List<SchemaModel> schemas)

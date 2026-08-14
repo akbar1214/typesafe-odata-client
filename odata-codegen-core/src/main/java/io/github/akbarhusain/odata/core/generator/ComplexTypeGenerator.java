@@ -88,6 +88,13 @@ public class ComplexTypeGenerator extends AbstractTypeGenerator {
             }
         }
         for (NavigationPropertyModel nav : allNavs) {
+            // Skip self-referencing navs: importing the class being generated is a compile error
+            String navElementType = Names.unwrapCollectionType(nav.type());
+            String navTargetClass = Names.resolvedClassName(navElementType, effectiveSchemas);
+            String navTargetPkg = basePackageForType(navElementType, schema) + Names.resolvedSuffix(navElementType, effectiveSchemas);
+            if (navTargetClass.equals(className) && navTargetPkg.equals(pkg)) {
+                continue;
+            }
             addNavImports(nav, imports, schema);
         }
         if (hasCollection || openType || !allNavs.isEmpty()) {

@@ -60,6 +60,110 @@ class EntityOperationsInterceptorChainTest {
     }
 
     @Test
+    void chainWithNoInterceptorsReturnsTheRealTransport() {
+        // H4: without interceptors the chain must not wrap the transport — the wrapper's
+        // stream() buffers the whole response body through intercept(), defeating streaming.
+        HttpTransport transport = new OrderTrackingTransport();
+        Context ctx = Context.builder()
+                .baseUrl("http://example.com")
+                .transport(transport)
+                .build();
+
+        assertSame(transport, EntityOperations.buildTransportChain(ctx, transport),
+                "Without interceptors the chain must be the real transport instance");
+    }
+
+    @Test
+    void streamWithNoInterceptorsDelegatesToTransportStream() {
+        List<String> streamedUrls = new ArrayList<>();
+        HttpTransport transport = new HttpTransport() {
+            @Override
+            public CompletableFuture<HttpResponse> submit(HttpRequest request) {
+                fail("stream path must not go through submit()");
+                return null;
+            }
+
+            @Override
+            public CompletableFuture<InputStream> stream(HttpRequest request) {
+                streamedUrls.add(request.url());
+                return CompletableFuture.completedFuture(InputStream.nullInputStream());
+            }
+        };
+
+        Context ctx = Context.builder()
+                .baseUrl("http://example.com")
+                .transport(transport)
+                .build();
+
+        HttpRequest request = HttpRequest.builder()
+                .method(HttpMethod.GET)
+                .url("http://example.com/People")
+                .build();
+
+        EntityOperations.buildTransportChain(ctx, ctx.transport())
+                .stream(request)
+                .join();
+
+        assertEquals(List.of("http://example.com/People"), streamedUrls,
+                "stream() must reach the underlying transport directly when no interceptors exist");
+    }
+
+    @Test
+    void interceptorStreamHookCanDelegateTrueStreaming() {
+        // An interceptor overriding the stream() hook can pass the request straight to
+        // the underlying transport, avoiding the default buffering-through-intercept path.
+        List<String> streamedUrls = new ArrayList<>();
+        List<String> interceptedStreams = new ArrayList<>();
+
+        HttpInterceptor i1 = new HttpInterceptor() {
+            @Override
+            public HttpResponse intercept(HttpRequest request, HttpTransport delegate) {
+                fail("stream path must not fall back to intercept() when stream() is overridden");
+                return null;
+            }
+
+            @Override
+            public CompletableFuture<InputStream> stream(HttpRequest request, HttpTransport delegate) {
+                interceptedStreams.add(request.url());
+                return delegate.stream(request);
+            }
+        };
+
+        HttpTransport transport = new HttpTransport() {
+            @Override
+            public CompletableFuture<HttpResponse> submit(HttpRequest request) {
+                return CompletableFuture.completedFuture(new HttpResponse(200, Map.of(), new byte[0]));
+            }
+
+            @Override
+            public CompletableFuture<InputStream> stream(HttpRequest request) {
+                streamedUrls.add(request.url());
+                return CompletableFuture.completedFuture(InputStream.nullInputStream());
+            }
+        };
+
+        Context ctx = Context.builder()
+                .baseUrl("http://example.com")
+                .transport(transport)
+                .interceptors(List.of(i1))
+                .build();
+
+        HttpRequest request = HttpRequest.builder()
+                .method(HttpMethod.GET)
+                .url("http://example.com/People/1/$value")
+                .build();
+
+        EntityOperations.buildTransportChain(ctx, ctx.transport())
+                .stream(request)
+                .join();
+
+        assertEquals(List.of("http://example.com/People/1/$value"), interceptedStreams,
+                "Interceptor stream hook must be invoked");
+        assertEquals(List.of("http://example.com/People/1/$value"), streamedUrls,
+                "Underlying transport stream must be reached without buffering");
+    }
+
+    @Test
     void streamGoesThroughInterceptorChain() {
         List<String> order = new ArrayList<>();
         List<String> streamedUrls = new ArrayList<>();
