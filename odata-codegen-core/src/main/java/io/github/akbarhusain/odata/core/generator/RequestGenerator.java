@@ -88,12 +88,12 @@ public class RequestGenerator extends AbstractTypeGenerator {
         for (NavigationPropertyModel nav : entityType.navigationProperties()) {
             if (isComplexTypeNav(nav, schema)) continue;
             if (Names.isCollectionType(nav.type())) {
-                String collReqClass = Names.collectionRequestClassName(Names.simpleNameFromFullName(Names.unwrapCollectionType(nav.type())));
-                sb.append("    public void add").append(Names.capitalize(nav.name())).append("Ref(String targetEntityUrl) {\n");
+                String refBase = Names.toJavaFieldName(nav.name());
+                sb.append("    public void add").append(Names.capitalize(refBase)).append("Ref(String targetEntityUrl) {\n");
                 sb.append("        EntityOperations.addRef(context, contextPath.addSegment(\"").append(nav.name()).append("\"), targetEntityUrl);\n");
                 sb.append("    }\n\n");
 
-                sb.append("    public void remove").append(Names.capitalize(nav.name())).append("Ref(String targetKey) {\n");
+                sb.append("    public void remove").append(Names.capitalize(refBase)).append("Ref(String targetKey) {\n");
                 sb.append("        EntityOperations.removeRef(context, contextPath.addSegment(\"").append(nav.name()).append("\"), targetKey);\n");
                 sb.append("    }\n\n");
             }
@@ -386,6 +386,8 @@ public class RequestGenerator extends AbstractTypeGenerator {
         sb.append("    public long countValue() {\n");
         sb.append("        ").append(className).append(" tmp = copy();\n");
         sb.append("        tmp.countRequested = false;\n");
+        sb.append("        tmp.topValue = null;\n");
+        sb.append("        tmp.skipValue = null;\n");
         sb.append("        return EntityOperations.executeCount(context, tmp.buildContext());\n");
         sb.append("    }\n\n");
 

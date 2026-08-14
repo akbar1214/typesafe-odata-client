@@ -131,6 +131,78 @@ class MultipartHelperTest {
     }
 
     @Test
+    void encodePreservesBinaryBodyBytesVerbatim() {
+        // H3: binary bodies (e.g. a media PUT inside a batch) must not be corrupted by a
+        // UTF-8 String round-trip in the encoder.
+        byte[] binary = new byte[] {0x00, (byte) 0xFF, 0x10, (byte) 0x80, 0x41, 0x0A, 0x0D};
+        BatchOperation putOp = BatchOperation.put("Advertisements('1')/$value", binary);
+        String boundary = "bin_enc";
+
+        byte[] encoded = MultipartHelper.encodeRequest(boundary, List.of(putOp));
+
+        assertTrue(indexOf(encoded, binary) >= 0,
+                "encoded payload must contain the exact binary bytes");
+    }
+
+    @Test
+    void decodePreservesBinaryResponseBodyVerbatim() {
+        // H3: the decoder must return response bodies byte-for-byte (no String round-trip,
+        // no whitespace stripping).
+        byte[] binary = new byte[] {0x00, (byte) 0xFF, 0x10, (byte) 0x80, 0x41, 0x0A, 0x0D};
+        byte[] response = join(
+                "--bin_dec\r\nContent-Type: application/http\r\nContent-Transfer-Encoding: binary\r\n\r\n".getBytes(StandardCharsets.US_ASCII),
+                "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\n\r\n".getBytes(StandardCharsets.US_ASCII),
+                binary,
+                "\r\n--bin_dec--\r\n".getBytes(StandardCharsets.US_ASCII));
+
+        List<BatchResult<?>> decoded = MultipartHelper.decodeResponse("bin_dec", response);
+
+        assertEquals(1, decoded.size());
+        assertArrayEquals(binary, decoded.get(0).body(),
+                "binary response body must round-trip byte-for-byte");
+    }
+
+    @Test
+    void decodedHeadersAreCaseInsensitive() {
+        // M5: BatchResult headers must be case-insensitive like HttpResponse's, so
+        // getHeader("Retry-After") works when the server wrote "retry-after".
+        byte[] response = join(
+                "--hdr_boundary\r\nContent-Type: application/http\r\n\r\n".getBytes(StandardCharsets.US_ASCII),
+                "HTTP/1.1 429 Too Many Requests\r\nretry-after: 42\r\n\r\n".getBytes(StandardCharsets.US_ASCII),
+                new byte[0],
+                "\r\n--hdr_boundary--\r\n".getBytes(StandardCharsets.US_ASCII));
+
+        List<BatchResult<?>> decoded = MultipartHelper.decodeResponse("hdr_boundary", response);
+
+        assertEquals(1, decoded.size());
+        assertEquals("42", decoded.get(0).getHeader("Retry-After"),
+                "BatchResult header lookup must be case-insensitive");
+    }
+
+    private static int indexOf(byte[] haystack, byte[] needle) {
+        outer:
+        for (int i = 0; i <= haystack.length - needle.length; i++) {
+            for (int j = 0; j < needle.length; j++) {
+                if (haystack[i + j] != needle[j]) continue outer;
+            }
+            return i;
+        }
+        return -1;
+    }
+
+    private static byte[] join(byte[]... parts) {
+        int len = 0;
+        for (byte[] p : parts) len += p.length;
+        byte[] result = new byte[len];
+        int off = 0;
+        for (byte[] p : parts) {
+            System.arraycopy(p, 0, result, off, p.length);
+            off += p.length;
+        }
+        return result;
+    }
+
+    @Test
     void generateBoundaryIsUnique() {
         String b1 = MultipartHelper.generateBoundary();
         String b2 = MultipartHelper.generateBoundary();

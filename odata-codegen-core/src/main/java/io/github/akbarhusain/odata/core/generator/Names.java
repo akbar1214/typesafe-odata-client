@@ -73,10 +73,21 @@ public final class Names {
         return ".schema";
     }
 
+    // Field names that collide with members the generator itself emits on entities:
+    // lifecycle fields (etag, contextPath, changedFields, unmappedFields) and the
+    // static builder() method. The field is renamed with a trailing '_' so the
+    // generated class still compiles.
+    private static final java.util.Set<String> RESERVED_MEMBER_NAMES = java.util.Set.of(
+            "etag", "contextPath", "changedFields", "unmappedFields", "builder"
+    );
+
     public static String toJavaFieldName(String edmName) {
         String name = sanitizeIdentifier(edmName);
+        if (name.equals("_")) {
+            return "_";
+        }
         String result = Character.toLowerCase(name.charAt(0)) + name.substring(1);
-        if (isReservedWord(result)) result = result + "_";
+        if (isReservedWord(result) || RESERVED_MEMBER_NAMES.contains(result)) result = result + "_";
         return result;
     }
 
@@ -89,7 +100,11 @@ public final class Names {
             }
             sb.append(Character.toUpperCase(c));
         }
-        return sb.toString();
+        String result = sb.toString();
+        if (result.isEmpty() || !Character.isJavaIdentifierStart(result.charAt(0))) {
+            result = "_" + result;
+        }
+        return result;
     }
 
     public static String toJavaMethodName(String edmName, String prefix) {
@@ -201,6 +216,12 @@ public final class Names {
             char c = name.charAt(i);
             if (i == 0 && Character.isJavaIdentifierStart(c)) {
                 sb.append(Character.toUpperCase(c));
+            } else if (i == 0 && !Character.isJavaIdentifierStart(c)) {
+                // Leading non-identifier char (e.g. digit): prefix '_' but keep the char
+                sb.append('_');
+                if (Character.isJavaIdentifierPart(c)) {
+                    sb.append(c);
+                }
             } else if (Character.isJavaIdentifierPart(c)) {
                 sb.append(c);
             } else if (c == '.' || c == '/') {
@@ -208,16 +229,19 @@ public final class Names {
             }
         }
         String result = sb.toString();
+        if (result.isEmpty()) result = "_";
         if (isReservedWord(result) || isJdkClassName(result)) result = result + "_";
         return result;
     }
 
-    // JDK class names that would shadow java.lang.* if used as generated class names.
+    // JDK class names that would shadow java.lang.* if used as generated class names,
+    // plus names that collide with members the generator itself emits (Builder, Filterable).
     private static final java.util.Set<String> JDK_CLASS_NAMES = java.util.Set.of(
             "Object", "String", "System", "Class", "Number", "Enum",
             "Record", "Void", "Math", "Thread", "Throwable", "Error",
             "Exception", "Runnable", "Comparable", "Iterable", "Override",
-            "Deprecated", "SuppressWarnings", "SafeVarargs", "FunctionalInterface"
+            "Deprecated", "SuppressWarnings", "SafeVarargs", "FunctionalInterface",
+            "Builder", "Filterable"
     );
 
     private static boolean isJdkClassName(String name) {
@@ -230,6 +254,12 @@ public final class Names {
             char c = name.charAt(i);
             if (i == 0 && Character.isJavaIdentifierStart(c)) {
                 sb.append(Character.toUpperCase(c));
+            } else if (i == 0 && !Character.isJavaIdentifierStart(c)) {
+                // Leading non-identifier char (e.g. digit): prefix '_' but keep the char
+                sb.append('_');
+                if (Character.isJavaIdentifierPart(c)) {
+                    sb.append(c);
+                }
             } else if (Character.isJavaIdentifierPart(c)) {
                 sb.append(c);
             } else {
@@ -237,6 +267,7 @@ public final class Names {
             }
         }
         String result = sb.toString();
+        if (result.isEmpty()) result = "_";
         if (isReservedWord(result)) result = result + "_";
         return result;
     }
@@ -260,6 +291,11 @@ public final class Names {
                  "open", "requires", "exports", "opens", "to", "with" -> true;
             default -> false;
         };
+    }
+
+    /** Public view of {@link #isReservedWord} for generators that must validate raw CSDL names. */
+    public static boolean isJavaKeyword(String word) {
+        return isReservedWord(word);
     }
 
     // Object methods that cannot be overridden (final) or would break identity contracts.

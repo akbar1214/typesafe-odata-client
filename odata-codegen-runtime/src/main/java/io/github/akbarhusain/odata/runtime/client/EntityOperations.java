@@ -150,6 +150,11 @@ public class EntityOperations {
         HttpResponse response = executeSync(context, HttpMethod.GET, path, null, null);
         checkResponse(response);
 
+        if (response.body() == null || response.body().length == 0) {
+            // 204/empty-bodied 2xx collection responses (documented TripPin behavior) mean no items
+            return new CollectionPage<>(List.of(), null, null);
+        }
+
         try {
             Map<String, Object> envelope = COLLECTION_MAPPER.readValue(response.body(), MAP_TYPE);
 
@@ -184,7 +189,9 @@ public class EntityOperations {
 
     public static long executeCount(Context context, ContextPath path) {
         ContextPath countPath = path.addCountSegment();
-        HttpResponse response = executeSync(context, HttpMethod.GET, countPath, null, null);
+        // /$count returns plain text per the OData spec — never accept application/json
+        HttpResponse response = executeSync(context, HttpMethod.GET, countPath, null,
+                Map.of("Accept", "text/plain"));
         checkResponse(response);
         try {
             String body = new String(response.body(), StandardCharsets.UTF_8).trim();
@@ -259,15 +266,7 @@ public class EntityOperations {
 
                 @Override
                 public CompletableFuture<InputStream> stream(HttpRequest request) {
-                    try {
-                        HttpResponse resp = next.intercept(request, delegate);
-                        return CompletableFuture.completedFuture(
-                                new java.io.ByteArrayInputStream(resp.body()));
-                    } catch (RuntimeException e) {
-                        throw e;
-                    } catch (Exception e) {
-                        throw new ODataException("Interceptor failed: " + e.getMessage(), e);
-                    }
+                    return next.stream(request, delegate);
                 }
             };
         }

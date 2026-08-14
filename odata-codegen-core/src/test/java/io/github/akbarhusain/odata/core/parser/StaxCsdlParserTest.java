@@ -36,6 +36,41 @@ class StaxCsdlParserTest {
         }
     }
 
+    // ===== Namespace validation =====
+
+    @Test
+    void parseThrowsOnV3MetadataInsteadOfSilentlyReturningEmptyModel() {
+        // H5: the parser only understands OData v4 namespaces. v3 metadata must fail
+        // loudly rather than silently producing an empty model.
+        String v3 = """
+            <?xml version="1.0" encoding="utf-8"?>
+            <edmx:Edmx Version="1.0" xmlns:edmx="http://schemas.microsoft.com/ado/2007/06/edmx">
+              <edmx:DataServices xmlns:m="http://schemas.microsoft.com/ado/2007/08/dataservices/metadata">
+                <Schema Namespace="My.Namespace" xmlns="http://schemas.microsoft.com/ado/2009/11/edm">
+                  <EntityType Name="Product">
+                    <Property Name="ID" Type="Edm.Int32" Nullable="false" />
+                  </EntityType>
+                </Schema>
+              </edmx:DataServices>
+            </edmx:Edmx>
+            """;
+        StaxCsdlParser parser = new StaxCsdlParser();
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> parser.parse(new java.io.ByteArrayInputStream(
+                        v3.getBytes(java.nio.charset.StandardCharsets.UTF_8))));
+        assertTrue(ex.getMessage().contains("v3"),
+                "Error message should mention OData v3: " + ex.getMessage());
+    }
+
+    @Test
+    void parseThrowsOnNonEdmxDocument() {
+        String xml = "<html><body>Not OData metadata</body></html>";
+        StaxCsdlParser parser = new StaxCsdlParser();
+        assertThrows(IllegalArgumentException.class,
+                () -> parser.parse(new java.io.ByteArrayInputStream(
+                        xml.getBytes(java.nio.charset.StandardCharsets.UTF_8))));
+    }
+
     // ===== TripPin Tests =====
 
     @Test

@@ -103,6 +103,25 @@ class EntityOperationsCountTest {
     }
 
     @Test
+    void executeCountRequestsTextPlainAccept() {
+        // M2: the /$count endpoint returns plain text per the OData spec; the request
+        // must not go out with the default application/json Accept.
+        CapturingTransport transport = new CapturingTransport("42");
+        Context ctx = Context.builder()
+                .baseUrl("https://example.com")
+                .transport(transport)
+                .build();
+
+        ContextPath path = ctx.basePath().addSegment("People");
+        EntityOperations.executeCount(ctx, path);
+
+        List<String> accept = transport.lastRequest.headers().get("Accept");
+        assertNotNull(accept, "count request should carry an Accept header");
+        assertEquals("text/plain", accept.get(0),
+                "count request should ask for text/plain, not application/json");
+    }
+
+    @Test
     void executeCountThrowsOnNonNumericBody() {
         Context ctx = Context.builder()
                 .baseUrl("https://example.com")

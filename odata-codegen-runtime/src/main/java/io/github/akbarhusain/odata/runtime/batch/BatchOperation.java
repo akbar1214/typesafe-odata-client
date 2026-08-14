@@ -11,6 +11,7 @@ public record BatchOperation(
     byte[] body
 ) {
     public static BatchOperation get(String url) {
+        Objects.requireNonNull(url, "url must not be null");
         return new BatchOperation(HttpMethod.GET, url, Map.of(), null);
     }
 

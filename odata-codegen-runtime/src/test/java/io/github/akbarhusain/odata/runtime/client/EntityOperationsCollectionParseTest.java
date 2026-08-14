@@ -113,6 +113,33 @@ class EntityOperationsCollectionParseTest {
         assertEquals("USA", page.currentPage().get(0).homeCity().country());
     }
 
+    @Test
+    void emptyBodyReturnsEmptyPage() {
+        // M1: a 204/empty-bodied 2xx collection response must yield an empty page,
+        // not a deserialization failure.
+        HttpTransport transport = new HttpTransport() {
+            @Override
+            public CompletableFuture<HttpResponse> submit(HttpRequest request) {
+                return CompletableFuture.completedFuture(new HttpResponse(204, Map.of(), new byte[0]));
+            }
+
+            @Override
+            public CompletableFuture<java.io.InputStream> stream(HttpRequest request) {
+                throw new UnsupportedOperationException();
+            }
+        };
+        Context ctx = Context.builder()
+                .baseUrl("https://example.com")
+                .transport(transport)
+                .build();
+
+        CollectionPage<Person> page = EntityOperations.executeAndGetCollection(
+                ctx, ctx.basePath().addSegment("People"), Person.class);
+
+        assertTrue(page.currentPage().isEmpty());
+        assertFalse(page.hasNextPage());
+    }
+
     // Transport that captures the last request for URL assertions
     static class CapturingTransport implements HttpTransport {
         HttpRequest lastRequest;

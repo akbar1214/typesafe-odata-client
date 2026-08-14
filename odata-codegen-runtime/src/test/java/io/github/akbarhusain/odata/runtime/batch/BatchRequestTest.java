@@ -153,4 +153,10 @@ class BatchRequestTest {
         assertEquals("Bearer token", headers.get("Authorization").get(0));
         assertEquals("extra", headers.get("Authorization").get(1));
     }
+
+    @Test
+    void getOperationRejectsNullUrl() {
+        // M8: BatchOperation.get must validate its URL like post/patch/put do.
+        assertThrows(NullPointerException.class, () -> BatchOperation.get(null));
+    }
 }

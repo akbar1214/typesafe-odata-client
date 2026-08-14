@@ -8,6 +8,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.io.File;
 import java.lang.reflect.Field;
+import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -237,6 +238,58 @@ class GenerateMojoIncrementalTest {
 
         assertEquals(firstCount, countGeneratedFiles(outputDir),
                 "Changing generateWithMethods should invalidate the marker and force regeneration");
+    }
+
+    @Test
+    void changedPluginVersionForcesRegenerationEvenWhenMetadataUnchanged() throws Exception {
+        // H8: upgrading the plugin must not silently skip regeneration when the
+        // metadata and config are unchanged.
+        File metadata = writeMetadata("""
+                <?xml version="1.0" encoding="utf-8"?>
+                <edmx:Edmx xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx" Version="4.0">
+                  <edmx:DataServices>
+                    <Schema xmlns="http://docs.oasis-open.org/odata/ns/edm" Namespace="TestNS">
+                      <EntityType Name="Person">
+                        <Key><PropertyRef Name="Id"/></Key>
+                        <Property Name="Id" Type="Edm.Int32" Nullable="false"/>
+                        <Property Name="Name" Type="Edm.String"/>
+                      </EntityType>
+                      <EntityContainer Name="Container">
+                        <EntitySet Name="People" EntityType="TestNS.Person"/>
+                      </EntityContainer>
+                    </Schema>
+                  </edmx:DataServices>
+                </edmx:Edmx>
+                """);
+        File outputDir = tempDir.resolve("out-version").toFile();
+
+        GenerateMojo first = createMojo(metadata, outputDir);
+        setField(first, "pluginVersion", "1.0.0");
+        first.execute();
+        int firstCount = countGeneratedFiles(outputDir);
+
+        // Metadata is unchanged; only the plugin version changes.
+        File generated = findAnyGeneratedFile(outputDir);
+        assertTrue(generated.delete(), "Should be able to delete a generated file for the test");
+
+        GenerateMojo second = createMojo(metadata, outputDir);
+        setField(second, "pluginVersion", "1.0.1");
+        second.execute();
+
+        assertEquals(firstCount, countGeneratedFiles(outputDir),
+                "Changing plugin version should invalidate the marker and force regeneration");
+    }
+
+    @Test
+    void resolveRedirectUriHandlesRelativeAndAbsoluteLocations() throws Exception {
+        // H8: redirect Location headers may be relative to the current URI.
+        URI base = new URI("https://services.odata.org/V4/TripPinService/$metadata");
+        assertEquals(new URI("https://services.odata.org/V4/TripPinService/redirected"),
+                GenerateMojo.resolveRedirectUri(base, "/V4/TripPinService/redirected"));
+        assertEquals(new URI("https://services.odata.org/V4/TripPinService/relative"),
+                GenerateMojo.resolveRedirectUri(base, "relative"));
+        assertEquals(new URI("https://other.example.com/$metadata"),
+                GenerateMojo.resolveRedirectUri(base, "https://other.example.com/$metadata"));
     }
 
     @Test
