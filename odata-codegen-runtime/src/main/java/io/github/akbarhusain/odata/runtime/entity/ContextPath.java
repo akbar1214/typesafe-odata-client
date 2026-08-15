@@ -69,6 +69,11 @@ public record ContextPath(
             throw new IllegalArgumentException("nextLink cannot be null or empty");
         }
         String trimmed = nextLink.trim();
+        // Fragments are not part of an OData request URL; strip before splitting
+        int hashIdx = trimmed.indexOf('#');
+        if (hashIdx >= 0) {
+            trimmed = trimmed.substring(0, hashIdx);
+        }
         String pathPart = trimmed;
         String queryPart = null;
         int queryIdx = trimmed.indexOf('?');
@@ -88,7 +93,8 @@ public record ContextPath(
         }
         ContextPath result = new ContextPath(base);
         if (queryPart != null && !queryPart.isEmpty()) {
-            for (String pair : queryPart.split("&")) {
+            // The OData URL grammar allows ';' as a query-option separator too
+            for (String pair : queryPart.split("[&;]")) {
                 if (pair.isEmpty()) continue;
                 int eq = pair.indexOf('=');
                 String name = eq >= 0 ? pair.substring(0, eq) : pair;

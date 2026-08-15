@@ -295,11 +295,15 @@ public class EntityOperations {
         HttpResponse response = executeSync(context, HttpMethod.GET, countPath, null,
                 Map.of("Accept", "text/plain"));
         checkResponse(response);
+        String text = response.getText();
+        String trimmed = text == null ? "" : text.trim();
+        if (trimmed.isEmpty()) {
+            throw new ODataException("Failed to parse $count response: (empty body)");
+        }
         try {
-            String body = new String(response.body(), StandardCharsets.UTF_8).trim();
-            return Long.parseLong(body);
+            return Long.parseLong(trimmed);
         } catch (NumberFormatException e) {
-            throw new ODataException("Failed to parse $count response: " + e.getMessage(), e);
+            throw new ODataException("Failed to parse $count response: '" + trimmed + "'", e);
         }
     }
 
@@ -363,7 +367,13 @@ public class EntityOperations {
             transport = new HttpTransport() {
                 @Override
                 public CompletableFuture<HttpResponse> submit(HttpRequest request) {
-                    return CompletableFuture.completedFuture(next.intercept(request, delegate));
+                    // Interceptor failures must complete the future exceptionally, not
+                    // escape synchronously — callers compose with exceptionally()/handle()
+                    try {
+                        return CompletableFuture.completedFuture(next.intercept(request, delegate));
+                    } catch (RuntimeException e) {
+                        return CompletableFuture.failedFuture(e);
+                    }
                 }
 
                 @Override

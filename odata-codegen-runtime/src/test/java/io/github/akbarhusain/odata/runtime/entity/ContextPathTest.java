@@ -267,4 +267,22 @@ class ContextPathTest {
         assertEquals(BASE + "/People/Trips?$skiptoken=x&$top=5", path.toUrl(),
                 "only one '?' is legal per URL; queries from all segments merge at the end");
     }
+
+    @Test
+    void l3NextLinkFragmentIsStripped() {
+        ContextPath path = new ContextPath(BASE).addSegment("People");
+        ContextPath nextPath = path.fromNextLink(BASE + "/People?$skiptoken=abc#section");
+
+        assertEquals(BASE + "/People?$skiptoken=abc", nextPath.toUrl(),
+                "fragments are not part of an OData request URL");
+    }
+
+    @Test
+    void l3NextLinkSemicolonQuerySeparatorIsAccepted() {
+        ContextPath path = new ContextPath(BASE).addSegment("People");
+        ContextPath nextPath = path.fromNextLink(BASE + "/People?$skip=10;$top=5");
+
+        assertEquals(BASE + "/People?$skip=10&$top=5", nextPath.toUrl(),
+                "the OData URL grammar allows ';' as a query-option separator");
+    }
 }

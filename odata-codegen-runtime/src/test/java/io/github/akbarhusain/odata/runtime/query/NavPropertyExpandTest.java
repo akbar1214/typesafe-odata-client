@@ -175,4 +175,27 @@ class NavPropertyExpandTest {
                 "joined $filter predicates must be parenthesized: unparenthesized 'or' + 'and' "
                         + "changes semantics because 'and' binds tighter");
     }
+
+    @Test
+    void l10SkipAndCountOptionsRender() {
+        NavProperty<Object, Object> nav = new NavProperty<>("Trips", Object.class, Object.class);
+        assertEquals("Trips($skip=5)", nav.skip(5).toODataExpand());
+        assertEquals("Trips($count=true)", nav.count().toODataExpand());
+
+        NavProperty.NavQuery<Object, Object> query = nav.top(2).skip(4).count();
+        assertEquals("Trips($top=2;$skip=4;$count=true)", query.toODataExpand());
+    }
+
+    @Test
+    void l10NavQueryListsAreImmutable() {
+        NavProperty<Object, Object> nav = new NavProperty<>("Trips", Object.class, Object.class);
+        NumberProperty<Object, Integer> budget = new NumberProperty<>("Budget", null);
+        NavProperty.NavQuery<Object, Object> query = nav.filter(budget.greaterThan(100));
+
+        assertThrows(UnsupportedOperationException.class,
+                () -> query.filters().add("injected eq true"),
+                "record list components must be defensively copied");
+        assertThrows(UnsupportedOperationException.class,
+                () -> query.selects().add("Injected"));
+    }
 }

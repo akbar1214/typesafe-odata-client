@@ -23,11 +23,11 @@ public class NavProperty<E, T> {
         for (var prop : properties) {
             selects.add(prop.getEdmName());
         }
-        return new NavQuery<>(edmName, selects, List.of(), List.of(), null, List.of());
+        return new NavQuery<>(edmName, selects, List.of(), List.of(), null, null, null, List.of());
     }
 
     public NavQuery<E, T> filter(FilterExpression<? super T> predicate) {
-        return new NavQuery<>(edmName, List.of(), List.of(predicate.toODataExpression()), List.of(), null, List.of());
+        return new NavQuery<>(edmName, List.of(), List.of(predicate.toODataExpression()), List.of(), null, null, null, List.of());
     }
 
     public NavQuery<E, T> orderBy(OrderExpression<? super T, ?>... expressions) {
@@ -35,11 +35,20 @@ public class NavProperty<E, T> {
         for (var expr : expressions) {
             orders.add(expr.getODataPath());
         }
-        return new NavQuery<>(edmName, List.of(), List.of(), orders, null, List.of());
+        return new NavQuery<>(edmName, List.of(), List.of(), orders, null, null, null, List.of());
     }
 
     public NavQuery<E, T> top(int count) {
-        return new NavQuery<>(edmName, List.of(), List.of(), List.of(), "$top=" + count, List.of());
+        return new NavQuery<>(edmName, List.of(), List.of(), List.of(), "$top=" + count, null, null, List.of());
+    }
+
+    public NavQuery<E, T> skip(int count) {
+        return new NavQuery<>(edmName, List.of(), List.of(), List.of(), null, "$skip=" + count, null, List.of());
+    }
+
+    /** Requests the inline count within the expansion: {@code Trips($count=true)}. */
+    public NavQuery<E, T> count() {
+        return new NavQuery<>(edmName, List.of(), List.of(), List.of(), null, null, "$count=true", List.of());
     }
 
     public NavQuery<E, T> expand(NavQuery<? super T, ?>... queries) {
@@ -47,7 +56,7 @@ public class NavProperty<E, T> {
         for (var q : queries) {
             expands.add(q.toODataExpand());
         }
-        return new NavQuery<>(edmName, List.of(), List.of(), List.of(), null, expands);
+        return new NavQuery<>(edmName, List.of(), List.of(), List.of(), null, null, null, expands);
     }
 
     public NavQuery<E, T> expand(NavProperty<? super T, ?>... properties) {
@@ -55,7 +64,7 @@ public class NavProperty<E, T> {
         for (var p : properties) {
             expands.add(p.getEdmName());
         }
-        return new NavQuery<>(edmName, List.of(), List.of(), List.of(), null, expands);
+        return new NavQuery<>(edmName, List.of(), List.of(), List.of(), null, null, null, expands);
     }
 
     public record NavQuery<S, T>(
@@ -64,20 +73,30 @@ public class NavProperty<E, T> {
         List<String> filters,
         List<String> orderings,
         String topOption,
+        String skipOption,
+        String countOption,
         List<String> expands
     ) {
+        public NavQuery {
+            // Defensive copies: builder methods hand out mutable lists otherwise
+            selects = List.copyOf(selects);
+            filters = List.copyOf(filters);
+            orderings = List.copyOf(orderings);
+            expands = List.copyOf(expands);
+        }
+
         public NavQuery<S, T> select(PropertyExpression<? super T, ?>... properties) {
             List<String> newSelects = new ArrayList<>(this.selects);
             for (var prop : properties) {
                 newSelects.add(prop.getEdmName());
             }
-            return new NavQuery<>(edmName, newSelects, filters, orderings, topOption, expands);
+            return new NavQuery<>(edmName, newSelects, filters, orderings, topOption, skipOption, countOption, expands);
         }
 
         public NavQuery<S, T> filter(FilterExpression<? super T> predicate) {
             List<String> newFilters = new ArrayList<>(this.filters);
             newFilters.add(predicate.toODataExpression());
-            return new NavQuery<>(edmName, selects, newFilters, orderings, topOption, expands);
+            return new NavQuery<>(edmName, selects, newFilters, orderings, topOption, skipOption, countOption, expands);
         }
 
         public NavQuery<S, T> orderBy(OrderExpression<? super T, ?>... expressions) {
@@ -85,11 +104,20 @@ public class NavProperty<E, T> {
             for (var expr : expressions) {
                 newOrderings.add(expr.getODataPath());
             }
-            return new NavQuery<>(edmName, selects, filters, newOrderings, topOption, expands);
+            return new NavQuery<>(edmName, selects, filters, newOrderings, topOption, skipOption, countOption, expands);
         }
 
         public NavQuery<S, T> top(int count) {
-            return new NavQuery<>(edmName, selects, filters, orderings, "$top=" + count, expands);
+            return new NavQuery<>(edmName, selects, filters, orderings, "$top=" + count, skipOption, countOption, expands);
+        }
+
+        public NavQuery<S, T> skip(int count) {
+            return new NavQuery<>(edmName, selects, filters, orderings, topOption, "$skip=" + count, countOption, expands);
+        }
+
+        /** Requests the inline count within the expansion: {@code Trips($count=true)}. */
+        public NavQuery<S, T> count() {
+            return new NavQuery<>(edmName, selects, filters, orderings, topOption, skipOption, "$count=true", expands);
         }
 
         public NavQuery<S, T> expand(NavQuery<? super T, ?>... queries) {
@@ -97,7 +125,7 @@ public class NavProperty<E, T> {
             for (var q : queries) {
                 newExpands.add(q.toODataExpand());
             }
-            return new NavQuery<>(edmName, selects, filters, orderings, topOption, newExpands);
+            return new NavQuery<>(edmName, selects, filters, orderings, topOption, skipOption, countOption, newExpands);
         }
 
         public NavQuery<S, T> expand(NavProperty<? super T, ?>... properties) {
@@ -105,7 +133,7 @@ public class NavProperty<E, T> {
             for (var p : properties) {
                 newExpands.add(p.getEdmName());
             }
-            return new NavQuery<>(edmName, selects, filters, orderings, topOption, newExpands);
+            return new NavQuery<>(edmName, selects, filters, orderings, topOption, skipOption, countOption, newExpands);
         }
 
         public String toODataExpand() {
@@ -129,6 +157,12 @@ public class NavProperty<E, T> {
             }
             if (topOption != null) {
                 options.add(topOption);
+            }
+            if (skipOption != null) {
+                options.add(skipOption);
+            }
+            if (countOption != null) {
+                options.add(countOption);
             }
             if (!expands.isEmpty()) {
                 options.add("$expand=" + String.join(",", expands));

@@ -131,4 +131,27 @@ class EntityOperationsCountTest {
         ContextPath path = ctx.basePath().addSegment("People");
         assertThrows(ODataException.class, () -> EntityOperations.executeCount(ctx, path));
     }
+
+    @Test
+    void l4NullBodyFailsWithODataExceptionNotNpe() {
+        // custom transports/interceptors can produce a null body (HttpResponse allows it)
+        HttpTransport nullBody = new HttpTransport() {
+            @Override
+            public java.util.concurrent.CompletableFuture<HttpResponse> submit(HttpRequest request) {
+                return java.util.concurrent.CompletableFuture.completedFuture(new HttpResponse(200, java.util.Map.of(), null));
+            }
+
+            @Override
+            public java.util.concurrent.CompletableFuture<java.io.InputStream> stream(HttpRequest request) {
+                throw new UnsupportedOperationException();
+            }
+        };
+        Context ctx = Context.builder().baseUrl("https://example.com").transport(nullBody).build();
+
+        io.github.akbarhusain.odata.runtime.exception.ODataException ex = assertThrows(
+                io.github.akbarhusain.odata.runtime.exception.ODataException.class,
+                () -> EntityOperations.executeCount(ctx, ctx.basePath().addSegment("People")));
+        assertTrue(ex.getMessage().contains("empty body"),
+                "a diagnostic ODataException, not a bare NPE: " + ex.getMessage());
+    }
 }

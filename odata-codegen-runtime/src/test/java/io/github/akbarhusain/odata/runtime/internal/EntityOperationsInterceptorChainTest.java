@@ -239,4 +239,25 @@ class EntityOperationsInterceptorChainTest {
                 () -> EntityOperations.streamMedia(ctx, ctx.basePath().addSegment("Media").addKey("Id", 1)),
                 "the default interceptor stream() must not turn an HTTP error into a body stream");
     }
+
+    @Test
+    void l8ThrowingInterceptorCompletesFutureExceptionally() {
+        HttpInterceptor failing = (req, delegate) -> {
+            throw new IllegalStateException("interceptor exploded");
+        };
+        Context ctx = Context.builder()
+                .baseUrl("http://example.com")
+                .transport(new OrderTrackingTransport())
+                .interceptors(List.of(failing))
+                .build();
+
+        java.util.concurrent.CompletableFuture<HttpResponse> future =
+                EntityOperations.executeAsync(ctx, HttpMethod.GET, ctx.basePath().addSegment("X"), null, null);
+        assertNotNull(future, "executeAsync must return rather than throw synchronously");
+        java.util.concurrent.CompletionException completion = assertThrows(
+                java.util.concurrent.CompletionException.class, future::join,
+                "the failure must surface through the future so exceptionally()/handle() see it");
+        assertInstanceOf(IllegalStateException.class, completion.getCause());
+        assertEquals("interceptor exploded", completion.getCause().getMessage());
+    }
 }

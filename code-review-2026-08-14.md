@@ -465,28 +465,36 @@ Verification: 22 new tests across core/runtime/plugin; full reactor hermetic (44
 
 ### Runtime
 
-- **L1.** `addRef` sends 4.01-style `"@odata.id"` while the transport pins `OData-Version: 4.0` (
-  `EntityOperations.java:129` vs `JdkHttpTransport.java:67-68,121-122`); strict 4.0 services expect `"odata.id"`. Pick
-  one protocol level.
-- **L2.** `ODataError` maps only `error.innererror` into details; the canonical `error.details[]` and `error.target` are
-  discarded (`ODataError.java:41-48`).
-- **L3.** `fromNextLink` ignores `#fragment`s (left embedded in the path) and `;` as a query separator (
-  `ContextPath.java:75,92`).
-- **L4.** `executeCount` NPEs on a null body (`EntityOperations.java:197`) — use `response.getText()`.
-- **L5.** `CollectionPage.spliterator` declares `NONNULL` unconditionally (`CollectionPage.java:55-58`); JSON `value`
-  arrays can contain null.
-- **L6.** `JdkHttpTransport.stream()` is a mis-indented near-copy of `execute()` with a case-sensitive `Accept` check (
-  `:56-114` vs `:116-171`) — extract a shared builder; lowercase `accept` headers get duplicated.
-- **L7.** `HttpRequest.Builder.header(name, null)` fails at `build()` (`Map.copyOf`) far from the cause (
-  `HttpRequest.java:29-46`); `Map.copyOf` also drops ordering — use `Objects.requireNonNull` +
-  `Collections.unmodifiableMap(new LinkedHashMap<>(...))`.
-- **L8.** Interceptor exceptions escape `executeAsync` synchronously (`EntityOperations.java:263-264`) instead of
-  completing the future exceptionally — breaks `.exceptionally(...)` composition.
-- **L9.** `MultipartHelper` binary bodies: records `BatchOperation`/`BatchResult` have array-identity `equals`/
-  `hashCode` and expose the internal `byte[]`; `BatchOperation.get(url, headers)` wraps the caller's map in a mere
-  *view* (`:19`). Copy defensively, implement `Arrays.hashCode` equality.
-- **L10.** `NavQuery` doesn't defensively copy its five list components and can't express `$count`, `$level`, `$ref`, or
-  `skip` (`NavProperty.java:61-68`).
+- **L1. ~~`addRef` sends 4.01-style `"@odata.id"` while the transport pins `OData-Version: 4.0`.~~ ✅ Resolved**
+  The transport now advertises `OData-MaxVersion: 4.01` (covering the 4.01 payload forms the client emits, like the
+  `@odata.id` control URL) while keeping `OData-Version: 4.0` — verified against live TripPin/Northwind/OData Demo.
+  Test: `JdkHttpTransportHeadersTest` (local HTTP server).
+- **L2. ~~`ODataError` discards `error.details[]` and `error.target`.~~ ✅ Resolved** `ODataError` gained
+  `getTarget()` and maps `error.details[]` (list of `{code,message,target}`) into the details map. Test:
+  `l2ErrorTargetAndDetailsArrayAreMapped` (TDD).
+- **L3. ~~`fromNextLink` ignores `#fragment`s and `;` separators.~~ ✅ Resolved** Fragments are stripped before
+  splitting and query pairs split on `[&;]`. Tests: 2 `ContextPathTest` cases (TDD).
+- **L4. ~~`executeCount` NPEs on a null body.~~ ✅ Resolved** Uses `getText()` and reports a diagnostic
+  `"(empty body)"` `ODataException` for null/blank bodies. Test: `l4NullBodyFailsWithODataExceptionNotNpe` (TDD).
+- **L5. ~~`CollectionPage.spliterator` declares `NONNULL` unconditionally.~~ ✅ Resolved** Flag dropped (JSON `value`
+  arrays may contain null). Test: `l5CollectionPageSpliteratorDoesNotPromiseNonNull` (TDD).
+- **L6. ~~`JdkHttpTransport.stream()` duplicates `execute()`'s builder with a case-sensitive `Accept` check.~~ ✅
+  Resolved** Both paths share `buildJdkRequest(...)`; the Accept default is skipped case-insensitively. Test:
+  `JdkHttpTransportHeadersTest` (lowercase `accept` honored, exactly one Accept on the wire).
+- **L7. ~~`HttpRequest.Builder.header(name, null)` fails at `build()`; ordering dropped.~~ ✅ Resolved** Null names/
+  values throw at the offending builder call; the builder's field is a `LinkedHashMap` wrapped unmodifiable, so
+  insertion order survives. Tests: `HttpRequestBuilderTest` (2, TDD).
+- **L8. ~~Interceptor exceptions escape `executeAsync` synchronously.~~ ✅ Resolved** The chain wrapper catches
+  interceptor failures and completes via `CompletableFuture.failedFuture`, so `exceptionally()/handle()` see them.
+  Test: `l8ThrowingInterceptorCompletesFutureExceptionally` (TDD).
+- **L9. ~~`BatchOperation`/`BatchResult` records have array-identity equality and exposed internals.~~ ✅ Resolved**
+  Both records override `equals`/`hashCode`/`toString` with array-value semantics; `BatchOperation` deep-copies headers
+  (value lists too) and the body in its compact constructor; `BatchResult` clones the body in construction AND in the
+  accessor. Tests: `BatchRecordImmutabilityTest` (5, TDD).
+- **L10. ~~`NavQuery` doesn't defensively copy its list components; missing options.~~ ✅ Resolved** The record's
+  compact constructor `List.copyOf`s all list components, and `skip(int)` / `count()` (`$count=true`) were added on
+  both `NavProperty` and `NavQuery` (parity with `top`). **Not added:** `$level` / `$ref` expand forms (deferred;
+  `NavQuery` composition would need a nested-query component). Tests: 2 `NavPropertyExpandTest` cases (TDD).
 - **L11.** `ApplyBuilder` is mutable and implements `ApplyExpression` — a shared instance races; `top(-5)` renders
   invalid OData (`ApplyBuilder.java:22-24,67-75`).
 - **L12.** Transformation methods (`toLower()`, `substring()`, `date()`, ...) return full `PropertyExpression`s, so
