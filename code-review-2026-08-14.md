@@ -518,31 +518,17 @@ Verification: 22 new tests across core/runtime/plugin; full reactor hermetic (44
 
 ### Core (parser/Names/generators)
 
-- **L15.** `isReservedWord` includes module keywords `module/open/requires/exports/opens/to/with` but omits
-  `uses/provides/transitive` (`Names.java:280-294`).
-- **L16.** `EntityContainer Extends` attribute dropped — inherited entity sets silently absent from the generated
-  container (`StaxCsdlParser.java:337-339`).
-- **L17.** `CsdlModel` records hold live `ArrayList`s from the parser (only `warnings` — the always-empty list — is
-  copied); post-parse mutation corrupts the model.
-- **L18.** No whitespace tolerance in type refs: `Type="Collection( Edm.String )"` yields garbage element type
-  `" Edm.String "`; malformed `"Collection(Edm.String"` (no `)`) silently yields `"Edm.Strin"` (`Names.java:149-158`).
-- **L19.** `KeyModel` drops `PropertyRef/Alias`; key refs naming nonexistent properties fall through to `Object`-typed
-  key accessors that fail only at URL-build time (`RequestGenerator.java:479`).
-- **L20.** `Names.packageName(String,String)` is dead code (zero callers).
-- **L21.** Generated type names can shadow runtime query classes imported via wildcard: a CSDL type named
-  `StringProperty`/`NavProperty`/etc. survives sanitization (only JDK names + `Builder`/`Filterable` are guarded) and
-  shadows `io.github...query.*` in the same file (`Names.java:239-245`). Add the runtime class names to the shadow list.
-- **L22.** Non-nullable primitive getters unbox a boxed field Jackson may have set to null → NPE on first access (
-  `EntityGenerator.java:147` boxed field vs `:513` primitive getter).
-- **L23.** `$ref` add/remove methods are generated for containment (`ContainsTarget="true"`) navs, where `$ref`
-  operations aren't defined; the parsed `containsTarget` and `partner` attributes are never read by any generator (
-  `RequestGenerator.java:87-99`, `CsdlModel.java:56-58`).
-- **L24.** Enum property filter constants use the raw CSDL `Type` string as `EnumProperty` typeName;
-  unqualified/alias-qualified references render invalid literals (`Status'Active'` instead of `NS.Status'Active'`) (
-  `EntityGenerator.java:489`, `AbstractTypeGenerator.java:290`).
-- **L25.** Cross-schema `TypeDefinition` cache is keyed by simple name across all schemas — a `TypeDefinition` named
-  `Foo` in schema A shadows an enum/complex `Foo` in schema B, producing wrong Java types (
-  `AbstractTypeGenerator.java:120-152`); also `underlyingType() == null` NPEs. Key by qualified name.
+- **L15. ~~Module-keyword list incomplete.~~ ✅ Resolved** `uses`/`provides`/`transitive` added. Test: `l15ModuleKeywordsUsesProvidesTransitiveAreReserved`.
+- **L16. ~~`EntityContainer Extends` dropped.~~ ✅ Resolved** The parser reads `Extends` and a post-parse pass merges the base container's entity sets/singletons/imports (own members override by name; unknown/circular extends fail loudly). Tests: 2 `StaxCsdlParserPolishTest` cases.
+- **L17. ~~`CsdlModel` records hold live ArrayLists.~~ ✅ Resolved** Every record with list components defensively copies (`List.copyOf`, null-tolerant) in its compact constructor. Test: `l17ParsedModelListsAreImmutable`.
+- **L18. ~~No whitespace tolerance in type refs; malformed collections silently truncated.~~ ✅ Resolved** Type attributes are trimmed inside and out (collection wrappers rebuilt with a trimmed inner name); `unwrapCollectionType` rejects missing `)` and nested `Collection(`. Tests: parser + Names cases.
+- **L19. ~~`KeyModel` drops `Alias`; bogus key refs surface late.~~ ✅ Resolved** `PropertyRef/Alias` is captured (`KeyModel.aliases`), and `EntityGenerator` validates every key ref against the resolved (own+inherited) properties at generation time, naming the entity and the offending ref. Tests: parser alias capture + `l19KeyRefToNonexistentPropertyFailsAtGeneration`.
+- **L20. ~~Dead `Names.packageName(String,String)`.~~ ✅ Resolved** Deleted.
+- **L21. ~~Generated type names can shadow runtime query classes.~~ ✅ Resolved** The shadow list now includes the `runtime.query.*` class names (`StringProperty`, `NavProperty`, etc.), so a CSDL type named like a runtime class gets the `_` suffix. Test: `l21RuntimeQueryClassNamesAreShadowed`.
+- **L22. ~~Non-nullable primitive getters unbox a possibly-null field.~~ ✅ Resolved** Getters always use the boxed type (the field was already boxed; lenient services can deliver null even for `Nullable="false"`). Test: `l22NonNullablePrimitiveGetterStaysBoxed`.
+- **L23. ~~`$ref` methods generated for containment navs.~~ ✅ Resolved** `addXRef`/`removeXRef` are skipped when `ContainsTarget="true"` (link operations are not defined for containment; the nav method itself stays). Test: `l23ContainmentNavGetsNoRefMethods` (TripPin `Person.Trips`).
+- **L24. ~~Enum filter literals use the raw (possibly unqualified) CSDL type.~~ ✅ Resolved** Enum property constants pass `qualifiedEdmName(...)` — unqualified references are qualified with the owning schema's namespace; aliases already resolve at parse time (M17). Test: `l24UnqualifiedEnumTypeRendersQualifiedFilterLiteral`.
+- **L25. ~~Cross-schema TypeDefinition cache keyed by simple name; null `UnderlyingType` NPE.~~ ✅ Resolved** The cache is keyed by namespace-qualified name (simple-name fallback only for unqualified refs); `UnderlyingType` is required at parse time; and `NumberProperty` type parameters now use the *resolved* underlying type (typedef-backed number properties previously rendered as `Object`). Test: `l25SameNamedTypeDefinitionsResolvePerNamespace`.
 
 ### Plugin / build / docs / hygiene
 

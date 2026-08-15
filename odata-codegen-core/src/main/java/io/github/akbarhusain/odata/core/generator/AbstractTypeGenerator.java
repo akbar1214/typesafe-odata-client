@@ -155,20 +155,29 @@ public abstract class AbstractTypeGenerator {
     private java.util.Map<String, String> typeDefCache;
 
     // Resolve TypeDefinition to its underlying Edm type (recursively) across all schemas.
+    // The cache is keyed by NAMESPACE-QUALIFIED name so a TypeDefinition named 'Foo' in
+    // schema A cannot shadow a type named 'Foo' in schema B; unqualified references fall
+    // back to simple-name lookup.
     protected String resolveTypeDefinition(String edmType, SchemaModel schema) {
         if (Names.isPrimitiveType(edmType)) return edmType;
         if (typeDefCache == null) {
             typeDefCache = new java.util.HashMap<>();
             for (SchemaModel s : effectiveSchemas) {
                 for (var td : s.typeDefinitions()) {
-                    if (!typeDefCache.containsKey(td.name())) {
-                        typeDefCache.put(td.name(), resolveTypeDefinitionChain(td.name(), new java.util.HashSet<>()));
+                    String qualified = s.namespace() + "." + td.name();
+                    if (!typeDefCache.containsKey(qualified)) {
+                        typeDefCache.put(qualified,
+                                resolveTypeDefinitionChain(qualified, new java.util.HashSet<>()));
                     }
+                    // simple-name fallback only for the FIRST schema declaring that name
+                    typeDefCache.putIfAbsent(td.name(), typeDefCache.get(qualified));
                 }
             }
         }
-        String simpleName = Names.simpleNameFromFullName(edmType);
-        String resolved = typeDefCache.get(simpleName);
+        String resolved = typeDefCache.get(edmType);
+        if (resolved == null) {
+            resolved = typeDefCache.get(Names.simpleNameFromFullName(edmType));
+        }
         return resolved != null ? resolved : edmType;
     }
 
@@ -176,17 +185,31 @@ public abstract class AbstractTypeGenerator {
         if (!visiting.add(typeName)) {
             throw new IllegalStateException("Circular TypeDefinition chain detected involving: " + typeName);
         }
+        String simpleName = Names.simpleNameFromFullName(typeName);
         for (SchemaModel s : effectiveSchemas) {
             for (var td : s.typeDefinitions()) {
-                if (td.name().equals(typeName)) {
+                if (td.name().equals(simpleName)
+                        && (typeName.equals(td.name())
+                            || typeName.equals(s.namespace() + "." + td.name()))) {
                     String underlying = td.underlyingType();
                     if (Names.isPrimitiveType(underlying)) return underlying;
-                    String underlyingSimple = Names.simpleNameFromFullName(underlying);
-                    return resolveTypeDefinitionChain(underlyingSimple, visiting);
+                    return resolveTypeDefinitionChain(underlying, visiting);
                 }
             }
         }
         return typeName;
+    }
+
+    /**
+     * Enum filter literals must use the fully qualified name (NS.Enum'Member'). CSDL type
+     * references are normally qualified (and aliases resolve at parse time), but lenient
+     * metadata may use bare names — qualify them with the owning schema's namespace.
+     */
+    protected static String qualifiedEdmName(String edmType, SchemaModel schema) {
+        if (edmType.indexOf('.') >= 0) {
+            return edmType;
+        }
+        return schema.namespace() + "." + edmType;
     }
 
     // ------------------------------------------------------------------
@@ -319,13 +342,13 @@ public abstract class AbstractTypeGenerator {
         }
         String typeParams = switch (constantType) {
             case "EnumProperty" -> "<" + className + ", " + resolveClassNameForConstant(edmType, schema) + ">";
-            case "NumberProperty" -> "<" + className + ", " + getNumberJavaType(edmType) + ">";
+            case "NumberProperty" -> "<" + className + ", " + getNumberJavaType(resolveTypeDefinition(edmType, schema)) + ">";
             default -> "<" + className + ">";
         };
 
         return "    public final " + constantType + typeParams + " " + constantName
                 + " = new " + constantType + "<>(\"x/" + prop.name() + "\", " + className + ".class"
-                + (constantType.equals("EnumProperty") ? ", " + resolveClassNameForConstant(edmType, schema) + ".class, \"" + edmType + "\"" : "")
+                + (constantType.equals("EnumProperty") ? ", " + resolveClassNameForConstant(edmType, schema) + ".class, \"" + qualifiedEdmName(edmType, schema) + "\"" : "")
                 + ");\n";
     }
 

@@ -1,5 +1,6 @@
 package io.github.akbarhusain.odata.core.parser;
 
+import io.github.akbarhusain.odata.core.generator.Names;
 import io.github.akbarhusain.odata.core.model.CsdlModel;
 import io.github.akbarhusain.odata.core.model.CsdlModel.*;
 import org.slf4j.Logger;
@@ -13,7 +14,11 @@ import javax.xml.stream.events.StartElement;
 import javax.xml.stream.events.XMLEvent;
 import java.io.InputStream;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 public class StaxCsdlParser {
 
@@ -48,7 +53,7 @@ public class StaxCsdlParser {
             }
         }
 
-        return new CsdlModel(schemas, List.copyOf(warnings));
+        return new CsdlModel(mergeContainerInheritance(schemas), List.copyOf(warnings));
     }
 
     /**
@@ -194,15 +199,18 @@ public class StaxCsdlParser {
 
     private KeyModel parseKey(XMLEventReader reader) throws XMLStreamException {
         List<String> propertyRefs = new ArrayList<>();
+        List<String> aliases = new ArrayList<>();
         while (reader.hasNext()) {
             XMLEvent event = reader.nextEvent();
             if (event.isStartElement() && "PropertyRef".equals(event.asStartElement().getName().getLocalPart())) {
                 propertyRefs.add(getAttr(event.asStartElement(), "Name"));
+                String alias = getAttr(event.asStartElement(), "Alias");
+                aliases.add(alias != null ? alias : "");
             } else if (event.isEndElement() && isEdmElement(event.asEndElement(), "Key")) {
-                return new KeyModel(propertyRefs);
+                return new KeyModel(propertyRefs, aliases);
             }
         }
-        return new KeyModel(propertyRefs);
+        return new KeyModel(propertyRefs, aliases);
     }
 
     private PropertyModel parseProperty(XMLEventReader reader, StartElement el)
@@ -285,7 +293,8 @@ public class StaxCsdlParser {
     private TypeDefinitionModel parseTypeDefinition(XMLEventReader reader, StartElement el)
             throws XMLStreamException {
         String name = requireAttr(el, "Name", "TypeDefinition");
-        String underlyingType = getAttr(el, "UnderlyingType");
+        String underlyingType = resolveTypeRef(
+                requireAttr(el, "UnderlyingType", "TypeDefinition '" + name + "'"));
         skipElement(reader);
         return new TypeDefinitionModel(name, underlyingType);
     }
@@ -359,6 +368,7 @@ public class StaxCsdlParser {
     private ContainerModel parseEntityContainer(XMLEventReader reader, StartElement el)
             throws XMLStreamException {
         String name = requireAttr(el, "Name", "EntityContainer");
+        String extendsContainer = resolveTypeRef(getAttr(el, "Extends"));
 
         List<EntitySetModel> entitySets = new ArrayList<>();
         List<SingletonModel> singletons = new ArrayList<>();
@@ -377,11 +387,11 @@ public class StaxCsdlParser {
                     default -> skipElement(reader);
                 }
             } else if (event.isEndElement() && isEdmElement(event.asEndElement(), "EntityContainer")) {
-                return new ContainerModel(name, entitySets, singletons, functionImports, actionImports);
+                return new ContainerModel(name, extendsContainer, entitySets, singletons, functionImports, actionImports);
             }
         }
 
-        return new ContainerModel(name, entitySets, singletons, functionImports, actionImports);
+        return new ContainerModel(name, extendsContainer, entitySets, singletons, functionImports, actionImports);
     }
 
     private EntitySetModel parseEntitySet(XMLEventReader reader, StartElement el)
@@ -495,12 +505,13 @@ public class StaxCsdlParser {
      * resolve as unknown types and the generators emit wrong packages/imports.
      */
     private String resolveTypeRef(String raw) {
-        if (raw == null || currentAlias == null || currentNamespace == null) {
-            return raw;
+        if (raw == null) {
+            return null;
         }
+        raw = raw.trim();
         boolean isCollection = raw.startsWith("Collection(") && raw.endsWith(")");
-        String inner = isCollection ? raw.substring("Collection(".length(), raw.length() - 1) : raw;
-        if (inner.startsWith(currentAlias + ".")) {
+        String inner = isCollection ? raw.substring("Collection(".length(), raw.length() - 1).trim() : raw;
+        if (currentAlias != null && currentNamespace != null && inner.startsWith(currentAlias + ".")) {
             inner = currentNamespace + inner.substring(currentAlias.length());
         }
         return isCollection ? "Collection(" + inner + ")" : inner;
@@ -508,5 +519,87 @@ public class StaxCsdlParser {
 
     private String getOrDefault(String value, String defaultValue) {
         return value != null ? value : defaultValue;
+    }
+
+    /**
+     * Merges inherited entity sets/singletons/imports into containers that declare
+     * {@code Extends} — without this, the parent's sets are silently absent from the
+     * generated container. Own members win over inherited ones with the same name.
+     */
+    private static List<SchemaModel> mergeContainerInheritance(List<SchemaModel> schemas) {
+        boolean anyExtends = schemas.stream()
+                .flatMap(sch -> sch.containers().stream())
+                .anyMatch(c -> c.extendsContainer() != null && !c.extendsContainer().isBlank());
+        if (!anyExtends) {
+            return schemas;
+        }
+
+        Map<String, ContainerModel> byQualifiedName = new HashMap<>();
+        Map<ContainerModel, String> namespaceOf = new HashMap<>();
+        for (SchemaModel schema : schemas) {
+            for (ContainerModel container : schema.containers()) {
+                byQualifiedName.putIfAbsent(schema.namespace() + "." + container.name(), container);
+                namespaceOf.putIfAbsent(container, schema.namespace());
+            }
+        }
+
+        List<SchemaModel> result = new ArrayList<>();
+        for (SchemaModel schema : schemas) {
+            List<ContainerModel> merged = new ArrayList<>();
+            for (ContainerModel container : schema.containers()) {
+                merged.add(mergeContainer(container, byQualifiedName, namespaceOf, new HashSet<>()));
+            }
+            result.add(new SchemaModel(schema.namespace(), schema.alias(), schema.entityTypes(),
+                    schema.complexTypes(), schema.enumTypes(), schema.typeDefinitions(),
+                    schema.functions(), schema.actions(), merged));
+        }
+        return result;
+    }
+
+    private static ContainerModel mergeContainer(ContainerModel container,
+                                                 Map<String, ContainerModel> byQualifiedName,
+                                                 Map<ContainerModel, String> namespaceOf,
+                                                 Set<String> visiting) {
+        String extendsName = container.extendsContainer();
+        if (extendsName == null || extendsName.isBlank()) {
+            return container;
+        }
+        String fqn = namespaceOf.get(container) + "." + container.name();
+        if (!visiting.add(fqn)) {
+            throw new IllegalArgumentException("Circular EntityContainer inheritance involving: " + fqn);
+        }
+        ContainerModel base = byQualifiedName.get(extendsName);
+        if (base == null) {
+            base = byQualifiedName.get(namespaceOf.get(container) + "." + extendsName);
+        }
+        if (base == null) {
+            // unqualified ref to a container in another schema — accept a unique simple-name match
+            for (ContainerModel candidate : byQualifiedName.values()) {
+                if (candidate != container
+                        && candidate.name().equals(Names.simpleNameFromFullName(extendsName))) {
+                    base = candidate;
+                    break;
+                }
+            }
+        }
+        if (base == null) {
+            throw new IllegalArgumentException("EntityContainer '" + container.name()
+                    + "' extends unknown container: " + extendsName);
+        }
+        ContainerModel resolvedBase = mergeContainer(base, byQualifiedName, namespaceOf, visiting);
+        List<EntitySetModel> entitySets = new ArrayList<>(resolvedBase.entitySets());
+        entitySets.removeIf(i -> container.entitySets().stream().anyMatch(o -> o.name().equals(i.name())));
+        entitySets.addAll(container.entitySets());
+        List<SingletonModel> singletons = new ArrayList<>(resolvedBase.singletons());
+        singletons.removeIf(i -> container.singletons().stream().anyMatch(o -> o.name().equals(i.name())));
+        singletons.addAll(container.singletons());
+        List<FunctionImportModel> functionImports = new ArrayList<>(resolvedBase.functionImports());
+        functionImports.removeIf(i -> container.functionImports().stream().anyMatch(o -> o.name().equals(i.name())));
+        functionImports.addAll(container.functionImports());
+        List<ActionImportModel> actionImports = new ArrayList<>(resolvedBase.actionImports());
+        actionImports.removeIf(i -> container.actionImports().stream().anyMatch(o -> o.name().equals(i.name())));
+        actionImports.addAll(container.actionImports());
+        return new ContainerModel(container.name(), container.extendsContainer(),
+                entitySets, singletons, functionImports, actionImports);
     }
 }

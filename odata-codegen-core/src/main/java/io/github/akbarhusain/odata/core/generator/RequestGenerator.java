@@ -87,9 +87,12 @@ public class RequestGenerator extends AbstractTypeGenerator {
             sb.append(generateNavMethod(nav, schema));
         }
 
-        // $ref methods for collection navigation properties — only for entity nav targets (inherited included)
+        // $ref methods for collection navigation properties — only for entity nav targets
+        // (inherited included); containment navs (ContainsTarget) manage contained entities
+        // through the containment path, and $ref link operations are not defined for them
         for (NavigationPropertyModel nav : resolvedNavs(entityType)) {
             if (isComplexTypeNav(nav, schema)) continue;
+            if (nav.containsTarget()) continue;
             if (Names.isCollectionType(nav.type())) {
                 String refBase = Names.toJavaFieldName(nav.name());
                 sb.append("    public void add").append(Names.capitalize(refBase)).append("Ref(String targetEntityUrl) {\n");

@@ -9,10 +9,6 @@ public final class Names {
 
     private Names() {}
 
-    public static String packageName(String namespace, String suffix) {
-        return toPackageName(namespace) + suffix;
-    }
-
     public static String toPackageName(String namespace) {
         // Locale.ROOT: default-locale lowercasing turns 'I' into dotless 'ı' on Turkish
         // JVMs, producing different packages per build machine
@@ -154,7 +150,16 @@ public final class Names {
 
     public static String unwrapCollectionType(String edmType) {
         if (isCollectionType(edmType)) {
-            return edmType.substring("Collection(".length(), edmType.length() - 1);
+            if (!edmType.endsWith(")")) {
+                throw new IllegalArgumentException(
+                        "Malformed collection type '" + edmType + "' (missing closing ')')");
+            }
+            String inner = edmType.substring("Collection(".length(), edmType.length() - 1).trim();
+            if (inner.startsWith("Collection(")) {
+                throw new IllegalArgumentException(
+                        "Nested collections are not supported by this generator: " + edmType);
+            }
+            return inner;
         }
         return edmType;
     }
@@ -243,7 +248,13 @@ public final class Names {
             "Record", "Void", "Math", "Thread", "Throwable", "Error",
             "Exception", "Runnable", "Comparable", "Iterable", "Override",
             "Deprecated", "SuppressWarnings", "SafeVarargs", "FunctionalInterface",
-            "Builder", "Filterable"
+            "Builder", "Filterable",
+            // runtime query classes: generated types import runtime.query.* on demand, so a
+            // same-named generated class would silently shadow them within the file
+            "StringProperty", "NumberProperty", "BooleanProperty", "DateTimeProperty",
+            "GuidProperty", "EnumProperty", "CollectionProperty", "NavProperty",
+            "NumberExpression", "FilterExpression", "RawFilterExpression",
+            "PropertyExpression", "OrderExpression", "OrderedProperty", "ApplyBuilder"
     );
 
     private static boolean isJdkClassName(String name) {
@@ -290,7 +301,8 @@ public final class Names {
                  "switch", "synchronized", "this", "throw", "throws", "transient",
                  "try", "void", "volatile", "while", "true", "false", "null",
                  "var", "record", "sealed", "permits", "yield", "module",
-                 "open", "requires", "exports", "opens", "to", "with" -> true;
+                 "open", "requires", "exports", "opens", "to", "with",
+                 "uses", "provides", "transitive" -> true;
             default -> false;
         };
     }
