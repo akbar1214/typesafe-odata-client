@@ -378,69 +378,86 @@ reworked URL rendering end-to-end.
 
 ### Parser / generator (core)
 
-**M17. Schema `Alias` is parsed but never resolved — alias-qualified type references misresolve.**
-`StaxCsdlParser.java:93` stores it; nothing consults it. `Type="self.Address"` resolves as UNKNOWN → falls back to
-ENTITY suffix → wrong package/import or uncompilable output. Fix: build an alias→namespace map before generation and
-normalize type refs.
+**M17. ~~Schema `Alias` is parsed but never resolved — alias-qualified type references misresolve.~~ ✅ Resolved**
+The parser normalizes alias-qualified references at attribute-read time (`resolveTypeRef`, honoring `Collection(...)`
+wrappers) for Property/NavigationProperty `Type`, EntityType/ComplexType `BaseType`, Function/Action `ReturnType` and
+`Parameter` types, EntitySet `EntityType`, Singleton `Type`, and Function/ActionImport references. Aliases resolve
+within the schema that declares them (per spec). Tests: `StaxCsdlParserAliasAndValidationTest` (3, TDD).
 
-**M18. `toPackageName` is locale-sensitive and non-injective.** `Names.java:16-18` — `toLowerCase()` without
-`Locale.ROOT` (Turkish locale turns `I` into `ı` → different packages per build machine), and `.`/case folding collapses
-`A.B`/`a.b`/`a_b` onto one package (feeds the H2 overwrite problem). Fix: `Locale.ROOT` + collision detection across
-schemas.
+**M18. ~~`toPackageName` is locale-sensitive and non-injective.~~ ✅ Resolved**
+`toPackageName` now lowercases with `Locale.ROOT` (Turkish-locale builds no longer produce different packages), and
+`Generator.writeCode` fails loudly (`IllegalStateException`) when two types map to the same output file with different
+content instead of silently overwriting — catching the dangerous consequence of the non-injective mapping. Tests:
+`m18SameOutputFileFromTwoSchemasFailsLoudly` + `GeneratorDuplicateDetectionTest`.
 
-**M19. Required CSDL attributes unvalidated → bare NPEs far from the cause.** Missing `Namespace`/`Name`/`Type` surface
-as NPEs deep inside `Names`/`Generator` (e.g. `Names.java:17,150,215`); malformed enum `Value="0x10"` throws raw
-`NumberFormatException` with no element context. Fix: validate at parse time with element name/location in the message.
+**M19. ~~Required CSDL attributes unvalidated → bare NPEs far from the cause.~~ ✅ Resolved**
+`requireAttr` validates `Namespace`/`Name`/`Type` (and container `EntityType`) at parse time with the offending element
+in the message; enum `Value` parse failures name the enum and member. Tests:
+`m19MissingRequiredAttributesFailLoudly`, `m19InvalidEnumValueFailsWithEnumAndMemberContext` (TDD).
 
-**M20. First-letter case folding creates undetected duplicate members.** Properties `Name` and `name` are distinct legal
-CSDL names but both map to field `name` (`Names.toJavaFieldName`) → duplicate fields/getters/setters, uncompilable
-output. Same family: a real property literally named `etag_` collides with the sanitized `etag` → `etag_`. No per-type
-emitted-identifier tracking exists. (Related to but distinct from the known `BUDGET` constant case-collision — this is
-*field/getter* level.) Fix: track emitted identifiers per generated type and disambiguate.
+**M20. ~~First-letter case folding creates undetected duplicate members.~~ ✅ Resolved (detection; auto-dedup deferred)**
+Both type generators now run `checkMemberNameCollisions` over all props+navs (own+inherited) before emitting anything,
+covering field-level case folding (`Name`/`name`) **and** constant-level case collisions (`value`/`VALUE` → `VALUE` —
+the long-standing H6 gap). Same-name inheritance redeclaration is tolerated as before (the generators ignore the
+inherited duplicate). Collisions throw a clear error naming both members instead of emitting uncompilable code.
+**Scope note:** automatic suffix-disambiguation (renaming to `name_2`) remains future work — threading a per-type name
+map through all 44 `toJavaFieldName`/`toConstantName` call sites is a larger refactor; detection converts the failure
+from a mysterious duplicate-member compile error into an actionable generation error. Tests:
+`GeneratorDuplicateDetectionTest` (4, TDD).
 
-**M21. Entity requests ignore inherited navigation properties, named streams, and inherited `HasStream`.**
-`RequestGenerator.java:56,82,88,157` iterate `entityType.navigationProperties()`/`properties()` and check
-`entityType.hasStream()` directly; request classes don't extend each other, so `FeaturedProductEntityRequest` has no
-`category()` nav and a subtype of a media entity gets no `streamMedia()`. Fix: resolve the full base chain like
-`resolvedKeys` does.
+**M21. ~~Entity requests ignore inherited navigation properties, named streams, and inherited `HasStream`.~~ ✅ Resolved**
+`RequestGenerator` resolves the base chain (`resolvedNavs`, `resolvedHasStream`, `resolvedStreamProps`) for nav methods,
+`$ref` methods, media-entity methods, and named-stream methods — `HasStream="true"` on a base applies to derived types
+per CSDL. Tests: `RequestGeneratorInheritedMembersTest` (2, TDD, new `inherited-members-metadata.xml`).
 
-**M22. `countValue()` still sends `$select`/`$expand`/`$orderby` to `/$count`.** `RequestGenerator.java:386-392` clears
-`$top`/`$skip` only, but `copy()` preserves selects/expands/orderings and `buildContext()` appends them; `/$count`
-accepts only `$filter`/`$search`/`$apply`. Fix: clear those three too.
+**M22. ~~`countValue()` still sends `$select`/`$expand`/`$orderby` to `/$count`.~~ ✅ Resolved**
+Generated `countValue()` clears `selects`/`expands`/`orderings` in addition to `$top`/`$skip` (`copy()` builds fresh
+lists, so the source request is untouched). Test: `m22CountValueClearsInapplicableOptions` (TDD).
 
-**M23. Polymorphic responses are flattened to the declared base class; `@odata.type` ignored.** Subtype-only properties
-hit `FAIL_ON_UNKNOWN_PROPERTIES=false` and vanish; the `SchemaInfo` registry generated by `SchemaInfoGenerator` is never
-consulted by the runtime (verified by grep) — the infrastructure for the fix exists but is unwired. Fix: read
-`@odata.type` in `EntityOperations` and resolve the target class via `SchemaInfo` (or generate `@JsonTypeInfo`/
-`@JsonSubTypes` on base entities).
+**M23. ~~Polymorphic responses are flattened to the declared base class; `@odata.type` ignored.~~ ✅ Resolved**
+The `SchemaInfo` registry is now wired in: `EntityOperations.executeAndGetEntity/executeAndGetCollection` gained
+SchemaInfo-aware overloads that read `@odata.type` (with `#`-prefix stripping) and deserialize to the resolved subtype
+when assignable — per element for collections. Generated entity/collection requests pass
+`ServiceSchemaInfo.INSTANCE`, so the registry built in H2's aggregation fix is finally consumed by the runtime.
+Live TripPin tests exercise the path against real `@odata.type` payloads. Tests: `EntityOperationsPolymorphismTest`
+(3, TDD) + `m23GeneratedRequestsPassSchemaInfoForPolymorphicReads` (content).
 
-**M24. Generated enums have no Jackson mapping — numeric payloads map by ordinal; flags values unresolvable.**
-`EnumGenerator.java:26,33-48` emits `long value` + `fromValue(long)` with neither `@JsonValue` nor `@JsonCreator`.
-Jackson therefore maps numeric enum payloads by **ordinal**, which is wrong whenever values aren't exactly `0..n-1` in
-declaration order (common: `1,2,4,8`). `fromValue(3)` throws for flags enums though combined values are the norm. Fix:
-emit `@JsonValue` on `getValue()` and `@JsonCreator` on `fromValue`, accepting combined flag values.
+**M24. ~~Generated enums have no Jackson mapping — numeric payloads map by ordinal; flags values unresolvable.~~ ✅ Resolved**
+Generated enums now carry a `@JsonCreator fromJson(Object)`: numeric payloads map by **CSDL value** (`fromValue`) and
+string payloads map by member name (tolerating the qualified `NS.Enum'Member'` form). `@JsonValue` was deliberately
+NOT added — it would change PATCH/POST wire format from the OData v4 JSON name-string form to numbers. Combined flag
+values still throw from `fromValue` (a single enum constant cannot represent a combination; use `fromFlags`).
+Tests: `EnumJsonDeserializationTest` (compiles a generated enum with values 1/4 and proves numeric 1 → `Low`, not the
+ordinal-mapped `High`; string form unchanged, TDD).
 
 ### Maven plugin / build
 
-**M25. `catch (Exception)` re-wraps `MojoFailureException`.** `GenerateMojo.java:105-107` swallows every deliberate
-`MojoFailureException` ("Metadata file not found", "HTTP 401", "Too many redirects") into a generic
-`"Failed to generate OData client: ..."` wrapper; `e.getMessage()` may also be null. Fix: rethrow
-`MojoExecutionException | MojoFailureException` as-is first.
+**M25. ~~`catch (Exception)` re-wraps `MojoFailureException`.~~ ✅ Resolved**
+`MojoExecutionException | MojoFailureException` are rethrown as-is; only unexpected exceptions get the generic wrapper
+(no longer interpolating a possibly-null message). Test: `m25AndM26MetadataDownloadWithAuthHeadersKeepsFailureSemantics`
+(asserts the original "HTTP 404" message survives).
 
-**M26. No auth support for private `metadataUrl`.** The download request (`GenerateMojo.java:138-142`) carries only
-`Accept`; any bearer/API-key-protected metadata endpoint fails with an opaque HTTP 401. Fix: add a
-`Map<String,String> httpHeaders` (or token) parameter, included in the marker hash.
+**M26. ~~No auth support for private `metadataUrl`.~~ ✅ Resolved**
+New `metadataHeaders` parameter (Maven `Properties`, e.g. `<metadataHeaders><Authorization>Bearer …</Authorization></metadataHeaders>`)
+applied to every download request hop and folded into the marker hash. Test: local `HttpServer` returning 401 without
+the header and metadata with it (TDD).
 
-**M27. Shared marker file defeats incremental generation when multiple executions share an output directory — which this
-repo's own test module does (4 executions).** `GenerateMojo.java:62,82,238-241` keys one `.odata-generation-marker` per
-`outputDirectory`; `odata-codegen-test/pom.xml` runs 3-4 executions against the same default output dir, so after any
-build the marker holds only the *last* execution's hash and **all clients fully regenerate on every build**. Marker
-writes are also non-atomic. Fix: key the marker per execution/config fingerprint; write via temp file + `ATOMIC_MOVE`.
+**M27. ~~Shared marker file defeats incremental generation when multiple executions share an output directory.~~ ✅ Resolved**
+The marker file is now keyed by the metadata SOURCE identity (URL/file path, hashed): distinct executions get distinct
+markers that survive each other's runs, and the key is stable across metadata content changes. First attempted
+`${mojo.execution.id}` (did not resolve at runtime in this Maven version) and the content hash (changes with the
+metadata, breaking M28's manifest lookup) — source identity is the key that satisfies both constraints. The repo's own
+test module now generates each of its three clients exactly once per build. Tests:
+`m27SharedOutputDirExecutionsKeepSeparateMarkers` (marker count + mtime stability across re-runs).
 
-**M28. Stale generated files are never removed.** Neither `Generator.writeCode` nor `GenerateMojo` cleans the output
-directory, so renamed/removed types or package remaps leave phantom `.java` files on the compile source root (
-duplicate-class errors after remaps). Fix: record a manifest in the marker and delete files absent from the new manifest
-before regenerating.
+**M28. ~~Stale generated files are never removed.~~ ✅ Resolved**
+The marker now records a manifest (first line = hash, following lines = generated files relative to the output dir);
+`Generator.writtenFiles()` exposes the current run's files, and after regeneration the mojo deletes files present in
+the previous manifest but absent from the current one (`.java` only, path-traversal-guarded). Legacy hash-only markers
+delete nothing. Tests: `m28RemovedEntityFilesAreDeletedOnRegeneration` (entity removed from metadata → its files
+deleted, others kept).
+
+Verification: 22 new tests across core/runtime/plugin; full reactor hermetic (440) and live (562) green.
 
 ---
 

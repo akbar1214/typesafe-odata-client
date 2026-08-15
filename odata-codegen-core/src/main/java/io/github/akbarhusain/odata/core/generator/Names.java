@@ -14,7 +14,9 @@ public final class Names {
     }
 
     public static String toPackageName(String namespace) {
-        return namespace.toLowerCase().replace(".", "_").replace("-", "_");
+        // Locale.ROOT: default-locale lowercasing turns 'I' into dotless 'ı' on Turkish
+        // JVMs, producing different packages per build machine
+        return namespace.toLowerCase(java.util.Locale.ROOT).replace(".", "_").replace("-", "_");
     }
 
     public static String entityClassName(String edmTypeName) {

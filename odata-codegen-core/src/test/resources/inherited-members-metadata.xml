@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<edmx:Edmx Version="4.0" xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx">
+  <edmx:DataServices>
+    <Schema Namespace="Test.Models" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+      <EntityType Name="MediaItem" HasStream="true">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.Int32" Nullable="false"/>
+        <Property Name="Thumb" Type="Edm.Stream"/>
+        <NavigationProperty Name="Owner" Type="Test.Models.Person"/>
+        <NavigationProperty Name="Tags" Type="Collection(Test.Models.Tag)"/>
+      </EntityType>
+      <EntityType Name="Video" BaseType="Test.Models.MediaItem">
+        <Property Name="Duration" Type="Edm.Int32"/>
+      </EntityType>
+      <EntityType Name="Person">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.Int32" Nullable="false"/>
+      </EntityType>
+      <EntityType Name="Tag">
+        <Key><PropertyRef Name="Id"/></Key>
+        <Property Name="Id" Type="Edm.Int32" Nullable="false"/>
+      </EntityType>
+      <EntityContainer Name="Container">
+        <EntitySet Name="Videos" EntityType="Test.Models.Video"/>
+      </EntityContainer>
+    </Schema>
+  </edmx:DataServices>
+</edmx:Edmx>

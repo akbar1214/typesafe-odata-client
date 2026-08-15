@@ -21,6 +21,10 @@ public class StaxCsdlParser {
 
     private static final String EDMX_NS = "http://docs.oasis-open.org/odata/ns/edmx";
     private static final String EDM_NS = "http://docs.oasis-open.org/odata/ns/edm";
+
+    // Set while parsing a schema; the parser instance is one-shot per parse() call
+    private String currentNamespace;
+    private String currentAlias;
     private static final String EDMX_NS_V3 = "http://schemas.microsoft.com/ado/2007/06/edmx";
 
     private final List<String> warnings = new ArrayList<>();
@@ -89,8 +93,12 @@ public class StaxCsdlParser {
 
     private SchemaModel parseSchema(XMLEventReader reader, StartElement schemaEl)
             throws XMLStreamException {
-        String namespace = getAttr(schemaEl, "Namespace");
+        String namespace = requireAttr(schemaEl, "Namespace", "Schema");
         String alias = getAttr(schemaEl, "Alias");
+        // Aliases are usable within the schema that declares them; type references read
+        // while parsing this schema are normalized to the real namespace immediately
+        this.currentNamespace = namespace;
+        this.currentAlias = alias;
 
         List<EntityTypeModel> entityTypes = new ArrayList<>();
         List<ComplexTypeModel> complexTypes = new ArrayList<>();
@@ -127,8 +135,8 @@ public class StaxCsdlParser {
 
     private EntityTypeModel parseEntityType(XMLEventReader reader, StartElement el)
             throws XMLStreamException {
-        String name = getAttr(el, "Name");
-        String baseType = getAttr(el, "BaseType");
+        String name = requireAttr(el, "Name", "EntityType");
+        String baseType = resolveTypeRef(getAttr(el, "BaseType"));
         boolean openType = "true".equals(getAttr(el, "OpenType"));
         boolean abstractType = "true".equals(getAttr(el, "Abstract"));
         boolean hasStream = "true".equals(getAttr(el, "HasStream"));
@@ -159,8 +167,8 @@ public class StaxCsdlParser {
 
     private ComplexTypeModel parseComplexType(XMLEventReader reader, StartElement el)
             throws XMLStreamException {
-        String name = getAttr(el, "Name");
-        String baseType = getAttr(el, "BaseType");
+        String name = requireAttr(el, "Name", "ComplexType");
+        String baseType = resolveTypeRef(getAttr(el, "BaseType"));
         boolean openType = "true".equals(getAttr(el, "OpenType"));
         boolean abstractType = "true".equals(getAttr(el, "Abstract"));
 
@@ -199,8 +207,8 @@ public class StaxCsdlParser {
 
     private PropertyModel parseProperty(XMLEventReader reader, StartElement el)
             throws XMLStreamException {
-        String name = getAttr(el, "Name");
-        String edmType = getAttr(el, "Type");
+        String name = requireAttr(el, "Name", "Property");
+        String edmType = resolveTypeRef(requireAttr(el, "Type", "Property '" + name + "'"));
         boolean nullable = !"false".equals(getAttr(el, "Nullable"));
         String defaultValue = getAttr(el, "DefaultValue");
         // Consume everything until the closing </Property> tag (annotations, etc.)
@@ -210,8 +218,8 @@ public class StaxCsdlParser {
 
     private NavigationPropertyModel parseNavigationProperty(XMLEventReader reader, StartElement el)
             throws XMLStreamException {
-        String name = getAttr(el, "Name");
-        String type = getAttr(el, "Type");
+        String name = requireAttr(el, "Name", "NavigationProperty");
+        String type = resolveTypeRef(requireAttr(el, "Type", "NavigationProperty '" + name + "'"));
         String partner = getAttr(el, "Partner");
         boolean containsTarget = "true".equals(getAttr(el, "ContainsTarget"));
         boolean nullable = !"false".equals(getAttr(el, "Nullable"));
@@ -238,7 +246,7 @@ public class StaxCsdlParser {
 
     private EnumTypeModel parseEnumType(XMLEventReader reader, StartElement el)
             throws XMLStreamException {
-        String name = getAttr(el, "Name");
+        String name = requireAttr(el, "Name", "EnumType");
         String underlyingType = getOrDefault(getAttr(el, "UnderlyingType"), "Edm.Int32");
         boolean isFlags = "true".equals(getAttr(el, "IsFlags"));
 
@@ -250,10 +258,20 @@ public class StaxCsdlParser {
             if (event.isStartElement() && "Member".equals(
                     event.asStartElement().getName().getLocalPart())) {
                 StartElement memberEl = event.asStartElement();
-                String memberName = getAttr(memberEl, "Name");
+                String memberName = requireAttr(memberEl, "Name",
+                        "Member of EnumType '" + name + "'");
                 String valueStr = getAttr(memberEl, "Value");
-                long value = valueStr != null ? Long.parseLong(valueStr)
-                        : (lastValue < 0 ? 0 : lastValue + 1);
+                long value;
+                if (valueStr != null) {
+                    try {
+                        value = Long.parseLong(valueStr);
+                    } catch (NumberFormatException e) {
+                        throw new IllegalArgumentException("EnumType '" + name + "' member '"
+                                + memberName + "' has invalid Value '" + valueStr + "'", e);
+                    }
+                } else {
+                    value = lastValue < 0 ? 0 : lastValue + 1;
+                }
                 lastValue = value;
                 members.add(new EnumMemberModel(memberName, value));
             } else if (event.isEndElement() && isEdmElement(event.asEndElement(), "EnumType")) {
@@ -266,7 +284,7 @@ public class StaxCsdlParser {
 
     private TypeDefinitionModel parseTypeDefinition(XMLEventReader reader, StartElement el)
             throws XMLStreamException {
-        String name = getAttr(el, "Name");
+        String name = requireAttr(el, "Name", "TypeDefinition");
         String underlyingType = getAttr(el, "UnderlyingType");
         skipElement(reader);
         return new TypeDefinitionModel(name, underlyingType);
@@ -274,7 +292,7 @@ public class StaxCsdlParser {
 
     private FunctionModel parseFunction(XMLEventReader reader, StartElement el)
             throws XMLStreamException {
-        String name = getAttr(el, "Name");
+        String name = requireAttr(el, "Name", "Function");
         boolean isBound = "true".equals(getAttr(el, "IsBound"));
         boolean isComposable = "true".equals(getAttr(el, "IsComposable"));
         String entitySetPath = getAttr(el, "EntitySetPath");
@@ -289,7 +307,7 @@ public class StaxCsdlParser {
                 switch (child.getName().getLocalPart()) {
                     case "Parameter" -> parameters.add(parseParameter(child));
                     case "ReturnType" -> returnType = new ReturnTypeModel(
-                            getAttr(child, "Type"),
+                            resolveTypeRef(getAttr(child, "Type")),
                             !"false".equals(getAttr(child, "Nullable")));
                     default -> skipElement(reader);
                 }
@@ -305,7 +323,7 @@ public class StaxCsdlParser {
 
     private ActionModel parseAction(XMLEventReader reader, StartElement el)
             throws XMLStreamException {
-        String name = getAttr(el, "Name");
+        String name = requireAttr(el, "Name", "Action");
         boolean isBound = "true".equals(getAttr(el, "IsBound"));
         String entitySetPath = getAttr(el, "EntitySetPath");
 
@@ -333,14 +351,14 @@ public class StaxCsdlParser {
 
     private ParameterModel parseParameter(StartElement el) {
         return new ParameterModel(
-                getAttr(el, "Name"),
-                getAttr(el, "Type"),
+                requireAttr(el, "Name", "Parameter"),
+                resolveTypeRef(requireAttr(el, "Type", "Parameter")),
                 !"false".equals(getAttr(el, "Nullable")));
     }
 
     private ContainerModel parseEntityContainer(XMLEventReader reader, StartElement el)
             throws XMLStreamException {
-        String name = getAttr(el, "Name");
+        String name = requireAttr(el, "Name", "EntityContainer");
 
         List<EntitySetModel> entitySets = new ArrayList<>();
         List<SingletonModel> singletons = new ArrayList<>();
@@ -368,8 +386,8 @@ public class StaxCsdlParser {
 
     private EntitySetModel parseEntitySet(XMLEventReader reader, StartElement el)
             throws XMLStreamException {
-        String name = getAttr(el, "Name");
-        String entityType = getAttr(el, "EntityType");
+        String name = requireAttr(el, "Name", "EntitySet");
+        String entityType = resolveTypeRef(requireAttr(el, "EntityType", "EntitySet '" + name + "'"));
 
         List<NavigationPropertyBindingModel> bindings = new ArrayList<>();
 
@@ -391,8 +409,8 @@ public class StaxCsdlParser {
 
     private SingletonModel parseSingleton(XMLEventReader reader, StartElement el)
             throws XMLStreamException {
-        String name = getAttr(el, "Name");
-        String type = getAttr(el, "Type");
+        String name = requireAttr(el, "Name", "Singleton");
+        String type = resolveTypeRef(requireAttr(el, "Type", "Singleton '" + name + "'"));
 
         List<NavigationPropertyBindingModel> bindings = new ArrayList<>();
 
@@ -414,16 +432,16 @@ public class StaxCsdlParser {
 
     private FunctionImportModel parseFunctionImport(StartElement el) {
         return new FunctionImportModel(
-                getAttr(el, "Name"),
-                getAttr(el, "Function"),
+                requireAttr(el, "Name", "FunctionImport"),
+                resolveTypeRef(getAttr(el, "Function")),
                 getAttr(el, "EntitySet"),
                 "true".equals(getAttr(el, "IncludeInServiceDocument")));
     }
 
     private ActionImportModel parseActionImport(StartElement el) {
         return new ActionImportModel(
-                getAttr(el, "Name"),
-                getAttr(el, "Action"),
+                requireAttr(el, "Name", "ActionImport"),
+                resolveTypeRef(getAttr(el, "Action")),
                 getAttr(el, "EntitySet"));
     }
 
@@ -459,6 +477,33 @@ public class StaxCsdlParser {
     private String getAttr(StartElement el, String name) {
         Attribute attr = el.getAttributeByName(new javax.xml.namespace.QName("", name));
         return attr != null ? attr.getValue() : null;
+    }
+
+    /** Returns the attribute value or fails with the offending element in the message. */
+    private String requireAttr(StartElement el, String attr, String elementDescription) {
+        String value = getAttr(el, attr);
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException(
+                    elementDescription + " is missing required attribute '" + attr + "'");
+        }
+        return value;
+    }
+
+    /**
+     * Resolves alias-qualified type references ({@code self.Address}) to the schema's real
+     * namespace, preserving {@code Collection(...)} wrappers. Without this, alias refs
+     * resolve as unknown types and the generators emit wrong packages/imports.
+     */
+    private String resolveTypeRef(String raw) {
+        if (raw == null || currentAlias == null || currentNamespace == null) {
+            return raw;
+        }
+        boolean isCollection = raw.startsWith("Collection(") && raw.endsWith(")");
+        String inner = isCollection ? raw.substring("Collection(".length(), raw.length() - 1) : raw;
+        if (inner.startsWith(currentAlias + ".")) {
+            inner = currentNamespace + inner.substring(currentAlias.length());
+        }
+        return isCollection ? "Collection(" + inner + ")" : inner;
     }
 
     private String getOrDefault(String value, String defaultValue) {

@@ -7,6 +7,7 @@ import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import io.github.akbarhusain.odata.runtime.entity.Context;
 import io.github.akbarhusain.odata.runtime.entity.ContextPath;
+import io.github.akbarhusain.odata.runtime.entity.SchemaInfo;
 import io.github.akbarhusain.odata.runtime.exception.ODataException;
 import io.github.akbarhusain.odata.runtime.http.*;
 import io.github.akbarhusain.odata.runtime.serialization.JacksonSerializer;
@@ -39,9 +40,52 @@ public class EntityOperations {
     private EntityOperations() {}
 
     public static <T> T executeAndGetEntity(Context context, ContextPath path, Class<T> type) {
+        return executeAndGetEntity(context, path, type, null);
+    }
+
+    /**
+     * GET a single entity with polymorphic deserialization: when the payload carries
+     * {@code @odata.type} and the SchemaInfo registry resolves it to a subtype of the
+     * declared type, the entity is deserialized as the subtype so subtype properties
+     * survive (otherwise they are silently dropped by the lenient mapper).
+     */
+    public static <T> T executeAndGetEntity(Context context, ContextPath path, Class<T> type,
+                                            SchemaInfo schemaInfo) {
         HttpResponse response = executeSync(context, HttpMethod.GET, path, null, null);
         checkResponse(response);
+        if (schemaInfo != null && response.body() != null && response.body().length > 0) {
+            T polymorphic = deserializePolymorphic(response.body(), context, type, schemaInfo);
+            if (polymorphic != null) {
+                return polymorphic;
+            }
+        }
         return deserializeOrNull(response, context, type);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static <T> T deserializePolymorphic(byte[] body, Context context, Class<T> declaredType,
+                                                SchemaInfo schemaInfo) {
+        try {
+            var node = COLLECTION_MAPPER.readTree(body);
+            if (node != null && node.isObject()) {
+                var typeNode = node.get("@odata.type");
+                if (typeNode != null && typeNode.isTextual()) {
+                    Class<?> actual = schemaInfo.getClassFromTypeWithNamespace(
+                            stripTypeAnnotationPrefix(typeNode.asText()));
+                    if (actual != null && declaredType.isAssignableFrom(actual)) {
+                        return (T) context.serializer().deserialize(body, actual);
+                    }
+                }
+            }
+        } catch (IOException e) {
+            // fall through to declared-type deserialization below
+        }
+        return null;
+    }
+
+    /** {@code @odata.type} values may be URL fragments: {@code #Namespace.Type}. */
+    private static String stripTypeAnnotationPrefix(String typeName) {
+        return typeName.startsWith("#") ? typeName.substring(1) : typeName;
     }
 
     @SuppressWarnings("unchecked")
@@ -149,6 +193,15 @@ public class EntityOperations {
     @SuppressWarnings("unchecked")
     public static <T> CollectionPage<T> executeAndGetCollection(Context context, ContextPath path,
                                                                   Class<T> elementType) {
+        return executeAndGetCollection(context, path, elementType, null);
+    }
+
+    /**
+     * GET a collection with polymorphic deserialization: elements carrying
+     * {@code @odata.type} resolve to their subtype via the SchemaInfo registry.
+     */
+    public static <T> CollectionPage<T> executeAndGetCollection(Context context, ContextPath path,
+                                                                  Class<T> elementType, SchemaInfo schemaInfo) {
         HttpResponse response = executeSync(context, HttpMethod.GET, path, null, null);
         checkResponse(response);
 
@@ -175,7 +228,14 @@ public class EntityOperations {
             List<T> items;
             Object valueObj = envelope.get("value");
             if (valueObj instanceof List<?> rawList && !rawList.isEmpty()) {
-                if (context.serializer() instanceof JacksonSerializer) {
+                boolean polymorphic = schemaInfo != null && rawList.stream()
+                        .anyMatch(e -> e instanceof Map<?, ?> m && m.containsKey("@odata.type"));
+                if (polymorphic) {
+                    items = new ArrayList<>(rawList.size());
+                    for (Object element : rawList) {
+                        items.add(deserializeElement(context, element, elementType, schemaInfo));
+                    }
+                } else if (context.serializer() instanceof JacksonSerializer) {
                     // Fast path for the default serializer: in-memory conversion, no
                     // re-serialization round trip (profiling lessons 34/37)
                     JavaType listType = LIST_TYPE_CACHE.computeIfAbsent(
@@ -202,6 +262,29 @@ public class EntityOperations {
 
             return new CollectionPage<>(items, nextLink, count);
         } catch (IOException e) {
+            throw new ODataException("Failed to parse collection response: " + e.getMessage(), e);
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static <T> T deserializeElement(Context context, Object element, Class<T> declaredType,
+                                            SchemaInfo schemaInfo) {
+        Class<?> target = declaredType;
+        if (element instanceof Map<?, ?> m) {
+            Object typeName = m.get("@odata.type");
+            if (typeName instanceof String s) {
+                Class<?> actual = schemaInfo.getClassFromTypeWithNamespace(stripTypeAnnotationPrefix(s));
+                if (actual != null && declaredType.isAssignableFrom(actual)) {
+                    target = actual;
+                }
+            }
+        }
+        try {
+            if (context.serializer() instanceof JacksonSerializer) {
+                return (T) COLLECTION_MAPPER.convertValue(element, target);
+            }
+            return context.serializer().deserialize(COLLECTION_MAPPER.writeValueAsBytes(element), (Class<T>) target);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
             throw new ODataException("Failed to parse collection response: " + e.getMessage(), e);
         }
     }

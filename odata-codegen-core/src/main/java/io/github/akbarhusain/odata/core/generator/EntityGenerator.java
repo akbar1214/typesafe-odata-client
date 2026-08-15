@@ -64,6 +64,8 @@ public class EntityGenerator extends AbstractTypeGenerator {
         allNavs.addAll(entityType.navigationProperties());
         List<NavigationPropertyModel> ownNavs = entityType.navigationProperties();
 
+        checkMemberNameCollisions(className, allProps, allNavs);
+
         List<KeyModel> keys = resolvedKeys(entityType);
 
         // OpenType dynamic-property support: capture undeclared JSON fields into unmappedFields.

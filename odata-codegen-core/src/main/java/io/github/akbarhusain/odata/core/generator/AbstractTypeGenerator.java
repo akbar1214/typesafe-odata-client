@@ -56,6 +56,44 @@ public abstract class AbstractTypeGenerator {
     }
 
     // ------------------------------------------------------------------
+    // Member-name collision detection
+    // ------------------------------------------------------------------
+
+    /**
+     * Fails with a clear error when two members of a type map to the same generated
+     * Java identifier — e.g. properties {@code Name} and {@code name} both fold to field
+     * {@code name}, or {@code budget} and {@code Budget} both map to constant
+     * {@code BUDGET}. Without this check the generated class simply doesn't compile,
+     * with duplicate-member errors far from the cause.
+     */
+    protected void checkMemberNameCollisions(String className, List<PropertyModel> props,
+                                             List<NavigationPropertyModel> navs) {
+        java.util.Map<String, String> fields = new java.util.HashMap<>();
+        java.util.Map<String, String> constants = new java.util.HashMap<>();
+        for (PropertyModel prop : props) {
+            checkCollision(fields, Names.toJavaFieldName(prop.name()), "field", prop.name(), className);
+            checkCollision(constants, Names.toConstantName(prop.name()), "constant", prop.name(), className);
+        }
+        for (NavigationPropertyModel nav : navs) {
+            checkCollision(fields, Names.toJavaFieldName(nav.name()), "field", nav.name(), className);
+            checkCollision(constants, Names.toConstantName(nav.name()), "constant", nav.name(), className);
+        }
+    }
+
+    private static void checkCollision(java.util.Map<String, String> seen, String mapped,
+                                       String kind, String sourceName, String className) {
+        String previous = seen.putIfAbsent(mapped, sourceName);
+        // Exact same-name redeclaration across an inheritance chain is tolerated by the
+        // generators (the inherited declaration is ignored) — only DIFFERENT names that
+        // collapse onto one identifier are real collisions
+        if (previous != null && !previous.equals(sourceName)) {
+            throw new IllegalStateException("Cannot generate " + className + ": members '" + previous
+                    + "' and '" + sourceName + "' both map to " + kind + " '" + mapped
+                    + "'. Rename one of them in the metadata.");
+        }
+    }
+
+    // ------------------------------------------------------------------
     // Type resolution
     // ------------------------------------------------------------------
 

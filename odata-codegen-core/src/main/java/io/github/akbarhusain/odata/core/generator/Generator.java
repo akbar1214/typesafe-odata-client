@@ -41,8 +41,14 @@ public class Generator {
         return this;
     }
 
+    /** Files written by the most recent {@link #generate(CsdlModel)} call (for stale-file cleanup). */
+    public java.util.List<Path> writtenFiles() {
+        return List.copyOf(written.keySet());
+    }
+
     public void generate(CsdlModel model) throws IOException {
         Names.clearTypeKindCache();
+        written.clear();
         // Schemas sharing an output package must share one aggregate ServiceSchemaInfo,
         // so collect them per package while generating
         Map<String, List<SchemaModel>> schemasByPackage = new LinkedHashMap<>();
@@ -98,6 +104,8 @@ public class Generator {
         }
     }
 
+    private final Map<Path, String> written = new HashMap<>();
+
     private void writeCode(String packageName, String className, String code) throws IOException {
         String packageDir = packageName.replace('.', '/');
         Path dir = outputDir.resolve(packageDir);
@@ -105,6 +113,13 @@ public class Generator {
             Files.createDirectories(dir);
         }
         Path file = dir.resolve(className + ".java");
+        // Two types mapping to the same output file (e.g. same-named types from schemas
+        // collapsed onto one package) previously overwrote each other silently — fail loudly
+        String previous = written.putIfAbsent(file, code);
+        if (previous != null && !previous.equals(code)) {
+            throw new IllegalStateException("Duplicate generated class " + file + ": two types map to the "
+                    + "same output file with different content. Remap one of them via schemaPackages.");
+        }
         Files.writeString(file, code);
         log.debug("Wrote: {}", file);
     }
