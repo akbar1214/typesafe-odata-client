@@ -1,6 +1,6 @@
 # Use Custom HTTP Transport
 
-Switch from JDK HTTP to OkHttp, Apache, or your own implementation.
+Switch from the built-in JDK transport to your own implementation.
 
 ## Default: JDK HTTP
 
@@ -10,20 +10,12 @@ Context ctx = Context.builder()
     .build(); // Uses JdkHttpTransport by default
 ```
 
-## Apache HttpClient
+## Custom Transport (example: OkHttp)
 
-```java
-import io.github.akbarhusain.odata.runtime.http.JavaNetHttpTransport;
-
-Context ctx = Context.builder()
-    .baseUrl("https://services.odata.org/V4/TripPinService")
-    .transport(new JavaNetHttpTransport())
-    .build();
-```
-
-## OkHttp
-
-### Implement HttpTransport
+The runtime ships one transport implementation: the JDK `HttpClient`-based
+`JdkHttpTransport`. Any other stack (OkHttp, Apache HttpClient) plugs in by implementing
+the two-method `HttpTransport` interface — add the HTTP library of your choice as a
+dependency first (none is bundled).
 
 ```java
 import io.github.akbarhusain.odata.runtime.http.HttpTransport;
@@ -58,12 +50,25 @@ public class OkHttpTransport implements HttpTransport {
 
     @Override
     public CompletableFuture<InputStream> stream(HttpRequest request) {
-        // Similar implementation for streaming
+        Request okRequest = toOkRequest(request); // same builder logic as submit()
+        return CompletableFuture.supplyAsync(() -> {
+            try (Response response = client.newCall(okRequest).execute()) {
+                if (response.code() >= 400) {
+                    byte[] errorBody = response.body().bytes();
+                    throw io.github.akbarhusain.odata.runtime.exception.ODataException
+                            .fromResponse(new HttpResponse(response.code(),
+                                    response.headers().toMultimap(), errorBody));
+                }
+                return responseBodyAsStream(response); // buffer or pipe per your needs
+            } catch (IOException e) {
+                throw new CompletionException(e);
+            }
+        });
     }
 }
 ```
 
-### Use OkHttp
+### Use It
 
 ```java
 Context ctx = Context.builder()

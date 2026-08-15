@@ -396,7 +396,7 @@ class TripPinIntegrationTest {
         for (var entry : getResponse.headers().entrySet()) {
             if (entry.getKey() != null &&
                 (entry.getKey().equalsIgnoreCase("ETag") || entry.getKey().equalsIgnoreCase("odata.etag"))) {
-                etag = entry.getValue().getFirst();
+                etag = entry.getValue().get(0);
                 break;
             }
         }
@@ -437,7 +437,7 @@ class TripPinIntegrationTest {
         for (var entry : verifyResponse.headers().entrySet()) {
             if (entry.getKey() != null &&
                 (entry.getKey().equalsIgnoreCase("ETag") || entry.getKey().equalsIgnoreCase("odata.etag"))) {
-                deleteEtag = entry.getValue().getFirst();
+                deleteEtag = entry.getValue().get(0);
                 break;
             }
         }
@@ -489,7 +489,7 @@ class TripPinIntegrationTest {
         for (var entry : getResponse.headers().entrySet()) {
             if (entry.getKey() != null &&
                 (entry.getKey().equalsIgnoreCase("ETag") || entry.getKey().equalsIgnoreCase("odata.etag"))) {
-                etag = entry.getValue().getFirst();
+                etag = entry.getValue().get(0);
                 break;
             }
         }

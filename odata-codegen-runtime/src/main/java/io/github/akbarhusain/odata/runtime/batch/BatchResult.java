@@ -80,6 +80,6 @@ public record BatchResult<T>(
 
     public String getHeader(String name) {
         List<String> values = headers.get(name);
-        return values != null && !values.isEmpty() ? values.getFirst() : null;
+        return values != null && !values.isEmpty() ? values.get(0) : null;
     }
 }

@@ -532,24 +532,14 @@ Verification: 22 new tests across core/runtime/plugin; full reactor hermetic (44
 
 ### Plugin / build / docs / hygiene
 
-- **L26.** Mojo not marked `threadSafe = true` although it only touches per-module paths (`GenerateMojo.java:29`;
-  descriptor confirms `false`) — warnings/skips under `mvn -T`.
-- **L27.** `Accept: application/xml, application/json` on metadata download invites a JSON response the StAX parser
-  can't read, failing cryptically (`GenerateMojo.java:141`).
-- **L28.** When both `metadataUrl` and `metadataFile` are set, the file silently wins (`GenerateMojo.java:110-117`) — at
-  least log a warning.
-- **L29.** POMs use `source`/`target` 17 instead of `release` 17 (and set it twice); `slf4j-simple` version duplicated
-  in two module POMs instead of `dependencyManagement`; no `maven-plugin-plugin` version/`goalPrefix` declaration; no
-  `outputTimestamp`/source/javadoc plugin config for releases.
-- **L30.** `odata-codegen-test/pom.xml:57` reaches into another module's test resources via
-  `${project.parent.basedir}` — breaks standalone builds; move `trippin-metadata.xml` into the test module.
-- **L31.** Docs claim Apache HttpClient/OkHttp transports that don't exist; the "Apache HttpClient" example actually
-  imports `JavaNetHttpTransport`, and the OkHttp snippet's `stream()` override has no `return` (won't compile) (
-  `docs/content/how-to/custom-transport.md:13-45`, `README.md:11`, `docs/content/index.md:16`).
-- **L32.** `run-bench.sh:10` points at `com/modernodata/runtime/bench/...`, a path that doesn't exist — the script
-  always fails; also builds its classpath without `-am`, and writes results to `/tmp`.
-- **L33.** `.idea/*.xml` and `modern-odata-client.iml` are tracked in git; `.DS_Store` isn't gitignored (files already
-  on disk); no Maven wrapper (`mvnw`) for reproducible builds.
+- **L26. ~~Mojo not marked thread-safe.~~ ✅ Resolved** `threadSafe = true` on the `@Mojo`; asserted via the generated plugin descriptor (`l26MojoIsMarkedThreadSafe` — plugin annotations are CLASS-retention, so reflection cannot see them).
+- **L27. ~~JSON Accept on metadata download.~~ ✅ Resolved** The download already requested `application/xml` only (changed with M26); it now also detects an `application/json` response and fails with a message explaining the generator only supports CSDL XML (local-HTTP-server test).
+- **L28. ~~Both metadata sources silently prefer the file.~~ ✅ Resolved** Configuring both `metadataUrl` and `metadataFile` logs a warning naming which one wins (log-capture test).
+- **L29. ~~`source/target` instead of `release`; duplicate slf4j versions; unpinned plugin-plugin.~~ ✅ Resolved** Root POM compiles with `<release>17</release>` (and removed the duplicated compiler config), declares `project.build.outputTimestamp` (reproducible builds) plus `maven-source-plugin`/`maven-javadoc-plugin` (failOnError=false) in pluginManagement; `slf4j-simple` is version-managed; `maven-plugin-plugin` 3.11.0 is pinned with `goalPrefix=odata-codegen`. **The switch to `release` immediately caught a real latent bug:** `List.getFirst()` (Java 21+) in `BatchResult` and the TripPin integration test compiled fine under `source/target` on a newer JDK and would have failed at runtime on 17.
+- **L30. ~~Cross-module `${project.parent.basedir}` metadata reference.~~ ✅ Resolved** `trippin-metadata.xml` is copied into `odata-codegen-test/src/test/resources` and referenced via `${project.basedir}`; the test module builds standalone now (the file is duplicated — frozen test metadata; core keeps its own copy).
+- **L31. ~~Docs promise Apache/OkHttp transports; snippets broken.~~ ✅ Resolved** `custom-transport.md` rewritten: states that the JDK transport is the only bundled one, the OkHttp example is labeled as requiring your own dependency, and its `stream()` implementation has a real body (error-status check + stream return).
+- **L32. ~~`run-bench.sh` dead path.~~ ✅ Resolved** Points at the real benchmark package, and writes classpath/results under `target/` instead of `/tmp`; the stale `-am` concern is moot since runtime no longer depends on core. Script syntax-checked and now tracked.
+- **L33. ~~IDE files tracked; no wrapper.~~ ✅ Resolved** `.idea/*` and `*.iml` untracked and gitignored (`.DS_Store` was gitignored earlier); Maven wrapper added (`mvnw`, `.mvn/wrapper`).
 
 ---
 

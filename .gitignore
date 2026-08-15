@@ -1,4 +1,7 @@
 **/.venv
 docs/site
 **/target/*
-/async-profiler**/.DS_Store
+/async-profiler
+**/.DS_Store
+.idea/
+*.iml

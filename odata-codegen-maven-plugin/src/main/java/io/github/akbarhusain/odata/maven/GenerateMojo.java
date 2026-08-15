@@ -26,7 +26,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-@Mojo(name = "generate", defaultPhase = LifecyclePhase.GENERATE_SOURCES)
+@Mojo(name = "generate", defaultPhase = LifecyclePhase.GENERATE_SOURCES, threadSafe = true)
 public class GenerateMojo extends AbstractMojo {
 
     @Parameter(property = "odata.metadataUrl")
@@ -141,6 +141,10 @@ public class GenerateMojo extends AbstractMojo {
 
     private Path resolveMetadataPath() throws Exception {
         if (metadataFile != null) {
+            if (metadataUrl != null) {
+                getLog().warn("Both metadataUrl and metadataFile are configured; using metadataFile ("
+                        + metadataFile.getAbsolutePath() + ") and ignoring metadataUrl (" + metadataUrl + ")");
+            }
             if (!metadataFile.exists()) {
                 throw new MojoFailureException("Metadata file not found: " + metadataFile.getAbsolutePath());
             }
@@ -193,6 +197,13 @@ public class GenerateMojo extends AbstractMojo {
 
             if (response.statusCode() != 200) {
                 throw new MojoFailureException("Failed to download metadata: HTTP " + response.statusCode());
+            }
+
+            String contentType = response.headers().firstValue("Content-Type").orElse("");
+            if (contentType.contains("application/json")) {
+                throw new MojoFailureException("Metadata endpoint returned application/json, but this "
+                        + "generator only supports CSDL XML. Configure the service to serve XML metadata "
+                        + "($metadata with Accept: application/xml).");
             }
 
             // Cache to a temp file so we can hash and parse it reliably.

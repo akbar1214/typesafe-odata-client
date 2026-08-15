@@ -490,4 +490,73 @@ class GenerateMojoIncrementalTest {
             server.stop(0);
         }
     }
+
+    // ------------------------------------------------------------------
+    // Round-3 findings L26-L28
+    // ------------------------------------------------------------------
+
+    @Test
+    void l26MojoIsMarkedThreadSafe() throws Exception {
+        // plugin annotations are CLASS-retention, so assert on the generated descriptor
+        Path descriptor = Path.of("target", "classes", "META-INF", "maven", "plugin.xml");
+        assertTrue(Files.exists(descriptor), "plugin descriptor not generated: " + descriptor);
+        String xml = Files.readString(descriptor);
+        int idx = xml.indexOf("<threadSafe>");
+        assertTrue(idx >= 0, "descriptor must declare <threadSafe>");
+        assertEquals("<threadSafe>true</threadSafe>",
+                xml.substring(idx, xml.indexOf("</threadSafe>", idx) + "</threadSafe>".length()),
+                "the mojo only touches per-module paths; parallel builds (-T) skip/warn otherwise");
+    }
+
+    @Test
+    void l27JsonMetadataFailsWithClearMessage() throws Exception {
+        com.sun.net.httpserver.HttpServer server = com.sun.net.httpserver.HttpServer.create(
+                new java.net.InetSocketAddress("localhost", 0), 0);
+        server.createContext("/metadata", exchange -> {
+            byte[] body = "{\"odata.context\":\"https://example.com/$metadata#Edm\"}"
+                    .getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            exchange.getResponseHeaders().set("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, body.length);
+            try (var os = exchange.getResponseBody()) {
+                os.write(body);
+            }
+        });
+        server.start();
+        try {
+            GenerateMojo mojo = new GenerateMojo();
+            setField(mojo, "metadataUrl", "http://localhost:" + server.getAddress().getPort() + "/metadata");
+            setField(mojo, "outputDirectory", tempDir.resolve("out-l27").toFile());
+            setField(mojo, "basePackage", "com.example.test");
+            setField(mojo, "project", new MavenProject());
+            setField(mojo, "skip", false);
+            MojoFailureException failure = assertThrows(MojoFailureException.class, mojo::execute);
+            assertTrue(failure.getMessage().contains("CSDL XML"),
+                    "error must explain the parser only supports XML: " + failure.getMessage());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void l28BothMetadataSourcesConfiguredWarnsAndUsesFile() throws Exception {
+        java.util.List<String> warnings = new java.util.ArrayList<>();
+        org.apache.maven.plugin.logging.Log capture =
+                new org.apache.maven.plugin.logging.SystemStreamLog() {
+                    @Override
+                    public void warn(CharSequence msg) {
+                        warnings.add(String.valueOf(msg));
+                    }
+                };
+        File metadata = writeMetadata(ONE_ENTITY_METADATA);
+        File outputDir = tempDir.resolve("out-l28").toFile();
+
+        GenerateMojo mojo = createMojo(metadata, outputDir);
+        setField(mojo, "metadataUrl", "https://example.com/metadata.xml");
+        mojo.setLog(capture);
+        mojo.execute();
+
+        assertTrue(warnings.stream().anyMatch(w -> w.contains("metadataUrl") && w.contains("metadataFile")),
+                "configuring both must warn which one wins: " + warnings);
+        assertTrue(countGeneratedFiles(outputDir) >= 1, "the file is used");
+    }
 }
