@@ -8,6 +8,7 @@ import io.github.akbarhusain.odata.runtime.http.HttpMethod;
 import io.github.akbarhusain.odata.runtime.http.HttpRequest;
 import io.github.akbarhusain.odata.runtime.http.HttpResponse;
 import io.github.akbarhusain.odata.runtime.http.HttpTransport;
+import io.github.akbarhusain.odata.runtime.exception.NotFoundException;
 
 import org.junit.jupiter.api.Test;
 
@@ -211,5 +212,31 @@ class EntityOperationsInterceptorChainTest {
         assertEquals(List.of("i1"), order, "Interceptor must run for the stream path");
         assertEquals(List.of("http://example.com/People"), streamedUrls,
                 "Underlying transport stream must be invoked through the chain");
+    }
+
+    @Test
+    void m14InterceptorStreamDefaultThrowsOnErrorStatus() {
+        HttpInterceptor passthrough = (req, delegate) -> delegate.submit(req).join();
+        HttpTransport failing = new HttpTransport() {
+            @Override
+            public CompletableFuture<HttpResponse> submit(HttpRequest request) {
+                return CompletableFuture.completedFuture(new HttpResponse(404, Map.of(),
+                        "{\"error\":{\"code\":\"NotFound\"}}".getBytes()));
+            }
+
+            @Override
+            public CompletableFuture<InputStream> stream(HttpRequest request) {
+                throw new UnsupportedOperationException();
+            }
+        };
+        Context ctx = Context.builder()
+                .baseUrl("http://example.com")
+                .transport(failing)
+                .interceptors(List.of(passthrough))
+                .build();
+
+        assertThrows(NotFoundException.class,
+                () -> EntityOperations.streamMedia(ctx, ctx.basePath().addSegment("Media").addKey("Id", 1)),
+                "the default interceptor stream() must not turn an HTTP error into a body stream");
     }
 }

@@ -244,4 +244,27 @@ class ContextPathTest {
         String url = countPath.toUrl();
         assertEquals(BASE + "/$count?$filter=Age%20gt%2025", url);
     }
+
+    @Test
+    void m11QueryRendersAfterAllSegmentsNotMidUrl() {
+        ContextPath path = new ContextPath(BASE)
+                .addSegment("People")
+                .addQuery("$skiptoken", "x")
+                .addSegment("$ref");
+
+        assertEquals(BASE + "/People/$ref?$skiptoken=x", path.toUrl(),
+                "a segment appended after a query-bearing segment must not be swallowed by the query string");
+    }
+
+    @Test
+    void m11QueriesFromMultipleSegmentsMergeIntoOneQueryString() {
+        ContextPath path = new ContextPath(BASE)
+                .addSegment("People")
+                .addQuery("$skiptoken", "x")
+                .addSegment("Trips")
+                .addQuery("$top", "5");
+
+        assertEquals(BASE + "/People/Trips?$skiptoken=x&$top=5", path.toUrl(),
+                "only one '?' is legal per URL; queries from all segments merge at the end");
+    }
 }

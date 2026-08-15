@@ -338,35 +338,43 @@ Verification: 7 new tests; full reactor hermetic (414) and live (536) green.
 
 ### URL building / entity layer
 
-**M11. Queries render mid-URL when a segment follows a query-bearing segment.** `ContextPath.appendSegments` (
-`:153-162`) emits `?a=b` immediately after the owning segment; a later `addSegment()` (public API —
-`EntityOperations.addRef/removeRef` do exactly `addSegment("$ref")`) yields `...?$skiptoken=x/$ref`. `addCountSegment`
-already contains a manual workaround for this structural defect. Fix: defer all query rendering until after the segment
-loop.
+**M11. ~~Queries render mid-URL when a segment follows a query-bearing segment.~~ ✅ Resolved**
+`ContextPath.appendSegments` now collects queries from all segments and renders one `?` after the segment loop, so
+`addQuery("$skiptoken",...).addSegment("$ref")` produces `/People/$ref?$skiptoken=x`. `addCountSegment`'s manual
+query-migration workaround collapsed to a plain `addSegment("$count")`. All existing URL tests (queries on last
+segment) render identically. Tests: 2 new `ContextPathTest` cases (TDD).
 
-**M12. Collection reads bypass the pluggable `Serializer`.** `EntityOperations.executeAndGetCollection` (`:159,179`)
-parses with a private static `COLLECTION_MAPPER`, while single-entity and write paths go through `context.serializer()`.
-A custom serializer's modules/naming/date config silently doesn't apply to collections. Fix: delegate element
-deserialization to `context.serializer()` (e.g. re-serialize `value` node to bytes and deserialize), or document the
-limitation.
+**M12. ~~Collection reads bypass the pluggable `Serializer`.~~ ✅ Resolved**
+`executeAndGetCollection` now branches on the configured serializer: `JacksonSerializer` (the default) keeps the
+profiled in-memory `convertValue` fast path (lessons 34/37), while any custom `Serializer` receives each element's
+bytes via `deserialize(bytes, elementType)` — the interface has no tree/convert API, so elements are re-serialized
+individually (page sizes are small). Test: `m12CollectionReadsHonorPluggableSerializer` (TDD — counting serializer
+never invoked before the fix).
 
-**M13. `HttpRequest.connectTimeout` is dead API.** Set by callers (`EntityOperations.java:236,312`) but never read by
-any transport — `JdkHttpTransport` uses only its static client's fixed 30s connect timeout. Fix: cache `HttpClient`s
-keyed by connect timeout and select by `request.connectTimeout()`, or delete the field.
+**M13. ~~`HttpRequest.connectTimeout` is dead API.~~ ✅ Resolved**
+`JdkHttpTransport` replaced its single static client with a `ConcurrentHashMap<Duration, HttpClient>` cache;
+`clientFor(request.connectTimeout())` (null → 30s default) serves both `submit()` and `stream()`, so per-request
+connect timeouts are honored without allocating a client per request. Test:
+`m13ClientsCachedPerConnectTimeoutAndDistinctAcrossDurations` (TDD).
 
-**M14. Default interceptor `stream()` swallows HTTP error status.** `HttpInterceptor.java:16-27` buffers
-`intercept(...)` output without checking `statusCode()`; with zero interceptors a 404 media GET throws, with one
-default-intercepting interceptor the same 404 silently yields a stream of the error body. Fix: check `isSuccessful()`
-and throw `ODataException.fromResponse` in the default method.
+**M14. ~~Default interceptor `stream()` swallows HTTP error status.~~ ✅ Resolved**
+`HttpInterceptor.stream`'s default buffering fallback now checks `isSuccessful()` and throws
+`ODataException.fromResponse(response)` before wrapping the body — a 404 media download through an interceptor throws
+`NotFoundException` exactly like the zero-interceptor path. Test: `m14InterceptorStreamDefaultThrowsOnErrorStatus`
+(TDD).
 
-**M15. `Retry-After` HTTP-date form is never parsed; a default is fabricated.** `RateLimitException.java:30-46` —
-`Instant.parse` (ISO-8601 only) then `Long.parseLong`; RFC 9110 HTTP-dates (`Wed, 21 Oct 2015 07:28:00 GMT`) fall
-through both and are silently replaced by `now+60s`, and callers can't distinguish server-specified from invented
-values. Fix: try `DateTimeFormatter.RFC_1123_DATE_TIME` first; return null/`Optional` when the header is absent.
+**M15. ~~`Retry-After` HTTP-date form is never parsed; a default is fabricated.~~ ✅ Resolved**
+`RateLimitException` parses RFC 9110 HTTP-dates (`RFC_1123_DATE_TIME`) first, then ISO-8601, then delay-seconds; a
+new `hasServerRetryAfter()` distinguishes server-specified values from the backward-compatible now+60s default
+(`getRetryAfter()` still never returns null). Tests: `m15HttpDateRetryAfterIsParsed`,
+`m15AbsentRetryAfterReportsDefaultNotServerSpecified` (TDD).
 
-**M16. `DynamicPropertyConverter` mapper doesn't disable `FAIL_ON_UNKNOWN_PROPERTIES`.**
-`DynamicPropertyConverter.java:18-20` — every other mapper in the codebase does; dynamic properties converted to user
-POJOs are exactly the case most likely to hit unknown keys.
+**M16. ~~`DynamicPropertyConverter` mapper doesn't disable `FAIL_ON_UNKNOWN_PROPERTIES`.~~ ✅ Resolved**
+The converter's mapper now sets `FAIL_ON_UNKNOWN_PROPERTIES=false` like every other mapper in the library, so
+converting a dynamic property to a caller POJO tolerates extra keys. Test: `DynamicPropertyConverterTest` (TDD).
+
+Verification: 8 new tests; full reactor hermetic (422) and live (544) green — live TripPin pagination exercises the
+reworked URL rendering end-to-end.
 
 ### Parser / generator (core)
 

@@ -9,6 +9,7 @@ import io.github.akbarhusain.odata.runtime.entity.Context;
 import io.github.akbarhusain.odata.runtime.entity.ContextPath;
 import io.github.akbarhusain.odata.runtime.exception.ODataException;
 import io.github.akbarhusain.odata.runtime.http.*;
+import io.github.akbarhusain.odata.runtime.serialization.JacksonSerializer;
 import io.github.akbarhusain.odata.runtime.paging.CollectionPage;
 
 import java.io.IOException;
@@ -174,10 +175,27 @@ public class EntityOperations {
             List<T> items;
             Object valueObj = envelope.get("value");
             if (valueObj instanceof List<?> rawList && !rawList.isEmpty()) {
-                JavaType listType = LIST_TYPE_CACHE.computeIfAbsent(
-                        elementType, t -> COLLECTION_MAPPER.getTypeFactory()
-                                .constructCollectionType(List.class, t));
-                items = COLLECTION_MAPPER.convertValue(rawList, listType);
+                if (context.serializer() instanceof JacksonSerializer) {
+                    // Fast path for the default serializer: in-memory conversion, no
+                    // re-serialization round trip (profiling lessons 34/37)
+                    JavaType listType = LIST_TYPE_CACHE.computeIfAbsent(
+                            elementType, t -> COLLECTION_MAPPER.getTypeFactory()
+                                    .constructCollectionType(List.class, t));
+                    items = COLLECTION_MAPPER.convertValue(rawList, listType);
+                } else {
+                    // Honor a pluggable Serializer: it sees each element's bytes. The
+                    // Serializer interface has no tree/convert API, so each element is
+                    // re-serialized and delegated (page sizes are small).
+                    items = new ArrayList<>(rawList.size());
+                    for (Object element : rawList) {
+                        try {
+                            items.add(context.serializer().deserialize(
+                                    COLLECTION_MAPPER.writeValueAsBytes(element), elementType));
+                        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+                            throw new ODataException("Failed to parse collection response: " + e.getMessage(), e);
+                        }
+                    }
+                }
             } else {
                 items = List.of();
             }

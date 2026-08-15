@@ -9,6 +9,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicLong;
@@ -33,10 +34,19 @@ public class JdkHttpTransport implements HttpTransport {
         this.executor = executor;
     }
 
-    private static final HttpClient httpClient = HttpClient.newBuilder()
-            .connectTimeout(Duration.ofSeconds(30))
-            .followRedirects(HttpClient.Redirect.NEVER)
-            .build();
+    private static final Duration DEFAULT_CONNECT_TIMEOUT = Duration.ofSeconds(30);
+    // HttpClient's connect timeout is per-client, so clients are cached per requested
+    // duration — HttpRequest.connectTimeout is honored without allocating a client per request
+    private static final ConcurrentHashMap<Duration, HttpClient> CLIENTS_BY_CONNECT_TIMEOUT =
+            new ConcurrentHashMap<>();
+
+    static HttpClient clientFor(Duration connectTimeout) {
+        Duration effective = connectTimeout != null ? connectTimeout : DEFAULT_CONNECT_TIMEOUT;
+        return CLIENTS_BY_CONNECT_TIMEOUT.computeIfAbsent(effective, d -> HttpClient.newBuilder()
+                .connectTimeout(d)
+                .followRedirects(HttpClient.Redirect.NEVER)
+                .build());
+    }
 
     @Override
     public CompletableFuture<HttpResponse> submit(io.github.akbarhusain.odata.runtime.http.HttpRequest request) {
@@ -93,7 +103,7 @@ public class JdkHttpTransport implements HttpTransport {
                                     : java.net.http.HttpRequest.BodyPublishers.noBody());
                 }
 
-                java.net.http.HttpResponse<InputStream> resp = httpClient.send(
+                java.net.http.HttpResponse<InputStream> resp = clientFor(request.connectTimeout()).send(
                         builder.build(), java.net.http.HttpResponse.BodyHandlers.ofInputStream());
 
                 if (resp.statusCode() >= 400) {
@@ -161,7 +171,7 @@ public class JdkHttpTransport implements HttpTransport {
                             : java.net.http.HttpRequest.BodyPublishers.noBody());
         }
 
-        java.net.http.HttpResponse<byte[]> resp = httpClient.send(
+        java.net.http.HttpResponse<byte[]> resp = clientFor(request.connectTimeout()).send(
                 builder.build(), java.net.http.HttpResponse.BodyHandlers.ofByteArray());
 
         Map<String, List<String>> headers = new HashMap<>();

@@ -128,18 +128,11 @@ public record ContextPath(
 
     /**
      * Appends a {@code $count} segment to the resource path, preserving any query
-     * parameters on the current last segment. This produces URLs such as
-     * {@code /People/$count?$filter=Age gt 25}.
+     * parameters (they render after all segments — see {@link #toUrl()}). Produces
+     * URLs such as {@code /People/$count?$filter=Age gt 25}.
      */
     public ContextPath addCountSegment() {
-        if (segments.isEmpty()) {
-            return addSegment("$count");
-        }
-        Segment last = segments.get(segments.size() - 1);
-        List<Segment> newSegments = new ArrayList<>(segments);
-        newSegments.set(newSegments.size() - 1, new Segment(last.name(), last.keys(), List.of()));
-        newSegments.add(new Segment("$count", List.of(), last.queries()));
-        return new ContextPath(basePath, List.copyOf(newSegments));
+        return addSegment("$count");
     }
 
     public String toUrl() {
@@ -155,6 +148,10 @@ public record ContextPath(
     }
 
     private void appendSegments(StringBuilder sb) {
+        // Queries render once, AFTER all segments: emitting them right after their owning
+        // segment produces a '?' mid-URL (invalid) whenever a segment is appended later
+        // (e.g. addQuery("$skiptoken",...).addSegment("$ref")).
+        List<KeyValuePair> deferredQueries = null;
         for (Segment segment : segments) {
             if (!segment.name().isEmpty()) {
                 if (sb.length() > 0 && sb.charAt(sb.length() - 1) != '/') sb.append("/");
@@ -176,14 +173,21 @@ public record ContextPath(
             }
 
             if (!segment.queries().isEmpty()) {
-                sb.append("?");
-                for (int i = 0; i < segment.queries().size(); i++) {
-                    if (i > 0) sb.append("&");
-                    KeyValuePair kv = segment.queries().get(i);
-                    sb.append(encodeQueryParam(kv.name()));
-                    sb.append("=");
-                    sb.append(encodeQueryParam(String.valueOf(kv.value())));
+                if (deferredQueries == null) {
+                    deferredQueries = new ArrayList<>();
                 }
+                deferredQueries.addAll(segment.queries());
+            }
+        }
+
+        if (deferredQueries != null) {
+            sb.append("?");
+            for (int i = 0; i < deferredQueries.size(); i++) {
+                if (i > 0) sb.append("&");
+                KeyValuePair kv = deferredQueries.get(i);
+                sb.append(encodeQueryParam(kv.name()));
+                sb.append("=");
+                sb.append(encodeQueryParam(String.valueOf(kv.value())));
             }
         }
     }
