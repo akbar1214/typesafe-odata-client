@@ -69,7 +69,7 @@ odata-codegen/
 ├── odata-codegen-runtime/     # Runtime library
 │   ├── entity/               # Context, ContextPath, SchemaInfo
 │   ├── query/                # Expression builders (StringProperty, etc.)
-│   ├── http/                 # HttpTransport + JdkHttpTransport + JavaNetHttpTransport
+│   ├── http/                 # HttpTransport + JdkHttpTransport + JdkHttpTransport
 │   ├── auth/                 # AuthProvider implementations
 │   ├── serialization/        # JacksonSerializer
 │   ├── paging/               # CollectionPage<T>

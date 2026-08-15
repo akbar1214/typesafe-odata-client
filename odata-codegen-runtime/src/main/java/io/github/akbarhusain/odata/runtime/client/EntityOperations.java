@@ -120,6 +120,23 @@ public class EntityOperations {
         return deserializeOrNull(response, context, responseType);
     }
 
+    /**
+     * PATCH bodies honor the entity's tracked {@code changedFields} (populated by Builder
+     * and with* copy-on-write) when non-empty — a partial update instead of a full-body
+     * merge. Entities deserialized from a GET and mutated via setters track nothing and
+     * send the full body (full-body PATCH is legal OData merge semantics either way).
+     */
+    @SuppressWarnings("unchecked")
+    private static <T> byte[] serializeForPatch(Context context, Object entity, Class<T> responseType) {
+        if (entity instanceof io.github.akbarhusain.odata.runtime.entity.ODataEntityType odataEntity) {
+            java.util.Set<String> changed = odataEntity.getChangedFields();
+            if (changed != null && !changed.isEmpty()) {
+                return context.serializer().serialize((T) entity, responseType, changed);
+            }
+        }
+        return context.serializer().serialize((T) entity, responseType);
+    }
+
     private static <T> T deserializeOrNull(HttpResponse response, Context context, Class<T> responseType) {
         // Some services return 204 (or an empty body) for POST/PUT/PATCH, and GET can return
         // 204 for gone entities (e.g. TripPin). Return null rather than failing to deserialize
@@ -132,7 +149,7 @@ public class EntityOperations {
 
     @SuppressWarnings("unchecked")
     public static <T> T executePatchEntity(Context context, ContextPath path, Object entity, Class<T> responseType) {
-        byte[] body = context.serializer().serialize((T) entity, responseType);
+        byte[] body = serializeForPatch(context, entity, responseType);
         HttpResponse response = executeSync(context, HttpMethod.PATCH, path, body,
                 Map.of("Content-Type", "application/json"));
         checkResponse(response);
@@ -142,7 +159,7 @@ public class EntityOperations {
     @SuppressWarnings("unchecked")
     public static <T> T executePatchEntityWithETag(Context context, ContextPath path, Object entity,
                                                      Class<T> responseType, String etag) {
-        byte[] body = context.serializer().serialize((T) entity, responseType);
+        byte[] body = serializeForPatch(context, entity, responseType);
         Map<String, String> headers = new LinkedHashMap<>();
         headers.put("Content-Type", "application/json");
         if (etag != null && !etag.isEmpty()) {
@@ -358,7 +375,20 @@ public class EntityOperations {
         checkResponse(response);
     }
 
+    // Chains are cached per Context (records compare by value, so identical configurations
+    // share one chain) — building N wrappers per request was the last per-request
+    // allocation hotspot once interceptors are registered (M10)
+    private static final Map<Context, HttpTransport> CHAIN_CACHE =
+            java.util.Collections.synchronizedMap(new java.util.WeakHashMap<>());
+
     public static HttpTransport buildTransportChain(Context context, HttpTransport real) {
+        if (context.interceptors().isEmpty()) {
+            return real;
+        }
+        HttpTransport cached = CHAIN_CACHE.get(context);
+        if (cached != null) {
+            return cached;
+        }
         HttpTransport transport = real;
         List<HttpInterceptor> interceptors = context.interceptors();
         for (int i = interceptors.size() - 1; i >= 0; i--) {
@@ -382,6 +412,7 @@ public class EntityOperations {
                 }
             };
         }
+        CHAIN_CACHE.put(context, transport);
         return transport;
     }
 

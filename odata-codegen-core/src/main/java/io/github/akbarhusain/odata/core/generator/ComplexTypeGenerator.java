@@ -58,6 +58,7 @@ public class ComplexTypeGenerator extends AbstractTypeGenerator {
         List<NavigationPropertyModel> allNavs = new ArrayList<>(inheritedNavs);
         allNavs.addAll(ownNavs);
 
+        allocateConstantNames(allProps, allNavs);
         checkMemberNameCollisions(className, allProps, allNavs);
 
         // OpenType dynamic-property support: capture undeclared JSON fields into unmappedFields.

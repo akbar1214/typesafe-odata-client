@@ -24,6 +24,25 @@ public record ContextPath(
         return new ContextPath(basePath, append(segments, new Segment(segment, List.of())));
     }
 
+    /**
+     * Adds a key with its Edm type so the literal renders per the OData ABNF instead of
+     * by value-shape heuristics: Edm.String is always quoted (even when UUID-shaped),
+     * Edm.Guid/Date/DateTimeOffset/TimeOfDay are bare, Edm.Duration is
+     * {@code duration'...'}, and qualified enum types render {@code NS.Enum'Member'}.
+     */
+    public ContextPath addKey(String name, Object value, String edmType) {
+        if (segments.isEmpty()) {
+            throw new IllegalStateException("Cannot add key without a segment");
+        }
+        Segment last = segments.get(segments.size() - 1);
+        Segment updated = new Segment(last.name(),
+                append(last.keys(), new KeyValuePair(name, new TypedValue(value, edmType))),
+                last.queries());
+        List<Segment> newSegments = new ArrayList<>(segments);
+        newSegments.set(newSegments.size() - 1, updated);
+        return new ContextPath(basePath, List.copyOf(newSegments));
+    }
+
     public ContextPath addKey(String name, Object value) {
         if (segments.isEmpty()) {
             throw new IllegalStateException("Cannot add key without a segment");
@@ -233,7 +252,15 @@ public record ContextPath(
     private static final java.util.regex.Pattern GUID_PATTERN = java.util.regex.Pattern.compile(
             "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}");
 
-    private static String formatValue(Object value) {
+    /** Carries the Edm type alongside the raw key value so formatting is type-driven. */
+    private record TypedValue(Object value, String edmType) {}
+
+    private static String formatValue(Object valueOrTyped) {
+        if (valueOrTyped instanceof TypedValue typed && typed.edmType() != null && !typed.edmType().isBlank()) {
+            return formatTypedValue(typed.value(), typed.edmType());
+        }
+        Object value = valueOrTyped instanceof TypedValue typed ? typed.value() : valueOrTyped;
+        // legacy untyped path (direct addKey callers): original heuristics
         if (value instanceof String s) {
             // Edm.Guid keys are written unquoted (e.g. Advertisements(<guid>)); services reject
             // the quoted form ('<guid>') and the guid'...' literal (OData Demo returns 400).
@@ -241,6 +268,23 @@ public record ContextPath(
             return "'" + encodeKeyValue(s) + "'";
         }
         return String.valueOf(value);
+    }
+
+    private static String formatTypedValue(Object value, String edmType) {
+        return switch (edmType) {
+            case "Edm.String" -> "'" + encodeKeyValue(String.valueOf(value)) + "'";
+            case "Edm.Guid" -> String.valueOf(value);
+            case "Edm.DateTimeOffset", "Edm.Date" -> String.valueOf(value); // bare ISO literals
+            case "Edm.TimeOfDay" -> value instanceof java.time.LocalTime t
+                    ? t.format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss"))
+                    : String.valueOf(value);
+            case "Edm.Duration" -> "duration'" + value + "'";
+            case "Edm.Boolean", "Edm.Byte", "Edm.SByte", "Edm.Int16", "Edm.Int32", "Edm.Int64",
+                 "Edm.Single", "Edm.Double", "Edm.Decimal" -> String.valueOf(value);
+            default -> value instanceof Enum<?> e
+                    ? edmType + "'" + e.name() + "'"  // qualified enum type
+                    : String.valueOf(value);
+        };
     }
 
     private static String encodeKeyValue(String value) {

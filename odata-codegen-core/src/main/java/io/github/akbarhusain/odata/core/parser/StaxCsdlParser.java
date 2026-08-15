@@ -126,7 +126,11 @@ public class StaxCsdlParser {
                     case "Function" -> functions.add(parseFunction(reader, el));
                     case "Action" -> actions.add(parseAction(reader, el));
                     case "EntityContainer" -> containers.add(parseEntityContainer(reader, el));
-                    default -> skipElement(reader);
+                    default -> {
+                        warnings.add("Schema '" + namespace + "': ignored unknown element <"
+                                + localName + ">");
+                        skipElement(reader);
+                    }
                 }
             } else if (event.isEndElement() && isEdmElement(event.asEndElement(), "Schema")) {
                 return new SchemaModel(namespace, alias, entityTypes, complexTypes,
@@ -238,10 +242,7 @@ public class StaxCsdlParser {
             XMLEvent event = reader.nextEvent();
             if (event.isStartElement() && "ReferentialConstraint".equals(
                     event.asStartElement().getName().getLocalPart())) {
-                StartElement constraintEl = event.asStartElement();
-                constraints.add(new ReferentialConstraintModel(
-                        getAttr(constraintEl, "Property"),
-                        getAttr(constraintEl, "ReferencedProperty")));
+                constraints.addAll(parseReferentialConstraint(reader, event.asStartElement()));
             } else if (event.isEndElement() && isEdmElement(event.asEndElement(), "NavigationProperty")) {
                 return new NavigationPropertyModel(name, type, partner, containsTarget,
                         nullable, constraints, List.of());
@@ -250,6 +251,63 @@ public class StaxCsdlParser {
 
         return new NavigationPropertyModel(name, type, partner, containsTarget,
                 nullable, constraints, List.of());
+    }
+
+    /**
+     * Parses a ReferentialConstraint in either shape: v4 nested
+     * {@code <Principal><PropertyRef Name=.../></Principal><Dependent>...} (paired by
+     * position) or the legacy attribute form ({@code Property}/{@code ReferencedProperty}).
+     */
+    private List<ReferentialConstraintModel> parseReferentialConstraint(XMLEventReader reader,
+                                                                        StartElement constraintEl)
+            throws XMLStreamException {
+        List<String> principal = new ArrayList<>();
+        List<String> dependent = new ArrayList<>();
+        String section = null;
+        while (reader.hasNext()) {
+            XMLEvent event = reader.nextEvent();
+            if (event.isStartElement()) {
+                StartElement el = event.asStartElement();
+                String localName = el.getName().getLocalPart();
+                switch (localName) {
+                    case "Principal" -> section = "P";
+                    case "Dependent" -> section = "D";
+                    case "PropertyRef" -> {
+                        String name = getAttr(el, "Name");
+                        if ("P".equals(section)) principal.add(name);
+                        else if ("D".equals(section)) dependent.add(name);
+                    }
+                    default -> skipElement(reader);
+                }
+            } else if (event.isEndElement()) {
+                String localName = event.asEndElement().getName().getLocalPart();
+                if ("Principal".equals(localName) || "Dependent".equals(localName)) {
+                    section = null;
+                } else if ("ReferentialConstraint".equals(localName)) {
+                    List<ReferentialConstraintModel> result = new ArrayList<>();
+                    if (!principal.isEmpty() || !dependent.isEmpty()) {
+                        if (principal.size() != dependent.size()) {
+                            throw new IllegalArgumentException(
+                                    "ReferentialConstraint has " + principal.size()
+                                            + " principal PropertyRefs but " + dependent.size()
+                                            + " dependent PropertyRefs");
+                        }
+                        for (int i = 0; i < principal.size(); i++) {
+                            result.add(new ReferentialConstraintModel(dependent.get(i), principal.get(i)));
+                        }
+                    } else {
+                        // legacy attribute form
+                        String prop = getAttr(constraintEl, "Property");
+                        String ref = getAttr(constraintEl, "ReferencedProperty");
+                        if (prop != null && ref != null) {
+                            result.add(new ReferentialConstraintModel(prop, ref));
+                        }
+                    }
+                    return result;
+                }
+            }
+        }
+        return List.of();
     }
 
     private EnumTypeModel parseEnumType(XMLEventReader reader, StartElement el)

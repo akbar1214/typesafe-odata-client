@@ -33,6 +33,12 @@ public record Context(
         public Builder interceptors(List<HttpInterceptor> i) { this.interceptors = List.copyOf(i); return this; }
 
         public Context build() {
+            if (baseUrl == null || baseUrl.isBlank()) {
+                // failing here beats every request failing later inside URI.create with
+                // an opaque message
+                throw new IllegalArgumentException(
+                        "Context requires a non-blank baseUrl (e.g. https://services.odata.org/V4/TripPinService)");
+            }
             return new Context(baseUrl, serializer, transport, authProvider, interceptors);
         }
     }

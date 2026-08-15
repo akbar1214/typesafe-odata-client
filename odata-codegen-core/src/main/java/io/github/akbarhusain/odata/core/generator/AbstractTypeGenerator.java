@@ -59,6 +59,36 @@ public abstract class AbstractTypeGenerator {
     // Member-name collision detection
     // ------------------------------------------------------------------
 
+    // Per-type allocation of property-constant names: case collisions (budget vs Budget
+    // both folding to BUDGET) get a deterministic _2, _3 suffix instead of duplicate
+    // constants that don't compile
+    private final java.util.Map<String, String> constantNames = new java.util.HashMap<>();
+
+    protected void allocateConstantNames(List<PropertyModel> props, List<NavigationPropertyModel> navs) {
+        java.util.Set<String> used = new java.util.HashSet<>();
+        for (PropertyModel prop : props) {
+            allocateConstantName(prop.name(), used);
+        }
+        for (NavigationPropertyModel nav : navs) {
+            allocateConstantName(nav.name(), used);
+        }
+    }
+
+    private void allocateConstantName(String memberName, java.util.Set<String> used) {
+        String base = Names.toConstantName(memberName);
+        String candidate = base;
+        int suffix = 2;
+        while (!used.add(candidate)) {
+            candidate = base + "_" + suffix++;
+        }
+        constantNames.put(memberName, candidate);
+    }
+
+    protected String constantNameFor(String memberName) {
+        String allocated = constantNames.get(memberName);
+        return allocated != null ? allocated : Names.toConstantName(memberName);
+    }
+
     /**
      * Fails with a clear error when two members of a type map to the same generated
      * Java identifier — e.g. properties {@code Name} and {@code name} both fold to field
@@ -68,15 +98,14 @@ public abstract class AbstractTypeGenerator {
      */
     protected void checkMemberNameCollisions(String className, List<PropertyModel> props,
                                              List<NavigationPropertyModel> navs) {
+        // constant collisions are auto-deduped via allocateConstantNames; field-level
+        // folding (Name vs name -> field 'name') still fails loudly
         java.util.Map<String, String> fields = new java.util.HashMap<>();
-        java.util.Map<String, String> constants = new java.util.HashMap<>();
         for (PropertyModel prop : props) {
             checkCollision(fields, Names.toJavaFieldName(prop.name()), "field", prop.name(), className);
-            checkCollision(constants, Names.toConstantName(prop.name()), "constant", prop.name(), className);
         }
         for (NavigationPropertyModel nav : navs) {
             checkCollision(fields, Names.toJavaFieldName(nav.name()), "field", nav.name(), className);
-            checkCollision(constants, Names.toConstantName(nav.name()), "constant", nav.name(), className);
         }
     }
 
@@ -317,7 +346,7 @@ public abstract class AbstractTypeGenerator {
 
     protected String generateFilterablePropertyField(PropertyModel prop, String className, SchemaModel schema) {
         String edmType = prop.edmType();
-        String constantName = Names.toConstantName(prop.name());
+        String constantName = constantNameFor(prop.name());
 
         if (Names.isCollectionType(edmType)) {
             String elementType = Names.unwrapCollectionType(edmType);

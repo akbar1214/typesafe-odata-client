@@ -177,11 +177,11 @@ try {
 
 ```java
 // Use the JDK HttpClient transport (zero extra dependencies)
-import io.github.akbarhusain.odata.runtime.http.JavaNetHttpTransport;
+import io.github.akbarhusain.odata.runtime.http.JdkHttpTransport;
 
 Context ctx = Context.builder()
     .baseUrl("https://services.odata.org/V4/TripPinService")
-    .transport(new JavaNetHttpTransport())
+    .transport(new JdkHttpTransport())
     .authProvider(new BearerAuthProvider("your-token"))
     .build();
 ```

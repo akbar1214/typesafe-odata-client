@@ -418,12 +418,14 @@ public class RequestGenerator extends AbstractTypeGenerator {
                     String keyProp = key.propertyRefs().get(0);
                     String paramName = Names.toJavaFieldName(keyProp);
                     String paramType = resolveKeyType(entityType, keyProp, schema);
+                    String keyEdmType = keyEdmType(entityType, keyProp, schema);
                     sb.append("    public ").append(Names.entityRequestClassName(entityType.name()))
                       .append(" ").append(Names.toJavaFieldName(entityType.name()))
                       .append("By").append(Names.capitalize(keyProp))
                       .append("(").append(paramType).append(" ").append(paramName).append(") {\n");
                     sb.append("        return new ").append(Names.entityRequestClassName(entityType.name()))
-                      .append("(context, contextPath.addKey(\"").append(keyProp).append("\", ").append(paramName).append("));\n");
+                      .append("(context, contextPath.addKey(\"").append(keyProp).append("\", ").append(paramName)
+                      .append(", \"").append(keyEdmType).append("\"));\n");
                     sb.append("    }\n\n");
                 } else {
                     // Composite key - generate single accessor with all key params
@@ -433,10 +435,12 @@ public class RequestGenerator extends AbstractTypeGenerator {
                         String keyProp = key.propertyRefs().get(i);
                         String paramName = Names.toJavaFieldName(keyProp);
                         String paramType = resolveKeyType(entityType, keyProp, schema);
+                        String keyEdmType = keyEdmType(entityType, keyProp, schema);
                         if (i > 0) { params.append(", "); args.append(".addKey(\""); }
                         else { args.append("contextPath.addKey(\""); }
                         params.append(paramType).append(" ").append(paramName);
-                        args.append(keyProp).append("\", ").append(paramName).append(")");
+                        args.append(keyProp).append("\", ").append(paramName)
+                              .append(", \"").append(keyEdmType).append("\")");
                     }
                     sb.append("    public ").append(Names.entityRequestClassName(entityType.name()))
                       .append(" ").append(Names.toJavaFieldName(entityType.name()))
@@ -505,6 +509,20 @@ public class RequestGenerator extends AbstractTypeGenerator {
         if (Names.isBooleanType(resolved)) return "Boolean";
         if (Names.isPrimitiveType(resolved)) return Names.edmTypeToSimpleJavaType(resolved);
         return "Object";
+    }
+
+    /** The RESOLVED Edm type of a key property (typedefs unwrapped), for typed key literals. */
+    private String keyEdmType(EntityTypeModel entityType, String keyPropName, SchemaModel schema) {
+        for (PropertyModel prop : entityType.properties()) {
+            if (prop.name().equals(keyPropName)) {
+                return resolveTypeDefinition(prop.edmType(), schema);
+            }
+        }
+        EntityTypeModel base = findBase(entityType);
+        if (base != null) {
+            return keyEdmType(base, keyPropName, schema);
+        }
+        return "Edm.String";
     }
 
     private java.util.List<KeyModel> resolvedKeys(EntityTypeModel entityType, SchemaModel schema) {

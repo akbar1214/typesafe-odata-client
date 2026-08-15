@@ -113,4 +113,31 @@ public class JacksonSerializer implements Serializer {
                     "Serialization failed: " + e.getMessage(), e);
         }
     }
+
+    @Override
+    public <T> byte[] serialize(T value, Class<T> type, java.util.Set<String> includeFields) {
+        if (includeFields == null || includeFields.isEmpty()) {
+            return serialize(value, type);
+        }
+        // Serialize through a tree, then keep only the changed fields — honors the wire
+        // mapper's inclusion rules (NON_ABSENT, NON_EMPTY collections, ignored lifecycle
+        // members) exactly like full serialization
+        try {
+            com.fasterxml.jackson.databind.JsonNode tree = MAPPER.valueToTree(value);
+            if (tree.isObject()) {
+                // collect first (cannot mutate while iterating fieldNames)
+                java.util.List<String> names = new java.util.ArrayList<>();
+                tree.fieldNames().forEachRemaining(names::add);
+                for (String name : names) {
+                    if (!includeFields.contains(name)) {
+                        ((com.fasterxml.jackson.databind.node.ObjectNode) tree).remove(name);
+                    }
+                }
+            }
+            return MAPPER.writeValueAsBytes(tree);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            throw new io.github.akbarhusain.odata.runtime.exception.ODataException(
+                    "Failed to serialize changed fields: " + e.getMessage(), e);
+        }
+    }
 }

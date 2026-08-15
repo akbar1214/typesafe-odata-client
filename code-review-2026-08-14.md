@@ -543,21 +543,31 @@ Verification: 22 new tests across core/runtime/plugin; full reactor hermetic (44
 
 ---
 
-## Carry-forward: previously reported and still open (from `review.md`)
+## Carry-forward: previously reported (from `review.md`) — ALL RESOLVED
 
-Not re-litigated here; still open at commit `eaa31aa`:
-
-- **H7** — duplicate dead `JavaNetHttpTransport` (divergent error semantics).
-- **H6 (partial)** — case-colliding property constants (`budget` vs `Budget` → `BUDGET`).
-- **M3** — `BatchRequest.execute()`/`executeAsync()` duplication.
-- **M4** — `changedFields` tracked but never consumed.
-- **M7** — v4 referential constraints parsed as nulls.
-- **M9 (extended by M21 above)** — GUID-shaped *string* keys sent unquoted; new findings add datetime/enum key literals
-  also rendering invalid, and the generator discarding key Edm-type info it already has.
-- **M10 (partial)** — interceptor chain rebuilt per request when interceptors exist.
-- Low: `warnings` field dead, `baseUrl` validation, `BatchResult<T>` unused `T`, function/action imports + singletons
-  parsed but not generated (upgraded to Medium-worthy here as M-gap: `ContainerGenerator` ignores them entirely with no
-  warning).
+- **H7 ✅** `JavaNetHttpTransport` deleted (it was dead code with divergent error semantics); `JdkHttpTransport` is the
+  single transport, and doc references were updated.
+- **H6 ✅** Property-constant names are auto-deduplicated per type (`budget` vs `Budget` → `BUDGET` and `BUDGET_2`)
+  across static constants, nav constants, and Filterable fields — the long-standing gap is closed. Field-level folding
+  (`Name`/`name`) still fails loudly by design.
+- **M3 ✅** `BatchRequest` sync/async share one `submitBatch(boundary)` assembly; non-2xx batch responses throw the
+  typed exception hierarchy (`ODataException.fromResponse`) with the parsed `ODataError`.
+- **M4 ✅** `changedFields` is consumed: PATCH serializes only tracked fields when non-empty (Builder/`with*` flows get
+  true partial updates; deserialized-then-setter-mutated entities fall back to full-body merge, which is legal OData).
+  Implemented as a default `Serializer.serialize(value, type, includeFields)` filtered by the Jackson implementation.
+- **M7 ✅** v4 nested referential constraints (`<Principal>/<Dependent>` `PropertyRef`s, paired by position) parse into
+  the model; mismatched principal/dependent counts fail loudly; the legacy attribute form still works.
+- **M9 (extended) ✅** Key literals are type-driven: generated key accessors pass the key's resolved Edm type to
+  `ContextPath.addKey(name, value, edmType)` — `Edm.String` is ALWAYS quoted (UUID-shaped string keys no longer go out
+  bare), `Edm.Guid`/Date/DateTimeOffset are bare ISO, TimeOfDay renders `HH:mm:ss`, Duration renders `duration'...'`,
+  and qualified enum types render `NS.Enum'Member'`. The untyped 2-arg `addKey` keeps its legacy heuristics for direct
+  callers. Verified live (TripPin string keys, OData Demo Guid keys).
+- **M10 ✅** The interceptor chain is cached per `Context` (`WeakHashMap`; Context records compare by value so equal
+  configurations share a chain); the zero-interceptor fast path still returns the real transport untouched.
+- **Lows ✅** `warnings` is populated (skipped schema elements are reported); `Context.Builder` rejects blank
+  `baseUrl` at build time; function/action imports log a per-import warning in `ContainerGenerator` (generation itself
+  remains future work; singletons were already generated). **`BatchResult<T>` — resolved by design:** the generic
+  parameter is the typed view's return type of `getEntity(Serializer)`, used by `BatchResponse.get(i, type)`. 
 
 ---
 

@@ -71,16 +71,23 @@ class GeneratorDuplicateDetectionTest {
     }
 
     @Test
-    void m20ConstantCaseCollisionFailsLoudly() throws Exception {
+    void h6ConstantCaseCollisionsAutoDedup() throws Exception {
         // 'value' and 'VALUE' map to distinct fields (value / vALUE) but the same
-        // constant VALUE — the long-standing H6 gap
+        // constant VALUE — now deduplicated with a deterministic suffix instead of
+        // generating duplicate constants that don't compile
         CsdlModel model = parse(edmx(schema("Ns.A",
                 ENTITY("Trip", "value:Edm.String", "VALUE:Edm.String"))));
 
-        Generator generator = new Generator(tempDir(), java.util.Map.of(), "com.example.dup");
-        IllegalStateException ex = assertThrows(IllegalStateException.class, () -> generator.generate(model));
-        assertTrue(ex.getMessage().contains("constant 'VALUE'"),
-                "constant case-collisions must be detected: " + ex.getMessage());
+        Path dir = tempDir();
+        new Generator(dir, java.util.Map.of(), "com.example.dup").generate(model);
+        String code = java.nio.file.Files.readString(dir.resolve(
+                "com/example/dup/entity/Trip.java"));
+
+        assertTrue(code.contains("StringProperty<Trip> VALUE ")
+                        || code.contains("StringProperty<Trip> VALUE ="),
+                "first member keeps the natural constant. Got:\n" + code);
+        assertTrue(code.contains("StringProperty<Trip> VALUE_2"),
+                "colliding member gets a deterministic _2 suffix. Got:\n" + code);
     }
 
     @Test

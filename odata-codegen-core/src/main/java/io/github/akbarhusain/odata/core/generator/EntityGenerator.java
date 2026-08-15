@@ -64,6 +64,7 @@ public class EntityGenerator extends AbstractTypeGenerator {
         allNavs.addAll(entityType.navigationProperties());
         List<NavigationPropertyModel> ownNavs = entityType.navigationProperties();
 
+        allocateConstantNames(allProps, allNavs);
         checkMemberNameCollisions(className, allProps, allNavs);
         checkKeyPropertyRefs(entityType, className, allProps);
 
@@ -458,7 +459,7 @@ public class EntityGenerator extends AbstractTypeGenerator {
 
     private String generatePropertyConstant(PropertyModel prop, String className, SchemaModel schema) {
         String edmType = prop.edmType();
-        String constantName = Names.toConstantName(prop.name());
+        String constantName = constantNameFor(prop.name());
 
         if (Names.isCollectionType(edmType)) {
             String elementType = Names.unwrapCollectionType(edmType);
@@ -498,7 +499,7 @@ public class EntityGenerator extends AbstractTypeGenerator {
         boolean isCollection = Names.isCollectionType(nav.type());
         String unwrapped = Names.unwrapCollectionType(nav.type());
         String elementClassName = Names.resolvedClassName(unwrapped, effectiveSchemas);
-        String constantName = Names.toConstantName(nav.name());
+        String constantName = constantNameFor(nav.name());
 
         if (isCollection) {
             return "    public static final CollectionProperty<" + className + ", "

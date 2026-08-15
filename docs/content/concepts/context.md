@@ -39,7 +39,7 @@ Context ctx = Context.builder()
 Context ctx = Context.builder()
     .baseUrl("https://services.odata.org/V4/TripPinService")
     .serializer(new JacksonSerializer())
-    .transport(new JavaNetHttpTransport())
+    .transport(new JdkHttpTransport())
     .authProvider(new BearerAuthProvider("token"))
     .interceptors(List.of(new LoggingInterceptor()))
     .build();
