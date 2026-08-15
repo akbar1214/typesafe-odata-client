@@ -18,9 +18,20 @@ import java.util.concurrent.CompletionException;
 public class BatchRequest {
     private final Context context;
     private final List<Object> entries = new ArrayList<>();
+    private boolean continueOnError;
 
     public BatchRequest(Context context) {
         this.context = context;
+    }
+
+    /**
+     * Requests partial processing: the service continues after a failed operation instead
+     * of aborting the rest of the batch ({@code Prefer: continue-on-error=true}, OData
+     * 4.01). Services advertise support via the Capabilities-V1 batch capabilities.
+     */
+    public BatchRequest continueOnError() {
+        this.continueOnError = true;
+        return this;
     }
 
     public BatchRequest add(BatchOperation operation) {
@@ -56,6 +67,9 @@ public class BatchRequest {
         headers.putAll(toMultiMap(context.authProvider().getHeaders()));
         headers.put("Content-Type", List.of("multipart/mixed; boundary=" + boundary));
         headers.put("Accept", List.of("multipart/mixed"));
+        if (continueOnError) {
+            headers.put("Prefer", List.of("continue-on-error=true"));
+        }
 
         HttpRequest request = HttpRequest.builder()
                 .method(HttpMethod.POST)
@@ -93,6 +107,9 @@ public class BatchRequest {
         headers.putAll(toMultiMap(context.authProvider().getHeaders()));
         headers.put("Content-Type", List.of("multipart/mixed; boundary=" + boundary));
         headers.put("Accept", List.of("multipart/mixed"));
+        if (continueOnError) {
+            headers.put("Prefer", List.of("continue-on-error=true"));
+        }
 
         HttpRequest request = HttpRequest.builder()
                 .method(HttpMethod.POST)

@@ -21,9 +21,24 @@ public class NavProperty<E, T> {
     public NavQuery<E, T> select(PropertyExpression<? super T, ?>... properties) {
         List<String> selects = new ArrayList<>();
         for (var prop : properties) {
-            selects.add(prop.getEdmName());
+            selects.add(selectableName(prop));
         }
         return new NavQuery<>(edmName, selects, List.of(), List.of(), null, null, null, List.of());
+    }
+
+    /**
+     * $select accepts structural property paths only — transformation methods
+     * ({@code toLower()}, {@code substring()}, {@code date()}, ...) return property-like
+     * expressions whose names contain function calls, which are invalid in $select.
+     */
+    static String selectableName(PropertyExpression<?, ?> prop) {
+        String name = prop.getEdmName();
+        if (name.indexOf('(') >= 0) {
+            throw new IllegalArgumentException("'" + name + "' is not a selectable property "
+                    + "($select accepts property paths only; function transformations belong "
+                    + "in $filter or $compute)");
+        }
+        return name;
     }
 
     public NavQuery<E, T> filter(FilterExpression<? super T> predicate) {
@@ -88,7 +103,7 @@ public class NavProperty<E, T> {
         public NavQuery<S, T> select(PropertyExpression<? super T, ?>... properties) {
             List<String> newSelects = new ArrayList<>(this.selects);
             for (var prop : properties) {
-                newSelects.add(prop.getEdmName());
+                newSelects.add(selectableName(prop));
             }
             return new NavQuery<>(edmName, newSelects, filters, orderings, topOption, skipOption, countOption, expands);
         }

@@ -198,4 +198,21 @@ class NavPropertyExpandTest {
         assertThrows(UnsupportedOperationException.class,
                 () -> query.selects().add("Injected"));
     }
+
+    @Test
+    void l12SelectRejectsFunctionTransformations() {
+        NavProperty<Object, Object> nav = new NavProperty<>("Trips", Object.class, Object.class);
+        StringProperty<Object> name = new StringProperty<>("Name", null);
+        DateTimeProperty<Object> startsAt = new DateTimeProperty<>("StartsAt", null);
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> nav.select(name.toUpper()),
+                "$select=tolower(Name) is invalid — only structural property paths are selectable");
+        assertTrue(ex.getMessage().contains("toupper(Name)"), "message shows the offending name: " + ex.getMessage());
+        assertThrows(IllegalArgumentException.class, () -> nav.select(startsAt.date()));
+        assertThrows(IllegalArgumentException.class,
+                () -> nav.select(name).select(name.toUpper()),
+                "NavQuery.select must reject them too");
+        assertDoesNotThrow(() -> nav.select(name), "plain properties stay selectable");
+    }
 }

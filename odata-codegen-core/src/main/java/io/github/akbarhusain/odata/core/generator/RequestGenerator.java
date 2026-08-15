@@ -257,7 +257,14 @@ public class RequestGenerator extends AbstractTypeGenerator {
         sb.append("    @SafeVarargs\n");
         sb.append("    public final ").append(className).append(" select(PropertyExpression<? super ").append(entityClassName).append(", ?>... properties) {\n");
         sb.append("        ").append(className).append(" next = copy();\n");
-        sb.append("        for (var p : properties) next.selects.add(p.getEdmName());\n");
+        sb.append("        for (var p : properties) {\n");
+        sb.append("            String name = p.getEdmName();\n");
+        sb.append("            if (name.indexOf('(') >= 0) {\n");
+        sb.append("                throw new IllegalArgumentException(\"'\" + name + \"' is not a selectable property \"\n");
+        sb.append("                        + \"(select accepts property paths only; function transformations belong in filter or compute)\");\n");
+        sb.append("            }\n");
+        sb.append("            next.selects.add(name);\n");
+        sb.append("        }\n");
         sb.append("        return next;\n");
         sb.append("    }\n\n");
 

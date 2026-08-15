@@ -495,15 +495,25 @@ Verification: 22 new tests across core/runtime/plugin; full reactor hermetic (44
   compact constructor `List.copyOf`s all list components, and `skip(int)` / `count()` (`$count=true`) were added on
   both `NavProperty` and `NavQuery` (parity with `top`). **Not added:** `$level` / `$ref` expand forms (deferred;
   `NavQuery` composition would need a nested-query component). Tests: 2 `NavPropertyExpandTest` cases (TDD).
-- **L11.** `ApplyBuilder` is mutable and implements `ApplyExpression` — a shared instance races; `top(-5)` renders
-  invalid OData (`ApplyBuilder.java:22-24,67-75`).
-- **L12.** Transformation methods (`toLower()`, `substring()`, `date()`, ...) return full `PropertyExpression`s, so
-  `select(prop.toUpper())` renders the invalid `$select=tolower(Name)` (`StringProperty.java:75-93`). Return a
-  non-selectable expression type or reject `(` in `select()`.
-- **L13.** `CollectionProperty.any/all` hardcode the lambda alias `x:` while `FilterableElement` supports custom
-  prefixes; nested `any` shadows the outer alias; NPE if constructed without a factory (
+- **L11. ~~`ApplyBuilder` races on a shared instance; `top(-5)` renders invalid OData.~~ ✅ Resolved** `top`/`skip`
+  reject negative values; `toODataApply()` renders from a `List.copyOf` snapshot; the class documents itself as a
+  mutable, non-thread-safe builder (configure on one thread, share the rendered string). Test:
+  `l11NegativeTopAndSkipAreRejected` (TDD).
+- **L12. ~~Transformation methods are selectable, rendering invalid `$select`.~~ ✅ Resolved** Both `NavProperty`/
+  `NavQuery.select` and the generated collection-request `select()` reject property names containing `(` with a clear
+  message (transformation methods like `toUpper()` return property-like expressions whose names are function calls;
+  `$orderby` keeps accepting them, which is legal OData). Tests: `l12SelectRejectsFunctionTransformations` (runtime,
+  TDD) + `l12GeneratedSelectRejectsFunctionTransformations` (generator content).
+- **L13. ~~`CollectionProperty.any/all` hardcode the lambda alias and NPE without a factory.~~ ✅ Resolved** A
+  missing filterable factory throws `IllegalStateException` with the fix explained; the alias is derived from
+  `FilterableElement.prefix()` (default `x`, matching generated `Filterable` constants — generated behavior unchanged)
+  and validated as a simple identifier. **Known limitation kept:** nested `any`-in-`any` shadows the outer alias.
+  Tests: 3 `CollectionPropertyTest` cases (TDD). (
   `CollectionProperty.java:27-37`).
-- **L14.** Batch is legacy-multipart only; no `continue-on-error` preference, no JSON batch / atomicity-group support (
+- **L14. ~~No `continue-on-error` preference.~~ ✅ Resolved (preference only)** `BatchRequest.continueOnError()` adds
+  `Prefer: continue-on-error=true` (OData 4.01 partial-processing preference) in both `execute()` and `executeAsync()`.
+  Test: `l14ContinueOnErrorAddsPreferenceHeader` (stub transport, TDD). **Not done:** JSON batch
+  (`application/json` + `atomicity-group`) — a second encoder/decoder, deferred as a feature. (
   `BatchRequest.java:55-58`).
 
 ### Core (parser/Names/generators)

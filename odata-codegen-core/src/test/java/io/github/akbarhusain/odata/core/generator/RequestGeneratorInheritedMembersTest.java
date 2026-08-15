@@ -96,4 +96,16 @@ class RequestGeneratorInheritedMembersTest {
             throw new RuntimeException(e);
         }
     }
+
+    @Test
+    void l12GeneratedSelectRejectsFunctionTransformations() {
+        var tripPin = loadTripPin();
+        var trip = tripPin.entityTypes().stream()
+                .filter(e -> e.name().equals("Trip")).findFirst().orElseThrow();
+        String code = new RequestGenerator("com.example.trippin")
+                .generateCollectionRequest(trip, tripPin);
+
+        assertTrue(code.contains("not a selectable property"),
+                "generated select() must reject function transformations like tolower(Name). Got:\n" + code);
+    }
 }

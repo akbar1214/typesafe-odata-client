@@ -25,15 +25,34 @@ public final class CollectionProperty<E, T, F> extends NavProperty<E, T> {
     public Supplier<F> getFilterableFactory() { return filterableFactory; }
 
     public FilterExpression<E> any(Function<F, FilterExpression<T>> predicate) {
-        F element = filterableFactory.get();
-        FilterExpression<T> result = predicate.apply(element);
-        return new RawFilterExpression<>(edmName + "/any(x: " + result.toODataExpression() + ")");
+        return lambda("any", predicate);
     }
 
     public FilterExpression<E> all(Function<F, FilterExpression<T>> predicate) {
+        return lambda("all", predicate);
+    }
+
+    private FilterExpression<E> lambda(String operator, Function<F, FilterExpression<T>> predicate) {
+        if (filterableFactory == null) {
+            throw new IllegalStateException("CollectionProperty '" + edmName
+                    + "' has no filterable factory; construct it with the element type's Filterable::new "
+                    + "(generated property constants provide one)");
+        }
         F element = filterableFactory.get();
         FilterExpression<T> result = predicate.apply(element);
-        return new RawFilterExpression<>(edmName + "/all(x: " + result.toODataExpression() + ")");
+        // The lambda alias must match the element's property prefix ("x/Name" needs alias x);
+        // generated Filterable classes use "x/", manual FilterableElement may customize it
+        String alias = element instanceof FilterableElement<?> fe ? fe.prefix() : "x";
+        if (alias.isEmpty() || !Character.isJavaIdentifierStart(alias.charAt(0))) {
+            throw new IllegalArgumentException("Invalid lambda alias '" + alias + "': must be a simple identifier");
+        }
+        for (int i = 1; i < alias.length(); i++) {
+            if (!Character.isJavaIdentifierPart(alias.charAt(i))) {
+                throw new IllegalArgumentException("Invalid lambda alias '" + alias + "': must be a simple identifier");
+            }
+        }
+        return new RawFilterExpression<>(edmName + "/" + operator + "(" + alias + ": "
+                + result.toODataExpression() + ")");
     }
 
     public FilterExpression<E> contains(T value) {
@@ -69,6 +88,11 @@ public final class CollectionProperty<E, T, F> extends NavProperty<E, T> {
 
         public FilterableElement(String prefix) {
             this.prefix = prefix;
+        }
+
+        /** The lambda alias this element's properties assume ({@code prefix/Name}). */
+        public String prefix() {
+            return prefix;
         }
 
         public StringProperty<T> stringField(String edmName) {

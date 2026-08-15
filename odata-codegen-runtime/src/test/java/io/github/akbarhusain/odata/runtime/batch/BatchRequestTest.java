@@ -159,4 +159,40 @@ class BatchRequestTest {
         // M8: BatchOperation.get must validate its URL like post/patch/put do.
         assertThrows(NullPointerException.class, () -> BatchOperation.get(null));
     }
+
+    static class HeaderCapturingTransport implements io.github.akbarhusain.odata.runtime.http.HttpTransport {
+        io.github.akbarhusain.odata.runtime.http.HttpRequest lastRequest;
+
+        @Override
+        public java.util.concurrent.CompletableFuture<io.github.akbarhusain.odata.runtime.http.HttpResponse> submit(
+                io.github.akbarhusain.odata.runtime.http.HttpRequest request) {
+            this.lastRequest = request;
+            return java.util.concurrent.CompletableFuture.completedFuture(
+                    new io.github.akbarhusain.odata.runtime.http.HttpResponse(200,
+                            java.util.Map.of("Content-Type", java.util.List.of("multipart/mixed; boundary=resp_b")),
+                            "--resp_b\r\nContent-Type: application/http\r\n\r\nHTTP/1.1 200 OK\r\n\r\n\r\n--resp_b--\r\n"
+                                    .getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        }
+
+        @Override
+        public java.util.concurrent.CompletableFuture<java.io.InputStream> stream(
+                io.github.akbarhusain.odata.runtime.http.HttpRequest request) {
+            throw new UnsupportedOperationException();
+        }
+    }
+
+    @Test
+    void l14ContinueOnErrorAddsPreferenceHeader() {
+        HeaderCapturingTransport transport = new HeaderCapturingTransport();
+        Context ctx = Context.builder().baseUrl("https://example.com").transport(transport).build();
+
+        ctx.batch().add(BatchOperation.get("People('scott')")).execute();
+        assertNull(transport.lastRequest.headers().get("Prefer"),
+                "no preference by default");
+
+        ctx.batch().add(BatchOperation.get("People('scott')")).continueOnError().execute();
+        assertEquals(java.util.List.of("continue-on-error=true"),
+                transport.lastRequest.headers().get("Prefer"),
+                "continueOnError() must request partial processing of the batch");
+    }
 }
