@@ -19,7 +19,7 @@ public record HttpRequest(
     public static final class Builder {
         private HttpMethod method = HttpMethod.GET;
         private String url = "";
-        private final java.util.HashMap<String, List<String>> headers = new java.util.HashMap<>();
+        private final java.util.LinkedHashMap<String, List<String>> headers = new java.util.LinkedHashMap<>();
         private byte[] body;
         private Duration connectTimeout = Duration.ofSeconds(30);
         private Duration readTimeout = Duration.ofSeconds(60);
@@ -27,13 +27,20 @@ public record HttpRequest(
         public Builder method(HttpMethod method) { this.method = method; return this; }
         public Builder url(String url) { this.url = url; return this; }
         public Builder header(String name, String value) {
+            // Fail at the offending call, not later in build() (Map.copyOf rejects nulls
+            // with a stack trace far from the cause)
+            java.util.Objects.requireNonNull(name, "header name");
+            java.util.Objects.requireNonNull(value, "header value");
             headers.computeIfAbsent(name, k -> new java.util.ArrayList<>()).add(value);
             return this;
         }
         public Builder headers(Map<String, List<String>> headers) {
             for (var entry : headers.entrySet()) {
-                this.headers.computeIfAbsent(entry.getKey(), k -> new java.util.ArrayList<>())
-                        .addAll(entry.getValue());
+                java.util.Objects.requireNonNull(entry.getKey(), "header name");
+                for (String value : entry.getValue()) {
+                    java.util.Objects.requireNonNull(value, "header value for " + entry.getKey());
+                    this.headers.computeIfAbsent(entry.getKey(), k -> new java.util.ArrayList<>()).add(value);
+                }
             }
             return this;
         }
@@ -42,7 +49,9 @@ public record HttpRequest(
         public Builder readTimeout(Duration timeout) { this.readTimeout = timeout; return this; }
 
         public HttpRequest build() {
-            return new HttpRequest(method, url, Map.copyOf(headers),
+            // unmodifiableMap(LinkedHashMap) — Map.copyOf discards insertion order
+            return new HttpRequest(method, url,
+                    java.util.Collections.unmodifiableMap(new java.util.LinkedHashMap<>(headers)),
                     body != null ? body.clone() : null, connectTimeout, readTimeout);
         }
     }

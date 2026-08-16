@@ -1,6 +1,5 @@
 package io.github.akbarhusain.odata.runtime.entity;
 
-import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -23,6 +22,25 @@ public record ContextPath(
 
     public ContextPath addSegment(String segment) {
         return new ContextPath(basePath, append(segments, new Segment(segment, List.of())));
+    }
+
+    /**
+     * Adds a key with its Edm type so the literal renders per the OData ABNF instead of
+     * by value-shape heuristics: Edm.String is always quoted (even when UUID-shaped),
+     * Edm.Guid/Date/DateTimeOffset/TimeOfDay are bare, Edm.Duration is
+     * {@code duration'...'}, and qualified enum types render {@code NS.Enum'Member'}.
+     */
+    public ContextPath addKey(String name, Object value, String edmType) {
+        if (segments.isEmpty()) {
+            throw new IllegalStateException("Cannot add key without a segment");
+        }
+        Segment last = segments.get(segments.size() - 1);
+        Segment updated = new Segment(last.name(),
+                append(last.keys(), new KeyValuePair(name, new TypedValue(value, edmType))),
+                last.queries());
+        List<Segment> newSegments = new ArrayList<>(segments);
+        newSegments.set(newSegments.size() - 1, updated);
+        return new ContextPath(basePath, List.copyOf(newSegments));
     }
 
     public ContextPath addKey(String name, Object value) {
@@ -70,6 +88,11 @@ public record ContextPath(
             throw new IllegalArgumentException("nextLink cannot be null or empty");
         }
         String trimmed = nextLink.trim();
+        // Fragments are not part of an OData request URL; strip before splitting
+        int hashIdx = trimmed.indexOf('#');
+        if (hashIdx >= 0) {
+            trimmed = trimmed.substring(0, hashIdx);
+        }
         String pathPart = trimmed;
         String queryPart = null;
         int queryIdx = trimmed.indexOf('?');
@@ -89,32 +112,52 @@ public record ContextPath(
         }
         ContextPath result = new ContextPath(base);
         if (queryPart != null && !queryPart.isEmpty()) {
-            for (String pair : queryPart.split("&")) {
+            // The OData URL grammar allows ';' as a query-option separator too
+            for (String pair : queryPart.split("[&;]")) {
                 if (pair.isEmpty()) continue;
                 int eq = pair.indexOf('=');
                 String name = eq >= 0 ? pair.substring(0, eq) : pair;
                 String value = eq >= 0 ? pair.substring(eq + 1) : "";
-                result = result.addQuery(URLDecoder.decode(name, StandardCharsets.UTF_8),
-                        URLDecoder.decode(value, StandardCharsets.UTF_8));
+                result = result.addQuery(decodePercent(name), decodePercent(value));
             }
         }
         return result;
     }
 
     /**
+     * Decodes only {@code %HH} escapes. NextLink query strings are percent-encoded, not
+     * form-encoded: a literal {@code +} inside a value (common in $skiptoken continuation
+     * tokens) must survive as a plus, so URLDecoder — which maps {@code +} to space —
+     * must not be used here. Malformed escapes are left verbatim.
+     */
+    private static String decodePercent(String value) {
+        if (value.indexOf('%') < 0) {
+            return value;
+        }
+        StringBuilder sb = new StringBuilder(value.length());
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            if (c == '%' && i + 2 < value.length()) {
+                int h1 = Character.digit(value.charAt(i + 1), 16);
+                int h2 = Character.digit(value.charAt(i + 2), 16);
+                if (h1 >= 0 && h2 >= 0) {
+                    sb.append((char) ((h1 << 4) | h2));
+                    i += 2;
+                    continue;
+                }
+            }
+            sb.append(c);
+        }
+        return sb.toString();
+    }
+
+    /**
      * Appends a {@code $count} segment to the resource path, preserving any query
-     * parameters on the current last segment. This produces URLs such as
-     * {@code /People/$count?$filter=Age gt 25}.
+     * parameters (they render after all segments — see {@link #toUrl()}). Produces
+     * URLs such as {@code /People/$count?$filter=Age gt 25}.
      */
     public ContextPath addCountSegment() {
-        if (segments.isEmpty()) {
-            return addSegment("$count");
-        }
-        Segment last = segments.get(segments.size() - 1);
-        List<Segment> newSegments = new ArrayList<>(segments);
-        newSegments.set(newSegments.size() - 1, new Segment(last.name(), last.keys(), List.of()));
-        newSegments.add(new Segment("$count", List.of(), last.queries()));
-        return new ContextPath(basePath, List.copyOf(newSegments));
+        return addSegment("$count");
     }
 
     public String toUrl() {
@@ -130,6 +173,10 @@ public record ContextPath(
     }
 
     private void appendSegments(StringBuilder sb) {
+        // Queries render once, AFTER all segments: emitting them right after their owning
+        // segment produces a '?' mid-URL (invalid) whenever a segment is appended later
+        // (e.g. addQuery("$skiptoken",...).addSegment("$ref")).
+        List<KeyValuePair> deferredQueries = null;
         for (Segment segment : segments) {
             if (!segment.name().isEmpty()) {
                 if (sb.length() > 0 && sb.charAt(sb.length() - 1) != '/') sb.append("/");
@@ -151,14 +198,21 @@ public record ContextPath(
             }
 
             if (!segment.queries().isEmpty()) {
-                sb.append("?");
-                for (int i = 0; i < segment.queries().size(); i++) {
-                    if (i > 0) sb.append("&");
-                    KeyValuePair kv = segment.queries().get(i);
-                    sb.append(encodeQueryParam(kv.name()));
-                    sb.append("=");
-                    sb.append(encodeQueryParam(String.valueOf(kv.value())));
+                if (deferredQueries == null) {
+                    deferredQueries = new ArrayList<>();
                 }
+                deferredQueries.addAll(segment.queries());
+            }
+        }
+
+        if (deferredQueries != null) {
+            sb.append("?");
+            for (int i = 0; i < deferredQueries.size(); i++) {
+                if (i > 0) sb.append("&");
+                KeyValuePair kv = deferredQueries.get(i);
+                sb.append(encodeQueryParam(kv.name()));
+                sb.append("=");
+                sb.append(encodeQueryParam(String.valueOf(kv.value())));
             }
         }
     }
@@ -198,7 +252,15 @@ public record ContextPath(
     private static final java.util.regex.Pattern GUID_PATTERN = java.util.regex.Pattern.compile(
             "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}");
 
-    private static String formatValue(Object value) {
+    /** Carries the Edm type alongside the raw key value so formatting is type-driven. */
+    private record TypedValue(Object value, String edmType) {}
+
+    private static String formatValue(Object valueOrTyped) {
+        if (valueOrTyped instanceof TypedValue typed && typed.edmType() != null && !typed.edmType().isBlank()) {
+            return formatTypedValue(typed.value(), typed.edmType());
+        }
+        Object value = valueOrTyped instanceof TypedValue typed ? typed.value() : valueOrTyped;
+        // legacy untyped path (direct addKey callers): original heuristics
         if (value instanceof String s) {
             // Edm.Guid keys are written unquoted (e.g. Advertisements(<guid>)); services reject
             // the quoted form ('<guid>') and the guid'...' literal (OData Demo returns 400).
@@ -206,6 +268,23 @@ public record ContextPath(
             return "'" + encodeKeyValue(s) + "'";
         }
         return String.valueOf(value);
+    }
+
+    private static String formatTypedValue(Object value, String edmType) {
+        return switch (edmType) {
+            case "Edm.String" -> "'" + encodeKeyValue(String.valueOf(value)) + "'";
+            case "Edm.Guid" -> String.valueOf(value);
+            case "Edm.DateTimeOffset", "Edm.Date" -> String.valueOf(value); // bare ISO literals
+            case "Edm.TimeOfDay" -> value instanceof java.time.LocalTime t
+                    ? t.format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss"))
+                    : String.valueOf(value);
+            case "Edm.Duration" -> "duration'" + value + "'";
+            case "Edm.Boolean", "Edm.Byte", "Edm.SByte", "Edm.Int16", "Edm.Int32", "Edm.Int64",
+                 "Edm.Single", "Edm.Double", "Edm.Decimal" -> String.valueOf(value);
+            default -> value instanceof Enum<?> e
+                    ? edmType + "'" + e.name() + "'"  // qualified enum type
+                    : String.valueOf(value);
+        };
     }
 
     private static String encodeKeyValue(String value) {

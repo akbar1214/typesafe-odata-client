@@ -40,4 +40,17 @@ class JdkHttpTransportTest {
         assertTrue(seen.contains("custom-io-exec"),
                 "Request should execute on the injected executor, not ForkJoinPool.commonPool");
     }
+
+    @Test
+    void m13ClientsCachedPerConnectTimeoutAndDistinctAcrossDurations() {
+        JdkHttpTransport transport = new JdkHttpTransport();
+        java.net.http.HttpClient default30 = transport.clientFor(java.time.Duration.ofSeconds(30));
+        java.net.http.HttpClient also30 = transport.clientFor(java.time.Duration.ofSeconds(30));
+        java.net.http.HttpClient five = transport.clientFor(java.time.Duration.ofSeconds(5));
+        java.net.http.HttpClient nullDuration = transport.clientFor(null);
+
+        assertSame(default30, also30, "same connect timeout must reuse the cached client");
+        assertSame(default30, nullDuration, "null request timeout falls back to the 30s default client");
+        assertNotSame(default30, five, "connect timeout is per-HttpClient; different durations need distinct clients");
+    }
 }

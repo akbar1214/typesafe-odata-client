@@ -12,7 +12,7 @@ In OData, relationships between entities are managed through navigation links. `
 
 ```java
 // Add a friend link
-client.peopleByUserName("scottketchum")
+client.people().personByUserName("scottketchum")
     .friends()
     .addRef(Person.builder()
         .userName("keithcombs")
@@ -24,11 +24,11 @@ This creates a link between Scott and Keith as friends.
 ### Add Multiple Friends
 
 ```java
-client.peopleByUserName("scottketchum")
+client.people().personByUserName("scottketchum")
     .friends()
     .addRef(Person.builder().userName("keithcombs").build());
 
-client.peopleByUserName("scottketchum")
+client.people().personByUserName("scottketchum")
     .friends()
     .addRef(Person.builder().userName("louissons").build());
 ```
@@ -38,7 +38,7 @@ client.peopleByUserName("scottketchum")
 ### Remove a Friend
 
 ```java
-client.peopleByUserName("scottketchum")
+client.people().personByUserName("scottketchum")
     .friends()
     .removeRef(Person.builder().userName("keithcombs").build());
 ```
@@ -49,7 +49,7 @@ This removes the link but doesn't delete the entity.
 
 ```java
 // Replace all friends with a new list
-client.peopleByUserName("scottketchum")
+client.people().personByUserName("scottketchum")
     .friends()
     .setRef(List.of(
         Person.builder().userName("keithcombs").build(),
@@ -68,7 +68,7 @@ Trip newTrip = Trip.builder()
     .budget(1500.0f)
     .build();
 
-client.peopleByUserName("scottketchum")
+client.people().personByUserName("scottketchum")
     .trips()
     .addRef(newTrip);
 ```

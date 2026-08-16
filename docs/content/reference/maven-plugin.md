@@ -36,6 +36,9 @@ Configure the `odata-codegen-maven-plugin` for code generation.
 | `basePackage` | String | Yes | Base package for generated classes |
 | `schemaPackages` | List | No | Schema-to-package mappings (list of `<schema>` elements) |
 | `generateWithMethods` | Boolean | No | Generate `with*()` copy-on-write methods on entities and complex types (default `false`). See [Immutability](../concepts/immutability.md) for tradeoffs. |
+| `metadataHeaders` | Properties | No | Extra HTTP headers sent when downloading `metadataUrl` — e.g. `<metadataHeaders><Authorization>Bearer …</Authorization></metadataHeaders>` for non-public endpoints. |
+| `skip` | Boolean | No | Skip generation entirely (`-Dodata.skip=true`). |
+| `forceRegenerate` | Boolean | No | Regenerate even when incremental state says everything is up to date (`-Dodata.forceRegenerate=true`). |
 
 *Either `metadataUrl` or `metadataFile` is required.
 
@@ -171,3 +174,14 @@ Most IDEs automatically detect `target/generated-sources/`. If not, add manually
 
 - [Generated Code Reference](generated-code.md) — Complete structure
 - [Query Expression API](query-api.md) — Complete list of operations
+
+## Incremental Generation
+
+Generation is incremental by default: a marker file (keyed per metadata source —
+multiple executions may share an output directory) records the metadata/config hash and
+a manifest of generated files. When nothing changed, the plugin reuses the existing
+sources; when the metadata changes, files that are no longer generated (renamed or
+removed types, package remaps) are deleted automatically. Override with
+`-Dodata.forceRegenerate=true`.
+
+The plugin is marked thread-safe and works with `mvn -T` parallel builds.

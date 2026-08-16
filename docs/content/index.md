@@ -13,7 +13,7 @@ Most OData clients for Java force you into string-based queries, mutable entitie
 
 * **Type-safe queries** — `Person.FIRST_NAME.equalTo("Scott")` not `filter("FirstName eq 'Scott'")`. Typos caught at compile time.
 * **Truly immutable entities** — All fields `final`, copy-on-write semantics. No mutable state, no null fields, no `@JacksonInject` coupling.
-* **Pluggable HTTP** — Use JDK, Apache HttpClient, OkHttp, or any `HttpTransport` implementation. Async-first with `CompletableFuture`.
+* **Pluggable HTTP** — Use the built-in JDK `HttpClient` transport or any custom `HttpTransport` implementation. The transport layer is async (`CompletableFuture`); generated request methods are synchronous on top of it.
 * **Pluggable serialization** — Jackson by default, but swap in Gson or Jakarta JSON-B. Generated entities are annotation-free.
 * **Typed exceptions** — `NotFoundException`, `UnauthorizedException`, `RateLimitException` — catch what matters, not generic `ClientException`.
 * **Zero runtime overhead** — Code generated at build time. No reflection, no proxies, no magic.
@@ -42,7 +42,7 @@ CollectionPage<Person> people = client.people()
     .get();
 
 // 4. Navigate (with nested $expand options)
-PersonEntityRequest req = client.peopleByUserName("scottketchum");
+PersonEntityRequest req = client.people().personByUserName("scottketchum");
 Person scott = req.get();
 CollectionPage<Trip> trips = req.trips()
     .filter(Trip.BUDGET.greaterThan(500.0f))
@@ -69,7 +69,7 @@ odata-codegen/
 ├── odata-codegen-runtime/     # Runtime library
 │   ├── entity/               # Context, ContextPath, SchemaInfo
 │   ├── query/                # Expression builders (StringProperty, etc.)
-│   ├── http/                 # HttpTransport + JdkHttpTransport + JavaNetHttpTransport
+│   ├── http/                 # HttpTransport + JdkHttpTransport + JdkHttpTransport
 │   ├── auth/                 # AuthProvider implementations
 │   ├── serialization/        # JacksonSerializer
 │   ├── paging/               # CollectionPage<T>

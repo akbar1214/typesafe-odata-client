@@ -64,6 +64,10 @@ public class EntityGenerator extends AbstractTypeGenerator {
         allNavs.addAll(entityType.navigationProperties());
         List<NavigationPropertyModel> ownNavs = entityType.navigationProperties();
 
+        allocateConstantNames(allProps, allNavs);
+        checkMemberNameCollisions(className, allProps, allNavs);
+        checkKeyPropertyRefs(entityType, className, allProps);
+
         List<KeyModel> keys = resolvedKeys(entityType);
 
         // OpenType dynamic-property support: capture undeclared JSON fields into unmappedFields.
@@ -172,24 +176,25 @@ public class EntityGenerator extends AbstractTypeGenerator {
         }
         sb.append("    }\n\n");
 
-        // Setters annotated with @JsonProperty for Jackson deserialization (also used by Builder/with*)
-        if (!entityType.abstractType()) {
-            for (PropertyModel prop : ownProps) {
-                String javaType = resolvePropertyJavaType(prop, schema, true);
-                String fn = Names.toJavaFieldName(prop.name());
-                sb.append("    @com.fasterxml.jackson.annotation.JsonProperty(\"").append(prop.name()).append("\")\n");
-                sb.append("    public void set").append(Names.capitalize(fn)).append("(").append(javaType).append(" value) {\n");
-                sb.append("        this.").append(fn).append(" = value;\n");
-                sb.append("    }\n\n");
-            }
-            for (NavigationPropertyModel nav : ownNavs) {
-                String javaType = navJavaType(nav, schema);
-                String fn = Names.toJavaFieldName(nav.name());
-                sb.append("    @com.fasterxml.jackson.annotation.JsonProperty(\"").append(nav.name()).append("\")\n");
-                sb.append("    public void set").append(Names.capitalize(fn)).append("(").append(javaType).append(" value) {\n");
-                sb.append("        this.").append(fn).append(" = value;\n");
-                sb.append("    }\n\n");
-            }
+        // Setters annotated with @JsonProperty for Jackson deserialization (also used by Builder/with*).
+        // Emitted for abstract types too: a concrete subtype of an abstract base has no setter
+        // for the base's own properties anywhere unless the base declares them, and Jackson would
+        // silently drop those properties on deserialization.
+        for (PropertyModel prop : ownProps) {
+            String javaType = resolvePropertyJavaType(prop, schema, true);
+            String fn = Names.toJavaFieldName(prop.name());
+            sb.append("    @com.fasterxml.jackson.annotation.JsonProperty(\"").append(prop.name()).append("\")\n");
+            sb.append("    public void set").append(Names.capitalize(fn)).append("(").append(javaType).append(" value) {\n");
+            sb.append("        this.").append(fn).append(" = value;\n");
+            sb.append("    }\n\n");
+        }
+        for (NavigationPropertyModel nav : ownNavs) {
+            String javaType = navJavaType(nav, schema);
+            String fn = Names.toJavaFieldName(nav.name());
+            sb.append("    @com.fasterxml.jackson.annotation.JsonProperty(\"").append(nav.name()).append("\")\n");
+            sb.append("    public void set").append(Names.capitalize(fn)).append("(").append(javaType).append(" value) {\n");
+            sb.append("        this.").append(fn).append(" = value;\n");
+            sb.append("    }\n\n");
         }
 
         // ETag setter (root class only)
@@ -454,7 +459,7 @@ public class EntityGenerator extends AbstractTypeGenerator {
 
     private String generatePropertyConstant(PropertyModel prop, String className, SchemaModel schema) {
         String edmType = prop.edmType();
-        String constantName = Names.toConstantName(prop.name());
+        String constantName = constantNameFor(prop.name());
 
         if (Names.isCollectionType(edmType)) {
             String elementType = Names.unwrapCollectionType(edmType);
@@ -479,14 +484,14 @@ public class EntityGenerator extends AbstractTypeGenerator {
         }
         String typeParams = switch (constantType) {
             case "EnumProperty" -> "<" + className + ", " + resolveClassNameForConstant(edmType, schema) + ">";
-            case "NumberProperty" -> "<" + className + ", " + getNumberJavaType(edmType) + ">";
+            case "NumberProperty" -> "<" + className + ", " + getNumberJavaType(resolveTypeDefinition(edmType, schema)) + ">";
             default -> "<" + className + ">";
         };
 
         return "    public static final " + constantType + typeParams + " "
                 + constantName
                 + " = new " + constantType + "<>(\"" + prop.name() + "\", " + className + ".class"
-                + (constantType.equals("EnumProperty") ? ", " + resolveClassNameForConstant(edmType, schema) + ".class, \"" + edmType + "\"" : "")
+                + (constantType.equals("EnumProperty") ? ", " + resolveClassNameForConstant(edmType, schema) + ".class, \"" + qualifiedEdmName(edmType, schema) + "\"" : "")
                 + ");\n";
     }
 
@@ -494,7 +499,7 @@ public class EntityGenerator extends AbstractTypeGenerator {
         boolean isCollection = Names.isCollectionType(nav.type());
         String unwrapped = Names.unwrapCollectionType(nav.type());
         String elementClassName = Names.resolvedClassName(unwrapped, effectiveSchemas);
-        String constantName = Names.toConstantName(nav.name());
+        String constantName = constantNameFor(nav.name());
 
         if (isCollection) {
             return "    public static final CollectionProperty<" + className + ", "
@@ -510,7 +515,10 @@ public class EntityGenerator extends AbstractTypeGenerator {
     }
 
     private String generateGetter(PropertyModel prop, SchemaModel schema) {
-        String javaType = resolvePropertyJavaType(prop, schema, prop.nullable());
+        // Always boxed: the setter stores whatever Jackson deserialized (which can be
+        // null even for Nullable="false" properties on lenient services), and a primitive
+        // getter would NPE on unboxing at the call site
+        String javaType = resolvePropertyJavaType(prop, schema, true);
         String fn = Names.toJavaFieldName(prop.name());
         StringBuilder sb = new StringBuilder();
 
@@ -686,5 +694,23 @@ public class EntityGenerator extends AbstractTypeGenerator {
             case "String", "Boolean", "Integer", "Long", "Float", "Double", "Byte", "Short" -> true;
             default -> false;
         };
+    }
+
+    /**
+     * Key property refs that name no existing (own or inherited) property previously
+     * produced Object-typed key accessors that only failed at URL-build time; fail at
+     * generation with the entity and the offending ref named.
+     */
+    private static void checkKeyPropertyRefs(EntityTypeModel entityType, String className,
+                                             List<PropertyModel> allProps) {
+        for (var key : entityType.keys()) {
+            for (String ref : key.propertyRefs()) {
+                boolean found = allProps.stream().anyMatch(pr -> pr.name().equals(ref));
+                if (!found) {
+                    throw new IllegalStateException("Entity " + className + ": key PropertyRef '"
+                            + ref + "' does not match any property (own or inherited)");
+                }
+            }
+        }
     }
 }

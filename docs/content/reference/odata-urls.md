@@ -154,18 +154,34 @@ GET /Trips(1)
 
 ```java
 ContextPath path = ctx.basePath()
-    .segment("People")
-    .key("scottketchum")
-    .segment("Trips");
+    .addSegment("People")
+    .addKey("UserName", "scottketchum")
+    .addSegment("Trips");
 
 // Produces: People('scottketchum')/Trips
 ```
 
 ### Key Segment Rules
 
-- `addKey(value)` — adds to the last segment
-- Single-key: omit name → `('value')`
-- Composite-key: include names → `(Name1=value1,Name2=value2)`
+- `addKey(name, value)` — adds to the last segment; single keys render nameless,
+  composite keys render `(Name1=value1,Name2=value2)`
+- `addKey(name, value, edmType)` — the typed form generated code uses; the literal is
+  formatted from the Edm type instead of guessed from the value:
+
+| Edm type | Literal | Example |
+|---|---|---|
+| `Edm.String` | always quoted (even UUID-shaped) | `People('0c5a…')` |
+| `Edm.Guid` | bare 8-4-4-4-12 | `Advertisements(0c5a…)` |
+| `Edm.Date` / `Edm.DateTimeOffset` | bare ISO | `Events(2024-01-01T10:00Z)` |
+| `Edm.TimeOfDay` | `HH:mm:ss` | `Shifts(10:15:00)` |
+| `Edm.Duration` | `duration'...'` | `Waits(duration'PT2H')` |
+| Enum type | qualified | `Things(Ns.Color'Red')` |
+
+### Query Parameters
+
+Query options are collected across all segments and rendered once, after the whole
+path — chaining options onto a `nextPage(...)` link produces a single valid `?...`
+(never a double `?`).
 
 ## Batch Requests
 

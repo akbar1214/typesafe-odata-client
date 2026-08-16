@@ -15,10 +15,13 @@ import io.github.akbarhusain.odata.runtime.http.HttpTransport;
 import io.github.akbarhusain.odata.runtime.http.JdkHttpTransport;
 import io.github.akbarhusain.odata.runtime.client.EntityOperations;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
+@Tag("live-service")
 class TripPinIntegrationTest {
 
     static Context tripPinContext;
@@ -393,7 +396,7 @@ class TripPinIntegrationTest {
         for (var entry : getResponse.headers().entrySet()) {
             if (entry.getKey() != null &&
                 (entry.getKey().equalsIgnoreCase("ETag") || entry.getKey().equalsIgnoreCase("odata.etag"))) {
-                etag = entry.getValue().getFirst();
+                etag = entry.getValue().get(0);
                 break;
             }
         }
@@ -434,7 +437,7 @@ class TripPinIntegrationTest {
         for (var entry : verifyResponse.headers().entrySet()) {
             if (entry.getKey() != null &&
                 (entry.getKey().equalsIgnoreCase("ETag") || entry.getKey().equalsIgnoreCase("odata.etag"))) {
-                deleteEtag = entry.getValue().getFirst();
+                deleteEtag = entry.getValue().get(0);
                 break;
             }
         }
@@ -486,7 +489,7 @@ class TripPinIntegrationTest {
         for (var entry : getResponse.headers().entrySet()) {
             if (entry.getKey() != null &&
                 (entry.getKey().equalsIgnoreCase("ETag") || entry.getKey().equalsIgnoreCase("odata.etag"))) {
-                etag = entry.getValue().getFirst();
+                etag = entry.getValue().get(0);
                 break;
             }
         }
@@ -507,12 +510,20 @@ class TripPinIntegrationTest {
         assertTrue(deleteResponse.isSuccessful(),
                 "Delete should succeed: " + deleteResponse.statusCode());
 
-        // Verify person is gone - TripPin returns 404 or 204 (no content) for deleted entities
-        Thread.sleep(1000);
-        HttpResponse verifyResponse = EntityOperations.executeSync(
-                tripPinContext,
-                io.github.akbarhusain.odata.runtime.http.HttpMethod.GET,
-                entityPath, null, null);
+        // Verify person is gone - TripPin returns 404 or 204 (no content) for deleted entities.
+        // The delete may take a moment to propagate, so poll instead of a fixed sleep.
+        HttpResponse verifyResponse = null;
+        for (int attempt = 0; attempt < 10; attempt++) {
+            verifyResponse = EntityOperations.executeSync(
+                    tripPinContext,
+                    io.github.akbarhusain.odata.runtime.http.HttpMethod.GET,
+                    entityPath, null, null);
+            if (verifyResponse.statusCode() == 404 || verifyResponse.statusCode() == 204) {
+                break;
+            }
+            Thread.sleep(500);
+        }
+        assertNotNull(verifyResponse, "verification GET must have executed");
         assertTrue(verifyResponse.statusCode() == 404 || verifyResponse.statusCode() == 204,
                 "Person should be deleted, GET returned: " + verifyResponse.statusCode());
     }
@@ -540,11 +551,10 @@ class TripPinIntegrationTest {
                 java.util.Map.of("Content-Type", "application/json"));
 
         // 204 = success, 409 = conflict (already friends)
-        // TripPin may return 500 for certain $ref operations
-        if (addResponse.statusCode() == 500) {
-            // Skip test if TripPin doesn't support $ref add on Friends
-            return;
-        }
+        // TripPin returns 500 for $ref add on Friends (known service limitation, lesson 21);
+        // report as skipped rather than silently passing
+        assumeTrue(addResponse.statusCode() != 500,
+                "TripPin does not support $ref add on Friends (known limitation, lesson 21)");
         assertTrue(addResponse.statusCode() == 204 || addResponse.statusCode() == 409,
                 "Expected 204 or 409, got " + addResponse.statusCode());
 

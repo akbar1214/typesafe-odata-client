@@ -11,6 +11,9 @@ import java.util.TreeSet;
 
 public class ContainerGenerator {
 
+    private static final org.slf4j.Logger log =
+            org.slf4j.LoggerFactory.getLogger(ContainerGenerator.class);
+
     private final String basePackage;
     private final Map<String, String> schemaPackages;
     private final String defaultBasePackage;
@@ -71,6 +74,15 @@ public class ContainerGenerator {
             sb.append("        return new ").append(collReqClassName)
               .append("(context, context.basePath().addSegment(\"").append(es.name()).append("\"));\n");
             sb.append("    }\n\n");
+        }
+
+        for (var functionImport : container.functionImports()) {
+            log.warn("FunctionImport '{}' is not yet supported by the generator; skipping",
+                    functionImport.name());
+        }
+        for (var actionImport : container.actionImports()) {
+            log.warn("ActionImport '{}' is not yet supported by the generator; skipping",
+                    actionImport.name());
         }
 
         // Singleton accessors

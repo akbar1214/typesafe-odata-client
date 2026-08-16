@@ -16,10 +16,6 @@
 
     <dependencies>
         <dependency>
-            <groupId>io.github.akbarhusain</groupId>
-            <artifactId>odata-codegen-core</artifactId>
-        </dependency>
-        <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
         </dependency>

@@ -16,6 +16,12 @@ public interface HttpInterceptor {
     default CompletableFuture<InputStream> stream(HttpRequest request, HttpTransport delegate) {
         try {
             HttpResponse response = intercept(request, delegate);
+            // Without this check, a registered interceptor would silently turn an HTTP
+            // error (e.g. 404 on a media download) into a stream of the error body —
+            // error semantics must not change just by adding an interceptor
+            if (!response.isSuccessful()) {
+                throw io.github.akbarhusain.odata.runtime.exception.ODataException.fromResponse(response);
+            }
             return CompletableFuture.completedFuture(
                     new ByteArrayInputStream(response.body() == null ? new byte[0] : response.body()));
         } catch (RuntimeException e) {

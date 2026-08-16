@@ -9,6 +9,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicLong;
@@ -33,10 +34,19 @@ public class JdkHttpTransport implements HttpTransport {
         this.executor = executor;
     }
 
-    private static final HttpClient httpClient = HttpClient.newBuilder()
-            .connectTimeout(Duration.ofSeconds(30))
-            .followRedirects(HttpClient.Redirect.NEVER)
-            .build();
+    private static final Duration DEFAULT_CONNECT_TIMEOUT = Duration.ofSeconds(30);
+    // HttpClient's connect timeout is per-client, so clients are cached per requested
+    // duration — HttpRequest.connectTimeout is honored without allocating a client per request
+    private static final ConcurrentHashMap<Duration, HttpClient> CLIENTS_BY_CONNECT_TIMEOUT =
+            new ConcurrentHashMap<>();
+
+    static HttpClient clientFor(Duration connectTimeout) {
+        Duration effective = connectTimeout != null ? connectTimeout : DEFAULT_CONNECT_TIMEOUT;
+        return CLIENTS_BY_CONNECT_TIMEOUT.computeIfAbsent(effective, d -> HttpClient.newBuilder()
+                .connectTimeout(d)
+                .followRedirects(HttpClient.Redirect.NEVER)
+                .build());
+    }
 
     @Override
     public CompletableFuture<HttpResponse> submit(io.github.akbarhusain.odata.runtime.http.HttpRequest request) {
@@ -54,47 +64,8 @@ public class JdkHttpTransport implements HttpTransport {
     public CompletableFuture<InputStream> stream(io.github.akbarhusain.odata.runtime.http.HttpRequest request) {
         return CompletableFuture.supplyAsync(() -> {
             try {
-                Builder builder = java.net.http.HttpRequest.newBuilder()
-                        .uri(URI.create(request.url()))
-                        .timeout(request.readTimeout());
-
-        for (var entry : request.headers().entrySet()) {
-            for (String value : entry.getValue()) {
-                builder.header(entry.getKey(), value);
-            }
-        }
-
-        builder.header("OData-MaxVersion", "4.0");
-        builder.header("OData-Version", "4.0");
-        if (!request.headers().containsKey("Accept")) {
-            builder.header("Accept", "application/json");
-        }
-
-                switch (request.method()) {
-                    case GET -> builder.GET();
-                    case POST -> {
-                        if (request.body() != null) {
-                            builder.POST(java.net.http.HttpRequest.BodyPublishers.ofByteArray(request.body()));
-                        } else {
-                            builder.POST(java.net.http.HttpRequest.BodyPublishers.noBody());
-                        }
-                    }
-                    case PATCH -> {
-                        if (request.body() != null) {
-                            builder.method("PATCH", java.net.http.HttpRequest.BodyPublishers.ofByteArray(request.body()));
-                        } else {
-                            builder.method("PATCH", java.net.http.HttpRequest.BodyPublishers.noBody());
-                        }
-                    }
-                    case DELETE -> builder.DELETE();
-                    default -> builder.method(request.method().name(),
-                            request.body() != null
-                                    ? java.net.http.HttpRequest.BodyPublishers.ofByteArray(request.body())
-                                    : java.net.http.HttpRequest.BodyPublishers.noBody());
-                }
-
-                java.net.http.HttpResponse<InputStream> resp = httpClient.send(
-                        builder.build(), java.net.http.HttpResponse.BodyHandlers.ofInputStream());
+                java.net.http.HttpResponse<InputStream> resp = clientFor(request.connectTimeout()).send(
+                        buildJdkRequest(request).build(), java.net.http.HttpResponse.BodyHandlers.ofInputStream());
 
                 if (resp.statusCode() >= 400) {
                     byte[] errorBody = resp.body().readAllBytes();
@@ -113,17 +84,24 @@ public class JdkHttpTransport implements HttpTransport {
         }, executor);
     }
 
-    private HttpResponse execute(io.github.akbarhusain.odata.runtime.http.HttpRequest request) throws Exception {
+    /**
+     * Single request builder shared by {@code submit()} and {@code stream()} — the two
+     * paths previously drifted (different header ordering, case-sensitive Accept check).
+     * OData-MaxVersion is 4.01 because the client emits 4.01 payload forms (the
+     * {@code @odata.id} control URL in $ref bodies); OData-Version stays 4.0.
+     */
+    private Builder buildJdkRequest(io.github.akbarhusain.odata.runtime.http.HttpRequest request) {
         Builder builder = java.net.http.HttpRequest.newBuilder()
                 .uri(URI.create(request.url()))
                 .timeout(request.readTimeout());
 
-        builder.header("OData-MaxVersion", "4.0");
+        builder.header("OData-MaxVersion", "4.01");
         builder.header("OData-Version", "4.0");
-        if (!request.headers().containsKey("Accept")) {
+        boolean hasAccept = request.headers().keySet().stream()
+                .anyMatch(k -> k != null && k.equalsIgnoreCase("Accept"));
+        if (!hasAccept) {
             builder.header("Accept", "application/json");
         }
-
         for (var entry : request.headers().entrySet()) {
             for (String value : entry.getValue()) {
                 builder.header(entry.getKey(), value);
@@ -133,36 +111,26 @@ public class JdkHttpTransport implements HttpTransport {
         byte[] body = request.body();
         switch (request.method()) {
             case GET -> builder.GET();
-            case POST -> {
-                if (body != null) {
-                    builder.POST(java.net.http.HttpRequest.BodyPublishers.ofByteArray(body));
-                } else {
-                    builder.POST(java.net.http.HttpRequest.BodyPublishers.noBody());
-                }
-            }
-            case PUT -> {
-                if (body != null) {
-                    builder.PUT(java.net.http.HttpRequest.BodyPublishers.ofByteArray(body));
-                } else {
-                    builder.PUT(java.net.http.HttpRequest.BodyPublishers.noBody());
-                }
-            }
-            case PATCH -> {
-                if (body != null) {
-                    builder.method("PATCH", java.net.http.HttpRequest.BodyPublishers.ofByteArray(body));
-                } else {
-                    builder.method("PATCH", java.net.http.HttpRequest.BodyPublishers.noBody());
-                }
-            }
             case DELETE -> builder.DELETE();
-            default -> builder.method(request.method().name(),
-                    body != null
-                            ? java.net.http.HttpRequest.BodyPublishers.ofByteArray(body)
-                            : java.net.http.HttpRequest.BodyPublishers.noBody());
+            case POST -> builder.POST(body != null
+                    ? java.net.http.HttpRequest.BodyPublishers.ofByteArray(body)
+                    : java.net.http.HttpRequest.BodyPublishers.noBody());
+            case PUT -> builder.PUT(body != null
+                    ? java.net.http.HttpRequest.BodyPublishers.ofByteArray(body)
+                    : java.net.http.HttpRequest.BodyPublishers.noBody());
+            case PATCH -> builder.method("PATCH", body != null
+                    ? java.net.http.HttpRequest.BodyPublishers.ofByteArray(body)
+                    : java.net.http.HttpRequest.BodyPublishers.noBody());
+            default -> builder.method(request.method().name(), body != null
+                    ? java.net.http.HttpRequest.BodyPublishers.ofByteArray(body)
+                    : java.net.http.HttpRequest.BodyPublishers.noBody());
         }
+        return builder;
+    }
 
-        java.net.http.HttpResponse<byte[]> resp = httpClient.send(
-                builder.build(), java.net.http.HttpResponse.BodyHandlers.ofByteArray());
+    private HttpResponse execute(io.github.akbarhusain.odata.runtime.http.HttpRequest request) throws Exception {
+        java.net.http.HttpResponse<byte[]> resp = clientFor(request.connectTimeout()).send(
+                buildJdkRequest(request).build(), java.net.http.HttpResponse.BodyHandlers.ofByteArray());
 
         Map<String, List<String>> headers = new HashMap<>();
         resp.headers().map().forEach((k, v) -> headers.put(k, v));

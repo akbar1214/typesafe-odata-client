@@ -60,4 +60,26 @@ class RateLimitExceptionTest {
         assertTrue(actual.isAfter(expected.minusSeconds(5)) && actual.isBefore(expected.plusSeconds(5)),
                 "Expected fallback within 5s of " + expected + " but got " + actual);
     }
+
+    @Test
+    void m15HttpDateRetryAfterIsParsed() {
+        HttpResponse response = new HttpResponse(429,
+                Map.of("Retry-After", java.util.List.of("Wed, 21 Oct 2015 07:28:00 GMT")),
+                new byte[0]);
+        RateLimitException ex = new RateLimitException(response);
+
+        assertEquals(java.time.Instant.parse("2015-10-21T07:28:00Z"), ex.getRetryAfter(),
+                "RFC 9110 HTTP-date Retry-After values must be parsed");
+        assertTrue(ex.hasServerRetryAfter());
+    }
+
+    @Test
+    void m15AbsentRetryAfterReportsDefaultNotServerSpecified() {
+        HttpResponse response = new HttpResponse(429, Map.of(), new byte[0]);
+        RateLimitException ex = new RateLimitException(response);
+
+        assertNotNull(ex.getRetryAfter(), "the 60s default remains for backward compatibility");
+        assertFalse(ex.hasServerRetryAfter(),
+                "callers must be able to distinguish a server-specified from a fabricated retry-after");
+    }
 }

@@ -4,6 +4,39 @@
 
 ### Status: Full Pipeline Working
 
+### Review Round 3 — Correctness & Hardening (all 79 findings resolved)
+
+**Correctness fixes (highlights):**
+
+- CSDL enum members without `Value` default to previous+1 per spec (were member-count → wrong wire values)
+- `@JsonProperty` setters on abstract base types — subtype deserialization no longer drops base fields
+- One aggregate `ServiceSchemaInfo` per output package (multi-schema registries no longer overwrite)
+- Polymorphic `@odata.type` deserialization via the `SchemaInfo` registry, per element for collections
+- Enums map JSON numerics by CSDL value (`@JsonCreator`), not ordinal; strings keep mapping by name
+- PATCH/GET tolerate 204/empty bodies; `nextLink` decoding no longer corrupts `+` in continuation tokens
+- Unquoted GUID filter literals (`GuidProperty`); type-driven key literals (`addKey(name, value, edmType)`)
+- Query parameters render once after all segments (no `?` mid-URL); `div` vs `divby` by operand type;
+  datetime literals validated against the OData ABNF with typed overloads
+- Partial PATCH: `changedFields` tracked by `builder()`/`with*()` now produce partial update bodies
+- Batch: part-level `Content-ID` correlation (`getByContentId`), batch-wide numbering, loud failures on
+  malformed responses, RFC 2046 line-anchored delimiters, CRLF-injection rejection, quoted boundaries,
+  `continue-on-error` preference, typed errors for non-2xx
+- Parser: alias resolution, required-attribute validation, container `Extends` merging, v4 referential
+  constraints, whitespace-tolerant type refs
+- Generators: inherited navs/streams/`HasStream` on subtype requests, enum `@JsonCreator`, runtime-class
+  name shadowing, constant auto-dedup (`VALUE_2`) with loud field-collision errors
+
+**Build & ecosystem:**
+
+- Apache-2.0 `LICENSE`/`NOTICE` + POM metadata; docs rewritten to the real API
+- Live-service tests tagged and hermetic by default (`mvn test` offline; `-Plive-tests` for everything)
+- `<release>17</release>` (caught a latent Java 21+ `List.getFirst()` usage), reproducible-build timestamp,
+  Maven wrapper, per-execution incremental markers with stale-file cleanup, `metadataHeaders` auth support
+- Dead `JavaNetHttpTransport` removed; `JdkHttpTransport` is the single transport
+- Interceptor chain cached per `Context`; interceptor failures complete futures exceptionally;
+  `Retry-After` HTTP-date parsing + `hasServerRetryAfter()`; `ODataError` maps `details[]`/`target`
+
+
 **Core Features:**
 
 - **CSDL Parser** — StAX-based parser for OData v4 metadata (handles v3/v4 namespace variations)

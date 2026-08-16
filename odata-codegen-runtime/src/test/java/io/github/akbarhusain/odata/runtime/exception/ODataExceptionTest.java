@@ -105,4 +105,30 @@ class ODataExceptionTest {
         assertNotNull(ex.getError());
         assertSame(ex.getError(), ((ODataException) ex).getError());
     }
+
+    @Test
+    void l2ErrorTargetAndDetailsArrayAreMapped() {
+        String json = "{\"error\":{"
+                + "\"code\":\"123\","
+                + "\"message\":\"Bad request\","
+                + "\"target\":\"Line/Name\","
+                + "\"details\":["
+                + "{\"code\":\"d1\",\"message\":\"Name is required\",\"target\":\"Name\"},"
+                + "{\"code\":\"d2\",\"message\":\"Line is invalid\"}"
+                + "]}}";
+        HttpResponse response = new HttpResponse(400, java.util.Map.of(),
+                json.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        ODataError error = ODataError.fromResponse(response);
+
+        assertNotNull(error);
+        assertEquals("Line/Name", error.getTarget(), "error.target must not be dropped");
+        @SuppressWarnings("unchecked")
+        java.util.List<java.util.Map<String, String>> details =
+                (java.util.List<java.util.Map<String, String>>) error.getDetails().get("details");
+        assertNotNull(details, "error.details[] must be mapped");
+        assertEquals(2, details.size());
+        assertEquals("d1", details.get(0).get("code"));
+        assertEquals("Name is required", details.get(0).get("message"));
+        assertEquals("Name", details.get(0).get("target"));
+    }
 }

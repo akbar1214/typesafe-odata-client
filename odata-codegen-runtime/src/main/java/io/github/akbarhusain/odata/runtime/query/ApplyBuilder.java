@@ -18,6 +18,10 @@ import java.util.List;
  *   <li>{@code orderby(prop desc, ...)}</li>
  *   <li>{@code top(n)} / {@code skip(n)}</li>
  * </ul>
+ *
+ * <p>This is a mutable, <b>non-thread-safe</b> builder: configure it on one thread, then
+ * hand the rendered {@link #toODataApply()} string (immutable) to the request. Rendering
+ * iterates a snapshot, so a concurrent append cannot corrupt an in-flight render.</p>
  */
 public final class ApplyBuilder implements ApplyExpression {
 
@@ -65,17 +69,26 @@ public final class ApplyBuilder implements ApplyExpression {
     }
 
     public ApplyBuilder top(int n) {
+        requireNonNegative("top", n);
         transformations.add("top(" + n + ")");
         return this;
     }
 
     public ApplyBuilder skip(int n) {
+        requireNonNegative("skip", n);
         transformations.add("skip(" + n + ")");
         return this;
     }
 
+    private static void requireNonNegative(String what, int n) {
+        if (n < 0) {
+            throw new IllegalArgumentException(what + "(" + n + ") is not valid $apply syntax; n must be >= 0");
+        }
+    }
+
     @Override
     public String toODataApply() {
-        return String.join("/", transformations);
+        // snapshot: a concurrent append must not corrupt an in-flight render
+        return String.join("/", List.copyOf(transformations));
     }
 }

@@ -11,6 +11,7 @@ import io.github.akbarhusain.odata.runtime.http.JdkHttpTransport;
 import io.github.akbarhusain.odata.runtime.paging.CollectionPage;
 import io.github.akbarhusain.odata.runtime.query.NavProperty;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -18,6 +19,7 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+@Tag("live-service")
 class TripPinGeneratedClientTest {
 
     static DefaultContainer client;
@@ -198,17 +200,21 @@ class TripPinGeneratedClientTest {
                 .build();
 
         Person createdResponse = client.people().create(newPerson);
+        assertNotNull(createdResponse, "create() should return the created entity");
+        assertEquals(testUserName, createdResponse.getUserName());
 
-        Person created = client.people().personByUserName(testUserName).get();
-        assertNotNull(created);
-        assertEquals(testUserName, created.getUserName());
-        assertEquals("Test", created.getFirstName());
-        if (createdResponse != null) {
-            assertEquals(testUserName, createdResponse.getUserName());
+        // Best-effort cleanup in finally: a failed assertion must not leak the created
+        // entity on the shared public service. deleteWithETag accepts a null etag.
+        String etag = null;
+        try {
+            Person created = client.people().personByUserName(testUserName).get();
+            assertNotNull(created);
+            assertEquals(testUserName, created.getUserName());
+            assertEquals("Test", created.getFirstName());
+            etag = created.getETag().orElse(null);
+        } finally {
+            client.people().personByUserName(testUserName).deleteWithETag(etag);
         }
-
-        String etag = created.getETag().orElse(null);
-        client.people().personByUserName(testUserName).deleteWithETag(etag);
     }
 
     @Test

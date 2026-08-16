@@ -69,4 +69,15 @@ class ApplyExpressionTest {
     void emptyBuilderRendersEmptyString() {
         assertEquals("", ApplyExpression.builder().toODataApply());
     }
+
+    @Test
+    void l11NegativeTopAndSkipAreRejected() {
+        io.github.akbarhusain.odata.runtime.query.ApplyBuilder builder =
+                io.github.akbarhusain.odata.runtime.query.ApplyExpression.builder();
+        assertThrows(IllegalArgumentException.class, () -> builder.top(-5),
+                "top(-5) renders invalid OData");
+        assertThrows(IllegalArgumentException.class, () -> builder.skip(-1),
+                "skip(-1) renders invalid OData");
+        assertDoesNotThrow(() -> builder.top(0).skip(0));
+    }
 }

@@ -22,7 +22,7 @@ ODataException (base)
 import io.github.akbarhusain.odata.runtime.exception.*;
 
 try {
-    Person person = client.peopleByUserName("nonexistent").get();
+    Person person = client.people().personByUserName("nonexistent").get();
 } catch (NotFoundException e) {
     System.out.println("Person not found: " + e.getMessage());
 }
@@ -40,9 +40,8 @@ try {
     // Show access denied
     showAccessDenied();
 } catch (RateLimitException e) {
-    // Wait and retry
-    long retryAfter = e.getRetryAfter();
-    Thread.sleep(retryAfter);
+    // Wait and retry (getRetryAfter() is an Instant)
+    Thread.sleep(Duration.between(Instant.now(), e.getRetryAfter()).toMillis());
     return client.people().get();
 } catch (ODataException e) {
     // Generic error
@@ -56,12 +55,18 @@ try {
 try {
     return client.people().get();
 } catch (RateLimitException e) {
-    long retryAfterSeconds = e.getRetryAfter();
-    System.out.println("Rate limited. Retry after " + retryAfterSeconds + " seconds");
-    Thread.sleep(retryAfterSeconds * 1000);
+    // getRetryAfter() is an Instant; when the server sent no Retry-After header,
+    // hasServerRetryAfter() is false and the value is a client-side default (now + 60s)
+    Instant retryAt = e.getRetryAfter();
+    System.out.println("Rate limited. Server-specified retry: " + e.hasServerRetryAfter());
+    Thread.sleep(Duration.between(Instant.now(), retryAt).toMillis());
     return client.people().get(); // Retry
 }
 ```
+
+Structured error details are available on every `ODataException` via `getError()`:
+`error.code`, `error.message`, `error.target`, and `error.details[]` (a list of
+`{code, message, target}` maps) when the service sends the canonical OData error body.
 
 ## Precondition Failed (ETag Conflict)
 
@@ -71,7 +76,7 @@ try {
 } catch (PreconditionFailedException e) {
     // Entity was modified by someone else
     Person current = request.get();
-    System.out.println("Conflict! Current version: " + current.getETag());
+    System.out.println("Conflict! Current version: " + current.getETag().orElse(null));
     // Handle conflict resolution
 }
 ```

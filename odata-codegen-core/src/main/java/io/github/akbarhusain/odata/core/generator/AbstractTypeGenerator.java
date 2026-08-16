@@ -56,6 +56,73 @@ public abstract class AbstractTypeGenerator {
     }
 
     // ------------------------------------------------------------------
+    // Member-name collision detection
+    // ------------------------------------------------------------------
+
+    // Per-type allocation of property-constant names: case collisions (budget vs Budget
+    // both folding to BUDGET) get a deterministic _2, _3 suffix instead of duplicate
+    // constants that don't compile
+    private final java.util.Map<String, String> constantNames = new java.util.HashMap<>();
+
+    protected void allocateConstantNames(List<PropertyModel> props, List<NavigationPropertyModel> navs) {
+        java.util.Set<String> used = new java.util.HashSet<>();
+        for (PropertyModel prop : props) {
+            allocateConstantName(prop.name(), used);
+        }
+        for (NavigationPropertyModel nav : navs) {
+            allocateConstantName(nav.name(), used);
+        }
+    }
+
+    private void allocateConstantName(String memberName, java.util.Set<String> used) {
+        String base = Names.toConstantName(memberName);
+        String candidate = base;
+        int suffix = 2;
+        while (!used.add(candidate)) {
+            candidate = base + "_" + suffix++;
+        }
+        constantNames.put(memberName, candidate);
+    }
+
+    protected String constantNameFor(String memberName) {
+        String allocated = constantNames.get(memberName);
+        return allocated != null ? allocated : Names.toConstantName(memberName);
+    }
+
+    /**
+     * Fails with a clear error when two members of a type map to the same generated
+     * Java identifier — e.g. properties {@code Name} and {@code name} both fold to field
+     * {@code name}, or {@code budget} and {@code Budget} both map to constant
+     * {@code BUDGET}. Without this check the generated class simply doesn't compile,
+     * with duplicate-member errors far from the cause.
+     */
+    protected void checkMemberNameCollisions(String className, List<PropertyModel> props,
+                                             List<NavigationPropertyModel> navs) {
+        // constant collisions are auto-deduped via allocateConstantNames; field-level
+        // folding (Name vs name -> field 'name') still fails loudly
+        java.util.Map<String, String> fields = new java.util.HashMap<>();
+        for (PropertyModel prop : props) {
+            checkCollision(fields, Names.toJavaFieldName(prop.name()), "field", prop.name(), className);
+        }
+        for (NavigationPropertyModel nav : navs) {
+            checkCollision(fields, Names.toJavaFieldName(nav.name()), "field", nav.name(), className);
+        }
+    }
+
+    private static void checkCollision(java.util.Map<String, String> seen, String mapped,
+                                       String kind, String sourceName, String className) {
+        String previous = seen.putIfAbsent(mapped, sourceName);
+        // Exact same-name redeclaration across an inheritance chain is tolerated by the
+        // generators (the inherited declaration is ignored) — only DIFFERENT names that
+        // collapse onto one identifier are real collisions
+        if (previous != null && !previous.equals(sourceName)) {
+            throw new IllegalStateException("Cannot generate " + className + ": members '" + previous
+                    + "' and '" + sourceName + "' both map to " + kind + " '" + mapped
+                    + "'. Rename one of them in the metadata.");
+        }
+    }
+
+    // ------------------------------------------------------------------
     // Type resolution
     // ------------------------------------------------------------------
 
@@ -117,20 +184,29 @@ public abstract class AbstractTypeGenerator {
     private java.util.Map<String, String> typeDefCache;
 
     // Resolve TypeDefinition to its underlying Edm type (recursively) across all schemas.
+    // The cache is keyed by NAMESPACE-QUALIFIED name so a TypeDefinition named 'Foo' in
+    // schema A cannot shadow a type named 'Foo' in schema B; unqualified references fall
+    // back to simple-name lookup.
     protected String resolveTypeDefinition(String edmType, SchemaModel schema) {
         if (Names.isPrimitiveType(edmType)) return edmType;
         if (typeDefCache == null) {
             typeDefCache = new java.util.HashMap<>();
             for (SchemaModel s : effectiveSchemas) {
                 for (var td : s.typeDefinitions()) {
-                    if (!typeDefCache.containsKey(td.name())) {
-                        typeDefCache.put(td.name(), resolveTypeDefinitionChain(td.name(), new java.util.HashSet<>()));
+                    String qualified = s.namespace() + "." + td.name();
+                    if (!typeDefCache.containsKey(qualified)) {
+                        typeDefCache.put(qualified,
+                                resolveTypeDefinitionChain(qualified, new java.util.HashSet<>()));
                     }
+                    // simple-name fallback only for the FIRST schema declaring that name
+                    typeDefCache.putIfAbsent(td.name(), typeDefCache.get(qualified));
                 }
             }
         }
-        String simpleName = Names.simpleNameFromFullName(edmType);
-        String resolved = typeDefCache.get(simpleName);
+        String resolved = typeDefCache.get(edmType);
+        if (resolved == null) {
+            resolved = typeDefCache.get(Names.simpleNameFromFullName(edmType));
+        }
         return resolved != null ? resolved : edmType;
     }
 
@@ -138,17 +214,31 @@ public abstract class AbstractTypeGenerator {
         if (!visiting.add(typeName)) {
             throw new IllegalStateException("Circular TypeDefinition chain detected involving: " + typeName);
         }
+        String simpleName = Names.simpleNameFromFullName(typeName);
         for (SchemaModel s : effectiveSchemas) {
             for (var td : s.typeDefinitions()) {
-                if (td.name().equals(typeName)) {
+                if (td.name().equals(simpleName)
+                        && (typeName.equals(td.name())
+                            || typeName.equals(s.namespace() + "." + td.name()))) {
                     String underlying = td.underlyingType();
                     if (Names.isPrimitiveType(underlying)) return underlying;
-                    String underlyingSimple = Names.simpleNameFromFullName(underlying);
-                    return resolveTypeDefinitionChain(underlyingSimple, visiting);
+                    return resolveTypeDefinitionChain(underlying, visiting);
                 }
             }
         }
         return typeName;
+    }
+
+    /**
+     * Enum filter literals must use the fully qualified name (NS.Enum'Member'). CSDL type
+     * references are normally qualified (and aliases resolve at parse time), but lenient
+     * metadata may use bare names — qualify them with the owning schema's namespace.
+     */
+    protected static String qualifiedEdmName(String edmType, SchemaModel schema) {
+        if (edmType.indexOf('.') >= 0) {
+            return edmType;
+        }
+        return schema.namespace() + "." + edmType;
     }
 
     // ------------------------------------------------------------------
@@ -256,7 +346,7 @@ public abstract class AbstractTypeGenerator {
 
     protected String generateFilterablePropertyField(PropertyModel prop, String className, SchemaModel schema) {
         String edmType = prop.edmType();
-        String constantName = Names.toConstantName(prop.name());
+        String constantName = constantNameFor(prop.name());
 
         if (Names.isCollectionType(edmType)) {
             String elementType = Names.unwrapCollectionType(edmType);
@@ -281,13 +371,13 @@ public abstract class AbstractTypeGenerator {
         }
         String typeParams = switch (constantType) {
             case "EnumProperty" -> "<" + className + ", " + resolveClassNameForConstant(edmType, schema) + ">";
-            case "NumberProperty" -> "<" + className + ", " + getNumberJavaType(edmType) + ">";
+            case "NumberProperty" -> "<" + className + ", " + getNumberJavaType(resolveTypeDefinition(edmType, schema)) + ">";
             default -> "<" + className + ">";
         };
 
         return "    public final " + constantType + typeParams + " " + constantName
                 + " = new " + constantType + "<>(\"x/" + prop.name() + "\", " + className + ".class"
-                + (constantType.equals("EnumProperty") ? ", " + resolveClassNameForConstant(edmType, schema) + ".class, \"" + edmType + "\"" : "")
+                + (constantType.equals("EnumProperty") ? ", " + resolveClassNameForConstant(edmType, schema) + ".class, \"" + qualifiedEdmName(edmType, schema) + "\"" : "")
                 + ");\n";
     }
 
@@ -315,6 +405,9 @@ public abstract class AbstractTypeGenerator {
 
     protected String getPropertyConstantType(String edmType, SchemaModel schema) {
         String resolved = resolveTypeDefinition(edmType, schema);
+        // Edm.Guid literals are unquoted bare values in $filter (quoted strings are a type
+        // error), so Guid gets its own property class before the String mapping
+        if ("Edm.Guid".equals(resolved)) return "GuidProperty";
         if (Names.isStringType(resolved)) return "StringProperty";
         if (Names.isBooleanType(resolved)) return "BooleanProperty";
         if (Names.isDateTimeType(resolved)) return "DateTimeProperty";

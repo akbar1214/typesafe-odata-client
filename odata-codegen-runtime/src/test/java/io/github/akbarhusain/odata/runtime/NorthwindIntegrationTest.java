@@ -12,10 +12,12 @@ import io.github.akbarhusain.odata.runtime.http.HttpTransport;
 import io.github.akbarhusain.odata.runtime.http.JdkHttpTransport;
 import io.github.akbarhusain.odata.runtime.client.EntityOperations;
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+@Tag("live-service")
 class NorthwindIntegrationTest {
 
     static Context northwindContext;

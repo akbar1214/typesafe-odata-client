@@ -47,13 +47,14 @@ public class RequestGenerator extends AbstractTypeGenerator {
         imports.add("io.github.akbarhusain.odata.runtime.entity.Context");
         imports.add("io.github.akbarhusain.odata.runtime.entity.ContextPath");
         imports.add("io.github.akbarhusain.odata.runtime.client.EntityOperations");
+        imports.add(basePackage + Names.packageNameSuffixSchema() + "." + Names.schemaInfoClassName());
         imports.add("io.github.akbarhusain.odata.runtime.exception.ODataException");
         imports.add("io.github.akbarhusain.odata.runtime.query.*");
         imports.add("io.github.akbarhusain.odata.runtime.batch.BatchOperation");
         imports.add("java.io.InputStream");
         imports.add(basePackage + Names.packageNameSuffixEntity() + "." + entityClassName);
 
-        for (NavigationPropertyModel nav : entityType.navigationProperties()) {
+        for (NavigationPropertyModel nav : resolvedNavs(entityType)) {
             if (isComplexTypeNav(nav, schema)) continue;
             boolean isCollection = Names.isCollectionType(nav.type());
             String elementType = Names.unwrapCollectionType(nav.type());
@@ -78,15 +79,20 @@ public class RequestGenerator extends AbstractTypeGenerator {
         sb.append("        this.contextPath = contextPath;\n");
         sb.append("    }\n\n");
 
-        // Navigation property methods — only for entity nav targets (complex types are inline data, not navigable)
-        for (NavigationPropertyModel nav : entityType.navigationProperties()) {
+        // Navigation property methods — only for entity nav targets (complex types are inline data, not navigable).
+        // Inherited navs included: request classes don't extend each other, so the base's
+        // nav methods must be emitted on the subtype's request too
+        for (NavigationPropertyModel nav : resolvedNavs(entityType)) {
             if (isComplexTypeNav(nav, schema)) continue;
             sb.append(generateNavMethod(nav, schema));
         }
 
         // $ref methods for collection navigation properties — only for entity nav targets
-        for (NavigationPropertyModel nav : entityType.navigationProperties()) {
+        // (inherited included); containment navs (ContainsTarget) manage contained entities
+        // through the containment path, and $ref link operations are not defined for them
+        for (NavigationPropertyModel nav : resolvedNavs(entityType)) {
             if (isComplexTypeNav(nav, schema)) continue;
+            if (nav.containsTarget()) continue;
             if (Names.isCollectionType(nav.type())) {
                 String refBase = Names.toJavaFieldName(nav.name());
                 sb.append("    public void add").append(Names.capitalize(refBase)).append("Ref(String targetEntityUrl) {\n");
@@ -101,7 +107,7 @@ public class RequestGenerator extends AbstractTypeGenerator {
 
         // CRUD operations
         sb.append("    public ").append(entityClassName).append(" get() {\n");
-        sb.append("        return EntityOperations.executeAndGetEntity(context, contextPath, ").append(entityClassName).append(".class);\n");
+        sb.append("        return EntityOperations.executeAndGetEntity(context, contextPath, ").append(entityClassName).append(".class, ServiceSchemaInfo.INSTANCE);\n");
         sb.append("    }\n\n");
 
         sb.append("    public ").append(entityClassName).append(" patch(").append(entityClassName).append(" entity) {\n");
@@ -134,7 +140,7 @@ public class RequestGenerator extends AbstractTypeGenerator {
         sb.append("    }\n\n");
 
         // Media stream access — the entity itself is a media stream (HasStream="true") at $value
-        if (entityType.hasStream()) {
+        if (resolvedHasStream(entityType)) {
             sb.append("    public java.io.InputStream streamMedia() {\n");
             sb.append("        return EntityOperations.streamMedia(context, contextPath.addSegment(\"$value\"));\n");
             sb.append("    }\n\n");
@@ -154,7 +160,7 @@ public class RequestGenerator extends AbstractTypeGenerator {
         }
 
         // Named stream properties (Edm.Stream) — stream lives at <property>/$value
-        for (PropertyModel prop : entityType.properties()) {
+        for (PropertyModel prop : resolvedStreamProps(entityType)) {
             if ("Edm.Stream".equals(prop.edmType())) {
                 String streamMethod = Names.toJavaMethodName(prop.name(), "stream");
                 String setMethod = Names.toJavaMethodName(prop.name(), "set");
@@ -213,6 +219,7 @@ public class RequestGenerator extends AbstractTypeGenerator {
         imports.add("io.github.akbarhusain.odata.runtime.entity.Context");
         imports.add("io.github.akbarhusain.odata.runtime.entity.ContextPath");
         imports.add("io.github.akbarhusain.odata.runtime.client.EntityOperations");
+        imports.add(basePackage + Names.packageNameSuffixSchema() + "." + Names.schemaInfoClassName());
         imports.add("io.github.akbarhusain.odata.runtime.query.*");
         imports.add("io.github.akbarhusain.odata.runtime.paging.CollectionPage");
         imports.add("io.github.akbarhusain.odata.runtime.batch.BatchOperation");
@@ -253,7 +260,14 @@ public class RequestGenerator extends AbstractTypeGenerator {
         sb.append("    @SafeVarargs\n");
         sb.append("    public final ").append(className).append(" select(PropertyExpression<? super ").append(entityClassName).append(", ?>... properties) {\n");
         sb.append("        ").append(className).append(" next = copy();\n");
-        sb.append("        for (var p : properties) next.selects.add(p.getEdmName());\n");
+        sb.append("        for (var p : properties) {\n");
+        sb.append("            String name = p.getEdmName();\n");
+        sb.append("            if (name.indexOf('(') >= 0) {\n");
+        sb.append("                throw new IllegalArgumentException(\"'\" + name + \"' is not a selectable property \"\n");
+        sb.append("                        + \"(select accepts property paths only; function transformations belong in filter or compute)\");\n");
+        sb.append("            }\n");
+        sb.append("            next.selects.add(name);\n");
+        sb.append("        }\n");
         sb.append("        return next;\n");
         sb.append("    }\n\n");
 
@@ -353,7 +367,7 @@ public class RequestGenerator extends AbstractTypeGenerator {
         sb.append("    }\n\n");
 
         sb.append("    public CollectionPage<").append(entityClassName).append("> get() {\n");
-        sb.append("        return EntityOperations.executeAndGetCollection(context, buildContext(), ").append(entityClassName).append(".class);\n");
+        sb.append("        return EntityOperations.executeAndGetCollection(context, buildContext(), ").append(entityClassName).append(".class, ServiceSchemaInfo.INSTANCE);\n");
         sb.append("    }\n\n");
 
         sb.append("    public Stream<").append(entityClassName).append("> stream() {\n");
@@ -388,6 +402,10 @@ public class RequestGenerator extends AbstractTypeGenerator {
         sb.append("        tmp.countRequested = false;\n");
         sb.append("        tmp.topValue = null;\n");
         sb.append("        tmp.skipValue = null;\n");
+        // /$count supports only $filter/$search/$apply — $select/$expand/$orderby are invalid there
+        sb.append("        tmp.selects.clear();\n");
+        sb.append("        tmp.expands.clear();\n");
+        sb.append("        tmp.orderings.clear();\n");
         sb.append("        return EntityOperations.executeCount(context, tmp.buildContext());\n");
         sb.append("    }\n\n");
 
@@ -400,12 +418,14 @@ public class RequestGenerator extends AbstractTypeGenerator {
                     String keyProp = key.propertyRefs().get(0);
                     String paramName = Names.toJavaFieldName(keyProp);
                     String paramType = resolveKeyType(entityType, keyProp, schema);
+                    String keyEdmType = keyEdmType(entityType, keyProp, schema);
                     sb.append("    public ").append(Names.entityRequestClassName(entityType.name()))
                       .append(" ").append(Names.toJavaFieldName(entityType.name()))
                       .append("By").append(Names.capitalize(keyProp))
                       .append("(").append(paramType).append(" ").append(paramName).append(") {\n");
                     sb.append("        return new ").append(Names.entityRequestClassName(entityType.name()))
-                      .append("(context, contextPath.addKey(\"").append(keyProp).append("\", ").append(paramName).append("));\n");
+                      .append("(context, contextPath.addKey(\"").append(keyProp).append("\", ").append(paramName)
+                      .append(", \"").append(keyEdmType).append("\"));\n");
                     sb.append("    }\n\n");
                 } else {
                     // Composite key - generate single accessor with all key params
@@ -415,10 +435,12 @@ public class RequestGenerator extends AbstractTypeGenerator {
                         String keyProp = key.propertyRefs().get(i);
                         String paramName = Names.toJavaFieldName(keyProp);
                         String paramType = resolveKeyType(entityType, keyProp, schema);
+                        String keyEdmType = keyEdmType(entityType, keyProp, schema);
                         if (i > 0) { params.append(", "); args.append(".addKey(\""); }
                         else { args.append("contextPath.addKey(\""); }
                         params.append(paramType).append(" ").append(paramName);
-                        args.append(keyProp).append("\", ").append(paramName).append(")");
+                        args.append(keyProp).append("\", ").append(paramName)
+                              .append(", \"").append(keyEdmType).append("\")");
                     }
                     sb.append("    public ").append(Names.entityRequestClassName(entityType.name()))
                       .append(" ").append(Names.toJavaFieldName(entityType.name()))
@@ -489,6 +511,20 @@ public class RequestGenerator extends AbstractTypeGenerator {
         return "Object";
     }
 
+    /** The RESOLVED Edm type of a key property (typedefs unwrapped), for typed key literals. */
+    private String keyEdmType(EntityTypeModel entityType, String keyPropName, SchemaModel schema) {
+        for (PropertyModel prop : entityType.properties()) {
+            if (prop.name().equals(keyPropName)) {
+                return resolveTypeDefinition(prop.edmType(), schema);
+            }
+        }
+        EntityTypeModel base = findBase(entityType);
+        if (base != null) {
+            return keyEdmType(base, keyPropName, schema);
+        }
+        return "Edm.String";
+    }
+
     private java.util.List<KeyModel> resolvedKeys(EntityTypeModel entityType, SchemaModel schema) {
         if (!entityType.keys().isEmpty()) {
             return entityType.keys();
@@ -498,6 +534,52 @@ public class RequestGenerator extends AbstractTypeGenerator {
             return java.util.List.of();
         }
         return resolvedKeys(base, schema);
+    }
+
+    /** All navigation properties up the base chain (base-first), for request generation. */
+    private java.util.List<NavigationPropertyModel> resolvedNavs(EntityTypeModel entityType) {
+        java.util.List<NavigationPropertyModel> out = new java.util.ArrayList<>();
+        collectNavs(entityType, out);
+        return out;
+    }
+
+    private void collectNavs(EntityTypeModel entityType, java.util.List<NavigationPropertyModel> out) {
+        EntityTypeModel base = findBase(entityType);
+        if (base != null) {
+            collectNavs(base, out);
+        }
+        out.addAll(entityType.navigationProperties());
+    }
+
+    /** CSDL: HasStream="true" on a base type applies to all derived types. */
+    private boolean resolvedHasStream(EntityTypeModel entityType) {
+        EntityTypeModel t = entityType;
+        while (t != null) {
+            if (t.hasStream()) {
+                return true;
+            }
+            t = findBase(t);
+        }
+        return false;
+    }
+
+    /** Edm.Stream properties up the base chain, for named-stream request methods. */
+    private java.util.List<PropertyModel> resolvedStreamProps(EntityTypeModel entityType) {
+        java.util.List<PropertyModel> out = new java.util.ArrayList<>();
+        collectStreamProps(entityType, out);
+        return out;
+    }
+
+    private void collectStreamProps(EntityTypeModel entityType, java.util.List<PropertyModel> out) {
+        EntityTypeModel base = findBase(entityType);
+        if (base != null) {
+            collectStreamProps(base, out);
+        }
+        for (PropertyModel prop : entityType.properties()) {
+            if ("Edm.Stream".equals(prop.edmType())) {
+                out.add(prop);
+            }
+        }
     }
 
     private EntityTypeModel findBase(EntityTypeModel entityType) {
@@ -532,6 +614,11 @@ public class RequestGenerator extends AbstractTypeGenerator {
     }
 
     private boolean isComplexTypeNav(NavigationPropertyModel nav, SchemaModel schema) {
-        return Names.resolveTypeKind(nav.type(), effectiveSchemas) == Names.TypeKind.COMPLEX;
+        // Unwrap Collection(...) first: the raw collection form ("Collection(NS.Type)")
+        // never matches the type-kind map, so collection navs to complex types would
+        // fall through and emit references to CollectionRequest classes that are only
+        // generated for entity types — uncompilable output.
+        String unwrapped = Names.unwrapCollectionType(nav.type());
+        return Names.resolveTypeKind(unwrapped, effectiveSchemas) == Names.TypeKind.COMPLEX;
     }
 }

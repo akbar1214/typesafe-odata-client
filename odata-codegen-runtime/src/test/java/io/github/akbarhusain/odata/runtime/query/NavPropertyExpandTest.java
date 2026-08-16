@@ -159,4 +159,60 @@ class NavPropertyExpandTest {
         assertEquals("People($expand=Trips($select=Name;$expand=PlanItems($select=Name)))",
                 query.toODataExpand());
     }
+
+    @Test
+    void m7MultipleFiltersAreParenthesizedToPreservePrecedence() {
+        NavProperty<Object, Object> nav = new NavProperty<>("Trips", Object.class, Object.class);
+        NumberProperty<Object, Integer> budget = new NumberProperty<>("Budget", null);
+        StringProperty<Object> name = new StringProperty<>("Name", null);
+        NavProperty.NavQuery<Object, Object> query = nav
+                .filter(budget.greaterThan(5000).or(budget.lessThan(100)))
+                .filter(name.contains("trip"));
+        // RawFilterExpression.or() already parenthesizes its operands; the NavQuery join
+        // wraps each predicate so 'and' cannot bind inside the 'or' group
+        assertEquals("Trips($filter=((Budget gt 5000) or (Budget lt 100)) and (contains(Name,'trip')))",
+                query.toODataExpand(),
+                "joined $filter predicates must be parenthesized: unparenthesized 'or' + 'and' "
+                        + "changes semantics because 'and' binds tighter");
+    }
+
+    @Test
+    void l10SkipAndCountOptionsRender() {
+        NavProperty<Object, Object> nav = new NavProperty<>("Trips", Object.class, Object.class);
+        assertEquals("Trips($skip=5)", nav.skip(5).toODataExpand());
+        assertEquals("Trips($count=true)", nav.count().toODataExpand());
+
+        NavProperty.NavQuery<Object, Object> query = nav.top(2).skip(4).count();
+        assertEquals("Trips($top=2;$skip=4;$count=true)", query.toODataExpand());
+    }
+
+    @Test
+    void l10NavQueryListsAreImmutable() {
+        NavProperty<Object, Object> nav = new NavProperty<>("Trips", Object.class, Object.class);
+        NumberProperty<Object, Integer> budget = new NumberProperty<>("Budget", null);
+        NavProperty.NavQuery<Object, Object> query = nav.filter(budget.greaterThan(100));
+
+        assertThrows(UnsupportedOperationException.class,
+                () -> query.filters().add("injected eq true"),
+                "record list components must be defensively copied");
+        assertThrows(UnsupportedOperationException.class,
+                () -> query.selects().add("Injected"));
+    }
+
+    @Test
+    void l12SelectRejectsFunctionTransformations() {
+        NavProperty<Object, Object> nav = new NavProperty<>("Trips", Object.class, Object.class);
+        StringProperty<Object> name = new StringProperty<>("Name", null);
+        DateTimeProperty<Object> startsAt = new DateTimeProperty<>("StartsAt", null);
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> nav.select(name.toUpper()),
+                "$select=tolower(Name) is invalid — only structural property paths are selectable");
+        assertTrue(ex.getMessage().contains("toupper(Name)"), "message shows the offending name: " + ex.getMessage());
+        assertThrows(IllegalArgumentException.class, () -> nav.select(startsAt.date()));
+        assertThrows(IllegalArgumentException.class,
+                () -> nav.select(name).select(name.toUpper()),
+                "NavQuery.select must reject them too");
+        assertDoesNotThrow(() -> nav.select(name), "plain properties stay selectable");
+    }
 }

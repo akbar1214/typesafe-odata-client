@@ -4,6 +4,8 @@ import io.github.akbarhusain.odata.runtime.entity.Context;
 import io.github.akbarhusain.odata.runtime.entity.ContextPath;
 import io.github.akbarhusain.odata.runtime.http.*;
 import io.github.akbarhusain.odata.runtime.paging.CollectionPage;
+import io.github.akbarhusain.odata.runtime.serialization.JacksonSerializer;
+import io.github.akbarhusain.odata.runtime.serialization.Serializer;
 import org.junit.jupiter.api.Test;
 
 import java.nio.charset.StandardCharsets;
@@ -190,5 +192,46 @@ class EntityOperationsCollectionParseTest {
         assertTrue(url.contains("$apply="), "URL should contain $apply param: " + url);
         assertTrue(url.contains("groupby"), "URL should contain groupby: " + url);
         assertTrue(url.contains("aggregate"), "URL should contain aggregate: " + url);
+    }
+
+    static final class CountingSerializer implements Serializer {
+        final Serializer delegate = new JacksonSerializer();
+        int deserializations;
+
+        @Override
+        public <T> byte[] serialize(T value, Class<T> type) {
+            return delegate.serialize(value, type);
+        }
+
+        @Override
+        public <T> T deserialize(byte[] data, Class<T> type) {
+            deserializations++;
+            return delegate.deserialize(data, type);
+        }
+
+        @Override
+        public <T> T deserialize(byte[] data, java.lang.reflect.Type type) {
+            deserializations++;
+            return delegate.deserialize(data, type);
+        }
+    }
+
+    @Test
+    void m12CollectionReadsHonorPluggableSerializer() {
+        String json = "{\"value\":[{\"UserName\":\"scott\",\"FirstName\":\"Scott\",\"LastName\":\"Ketchum\"}]}";
+        CountingSerializer serializer = new CountingSerializer();
+        Context ctx = Context.builder()
+                .baseUrl("https://example.com")
+                .transport(stubTransport(json))
+                .serializer(serializer)
+                .build();
+
+        CollectionPage<Person> page = EntityOperations.executeAndGetCollection(
+                ctx, ctx.basePath().addSegment("People"), Person.class);
+
+        assertEquals(1, page.currentPage().size());
+        assertEquals("scott", page.currentPage().get(0).UserName());
+        assertTrue(serializer.deserializations >= 1,
+                "a custom Serializer must be used for collection element deserialization");
     }
 }

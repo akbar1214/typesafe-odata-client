@@ -11,6 +11,7 @@
         <!-- Same property name "Address" but different type in each schema -->
         <Property Name="Address" Type="Dup.Main.HomeAddress"/>
         <NavigationProperty Name="Work" Type="Dup.Main.WorkAddress"/>
+        <NavigationProperty Name="Locations" Type="Collection(Dup.Main.HomeAddress)"/>
       </EntityType>
 
       <ComplexType Name="HomeAddress">

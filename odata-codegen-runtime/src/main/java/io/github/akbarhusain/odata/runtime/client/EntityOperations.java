@@ -7,8 +7,10 @@ import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import io.github.akbarhusain.odata.runtime.entity.Context;
 import io.github.akbarhusain.odata.runtime.entity.ContextPath;
+import io.github.akbarhusain.odata.runtime.entity.SchemaInfo;
 import io.github.akbarhusain.odata.runtime.exception.ODataException;
 import io.github.akbarhusain.odata.runtime.http.*;
+import io.github.akbarhusain.odata.runtime.serialization.JacksonSerializer;
 import io.github.akbarhusain.odata.runtime.paging.CollectionPage;
 
 import java.io.IOException;
@@ -38,9 +40,52 @@ public class EntityOperations {
     private EntityOperations() {}
 
     public static <T> T executeAndGetEntity(Context context, ContextPath path, Class<T> type) {
+        return executeAndGetEntity(context, path, type, null);
+    }
+
+    /**
+     * GET a single entity with polymorphic deserialization: when the payload carries
+     * {@code @odata.type} and the SchemaInfo registry resolves it to a subtype of the
+     * declared type, the entity is deserialized as the subtype so subtype properties
+     * survive (otherwise they are silently dropped by the lenient mapper).
+     */
+    public static <T> T executeAndGetEntity(Context context, ContextPath path, Class<T> type,
+                                            SchemaInfo schemaInfo) {
         HttpResponse response = executeSync(context, HttpMethod.GET, path, null, null);
         checkResponse(response);
-        return context.serializer().deserialize(response.body(), type);
+        if (schemaInfo != null && response.body() != null && response.body().length > 0) {
+            T polymorphic = deserializePolymorphic(response.body(), context, type, schemaInfo);
+            if (polymorphic != null) {
+                return polymorphic;
+            }
+        }
+        return deserializeOrNull(response, context, type);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static <T> T deserializePolymorphic(byte[] body, Context context, Class<T> declaredType,
+                                                SchemaInfo schemaInfo) {
+        try {
+            var node = COLLECTION_MAPPER.readTree(body);
+            if (node != null && node.isObject()) {
+                var typeNode = node.get("@odata.type");
+                if (typeNode != null && typeNode.isTextual()) {
+                    Class<?> actual = schemaInfo.getClassFromTypeWithNamespace(
+                            stripTypeAnnotationPrefix(typeNode.asText()));
+                    if (actual != null && declaredType.isAssignableFrom(actual)) {
+                        return (T) context.serializer().deserialize(body, actual);
+                    }
+                }
+            }
+        } catch (IOException e) {
+            // fall through to declared-type deserialization below
+        }
+        return null;
+    }
+
+    /** {@code @odata.type} values may be URL fragments: {@code #Namespace.Type}. */
+    private static String stripTypeAnnotationPrefix(String typeName) {
+        return typeName.startsWith("#") ? typeName.substring(1) : typeName;
     }
 
     @SuppressWarnings("unchecked")
@@ -75,9 +120,27 @@ public class EntityOperations {
         return deserializeOrNull(response, context, responseType);
     }
 
+    /**
+     * PATCH bodies honor the entity's tracked {@code changedFields} (populated by Builder
+     * and with* copy-on-write) when non-empty — a partial update instead of a full-body
+     * merge. Entities deserialized from a GET and mutated via setters track nothing and
+     * send the full body (full-body PATCH is legal OData merge semantics either way).
+     */
+    @SuppressWarnings("unchecked")
+    private static <T> byte[] serializeForPatch(Context context, Object entity, Class<T> responseType) {
+        if (entity instanceof io.github.akbarhusain.odata.runtime.entity.ODataEntityType odataEntity) {
+            java.util.Set<String> changed = odataEntity.getChangedFields();
+            if (changed != null && !changed.isEmpty()) {
+                return context.serializer().serialize((T) entity, responseType, changed);
+            }
+        }
+        return context.serializer().serialize((T) entity, responseType);
+    }
+
     private static <T> T deserializeOrNull(HttpResponse response, Context context, Class<T> responseType) {
-        // Some services return 204 (or an empty body) for POST/PUT. Return null rather
-        // than failing to deserialize an empty payload; the caller already has the entity.
+        // Some services return 204 (or an empty body) for POST/PUT/PATCH, and GET can return
+        // 204 for gone entities (e.g. TripPin). Return null rather than failing to deserialize
+        // an empty payload; the caller already has the entity for writes.
         if (response.body() == null || response.body().length == 0) {
             return null;
         }
@@ -86,17 +149,17 @@ public class EntityOperations {
 
     @SuppressWarnings("unchecked")
     public static <T> T executePatchEntity(Context context, ContextPath path, Object entity, Class<T> responseType) {
-        byte[] body = context.serializer().serialize((T) entity, responseType);
+        byte[] body = serializeForPatch(context, entity, responseType);
         HttpResponse response = executeSync(context, HttpMethod.PATCH, path, body,
                 Map.of("Content-Type", "application/json"));
         checkResponse(response);
-        return context.serializer().deserialize(response.body(), responseType);
+        return deserializeOrNull(response, context, responseType);
     }
 
     @SuppressWarnings("unchecked")
     public static <T> T executePatchEntityWithETag(Context context, ContextPath path, Object entity,
                                                      Class<T> responseType, String etag) {
-        byte[] body = context.serializer().serialize((T) entity, responseType);
+        byte[] body = serializeForPatch(context, entity, responseType);
         Map<String, String> headers = new LinkedHashMap<>();
         headers.put("Content-Type", "application/json");
         if (etag != null && !etag.isEmpty()) {
@@ -104,7 +167,7 @@ public class EntityOperations {
         }
         HttpResponse response = executeSync(context, HttpMethod.PATCH, path, body, headers);
         checkResponse(response);
-        return context.serializer().deserialize(response.body(), responseType);
+        return deserializeOrNull(response, context, responseType);
     }
 
     public static void executeDelete(Context context, ContextPath path) {
@@ -147,6 +210,15 @@ public class EntityOperations {
     @SuppressWarnings("unchecked")
     public static <T> CollectionPage<T> executeAndGetCollection(Context context, ContextPath path,
                                                                   Class<T> elementType) {
+        return executeAndGetCollection(context, path, elementType, null);
+    }
+
+    /**
+     * GET a collection with polymorphic deserialization: elements carrying
+     * {@code @odata.type} resolve to their subtype via the SchemaInfo registry.
+     */
+    public static <T> CollectionPage<T> executeAndGetCollection(Context context, ContextPath path,
+                                                                  Class<T> elementType, SchemaInfo schemaInfo) {
         HttpResponse response = executeSync(context, HttpMethod.GET, path, null, null);
         checkResponse(response);
 
@@ -173,10 +245,34 @@ public class EntityOperations {
             List<T> items;
             Object valueObj = envelope.get("value");
             if (valueObj instanceof List<?> rawList && !rawList.isEmpty()) {
-                JavaType listType = LIST_TYPE_CACHE.computeIfAbsent(
-                        elementType, t -> COLLECTION_MAPPER.getTypeFactory()
-                                .constructCollectionType(List.class, t));
-                items = COLLECTION_MAPPER.convertValue(rawList, listType);
+                boolean polymorphic = schemaInfo != null && rawList.stream()
+                        .anyMatch(e -> e instanceof Map<?, ?> m && m.containsKey("@odata.type"));
+                if (polymorphic) {
+                    items = new ArrayList<>(rawList.size());
+                    for (Object element : rawList) {
+                        items.add(deserializeElement(context, element, elementType, schemaInfo));
+                    }
+                } else if (context.serializer() instanceof JacksonSerializer) {
+                    // Fast path for the default serializer: in-memory conversion, no
+                    // re-serialization round trip (profiling lessons 34/37)
+                    JavaType listType = LIST_TYPE_CACHE.computeIfAbsent(
+                            elementType, t -> COLLECTION_MAPPER.getTypeFactory()
+                                    .constructCollectionType(List.class, t));
+                    items = COLLECTION_MAPPER.convertValue(rawList, listType);
+                } else {
+                    // Honor a pluggable Serializer: it sees each element's bytes. The
+                    // Serializer interface has no tree/convert API, so each element is
+                    // re-serialized and delegated (page sizes are small).
+                    items = new ArrayList<>(rawList.size());
+                    for (Object element : rawList) {
+                        try {
+                            items.add(context.serializer().deserialize(
+                                    COLLECTION_MAPPER.writeValueAsBytes(element), elementType));
+                        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+                            throw new ODataException("Failed to parse collection response: " + e.getMessage(), e);
+                        }
+                    }
+                }
             } else {
                 items = List.of();
             }
@@ -187,17 +283,44 @@ public class EntityOperations {
         }
     }
 
+    @SuppressWarnings("unchecked")
+    private static <T> T deserializeElement(Context context, Object element, Class<T> declaredType,
+                                            SchemaInfo schemaInfo) {
+        Class<?> target = declaredType;
+        if (element instanceof Map<?, ?> m) {
+            Object typeName = m.get("@odata.type");
+            if (typeName instanceof String s) {
+                Class<?> actual = schemaInfo.getClassFromTypeWithNamespace(stripTypeAnnotationPrefix(s));
+                if (actual != null && declaredType.isAssignableFrom(actual)) {
+                    target = actual;
+                }
+            }
+        }
+        try {
+            if (context.serializer() instanceof JacksonSerializer) {
+                return (T) COLLECTION_MAPPER.convertValue(element, target);
+            }
+            return context.serializer().deserialize(COLLECTION_MAPPER.writeValueAsBytes(element), (Class<T>) target);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            throw new ODataException("Failed to parse collection response: " + e.getMessage(), e);
+        }
+    }
+
     public static long executeCount(Context context, ContextPath path) {
         ContextPath countPath = path.addCountSegment();
         // /$count returns plain text per the OData spec — never accept application/json
         HttpResponse response = executeSync(context, HttpMethod.GET, countPath, null,
                 Map.of("Accept", "text/plain"));
         checkResponse(response);
+        String text = response.getText();
+        String trimmed = text == null ? "" : text.trim();
+        if (trimmed.isEmpty()) {
+            throw new ODataException("Failed to parse $count response: (empty body)");
+        }
         try {
-            String body = new String(response.body(), StandardCharsets.UTF_8).trim();
-            return Long.parseLong(body);
+            return Long.parseLong(trimmed);
         } catch (NumberFormatException e) {
-            throw new ODataException("Failed to parse $count response: " + e.getMessage(), e);
+            throw new ODataException("Failed to parse $count response: '" + trimmed + "'", e);
         }
     }
 
@@ -252,7 +375,20 @@ public class EntityOperations {
         checkResponse(response);
     }
 
+    // Chains are cached per Context (records compare by value, so identical configurations
+    // share one chain) — building N wrappers per request was the last per-request
+    // allocation hotspot once interceptors are registered (M10)
+    private static final Map<Context, HttpTransport> CHAIN_CACHE =
+            java.util.Collections.synchronizedMap(new java.util.WeakHashMap<>());
+
     public static HttpTransport buildTransportChain(Context context, HttpTransport real) {
+        if (context.interceptors().isEmpty()) {
+            return real;
+        }
+        HttpTransport cached = CHAIN_CACHE.get(context);
+        if (cached != null) {
+            return cached;
+        }
         HttpTransport transport = real;
         List<HttpInterceptor> interceptors = context.interceptors();
         for (int i = interceptors.size() - 1; i >= 0; i--) {
@@ -261,7 +397,13 @@ public class EntityOperations {
             transport = new HttpTransport() {
                 @Override
                 public CompletableFuture<HttpResponse> submit(HttpRequest request) {
-                    return CompletableFuture.completedFuture(next.intercept(request, delegate));
+                    // Interceptor failures must complete the future exceptionally, not
+                    // escape synchronously — callers compose with exceptionally()/handle()
+                    try {
+                        return CompletableFuture.completedFuture(next.intercept(request, delegate));
+                    } catch (RuntimeException e) {
+                        return CompletableFuture.failedFuture(e);
+                    }
                 }
 
                 @Override
@@ -270,6 +412,7 @@ public class EntityOperations {
                 }
             };
         }
+        CHAIN_CACHE.put(context, transport);
         return transport;
     }
 

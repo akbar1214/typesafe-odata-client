@@ -52,4 +52,36 @@ class CollectionPropertyTest {
         NumberExpression<Integer, Object> expr = prop.length();
         assertEquals("length(Emails)", expr.toODataExpression());
     }
+
+    @Test
+    void l13MissingFilterableFactoryThrowsClearError() {
+        CollectionProperty<Object, Object, Object> prop =
+                new CollectionProperty<>("Tags", Object.class, Object.class);
+        IllegalStateException ex = assertThrows(IllegalStateException.class,
+                () -> prop.any(el -> new RawFilterExpression<>("true")),
+                "a missing factory must fail with a clear message, not a bare NPE");
+        assertTrue(ex.getMessage().contains("filterable"), "message explains the fix: " + ex.getMessage());
+    }
+
+    @Test
+    void l13LambdaAliasFollowsFilterableElementPrefix() {
+        CollectionProperty<Object, String, CollectionProperty.FilterableElement<String>> prop =
+                new CollectionProperty<>("Tags", Object.class, String.class,
+                        () -> new CollectionProperty.FilterableElement<>("d"));
+
+        FilterExpression<Object> expr = prop.any(el -> el.stringField("Value").equalTo("a"));
+        assertEquals("Tags/any(d: d/Value eq 'a')", expr.toODataExpression(),
+                "the lambda alias must match the element's property prefix — 'x:' with 'd/Value' " 
+                        + "is a dangling reference");
+    }
+
+    @Test
+    void l13InvalidLambdaAliasIsRejected() {
+        CollectionProperty<Object, String, CollectionProperty.FilterableElement<String>> prop =
+                new CollectionProperty<>("Tags", Object.class, String.class,
+                        () -> new CollectionProperty.FilterableElement<>("bad alias"));
+        assertThrows(IllegalArgumentException.class,
+                () -> prop.any(el -> el.stringField("Value").equalTo("a")),
+                "aliases must be simple identifiers — anything else produces invalid OData");
+    }
 }

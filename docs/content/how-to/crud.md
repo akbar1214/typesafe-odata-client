@@ -7,14 +7,14 @@ Create, read, update, and delete entities.
 ### Get a Single Entity
 
 ```java
-PersonEntityRequest request = client.peopleByUserName("scottketchum");
+PersonEntityRequest request = client.people().personByUserName("scottketchum");
 Person person = request.get();
 ```
 
 ### Get with Select
 
 ```java
-Person person = client.peopleByUserName("scottketchum")
+Person person = client.people().personByUserName("scottketchum")
     .select(Person.FIRST_NAME, Person.LAST_NAME)
     .get();
 ```
@@ -22,7 +22,7 @@ Person person = client.peopleByUserName("scottketchum")
 ### Get with Expand
 
 ```java
-Person person = client.peopleByUserName("scottketchum")
+Person person = client.people().personByUserName("scottketchum")
     .expand(Person.TRIPS)
     .get();
 ```
@@ -39,15 +39,8 @@ Person newPerson = Person.builder()
     .emails(List.of("mike@example.com"))
     .build();
 
-client.people()
-    .post(newPerson);
-```
-
-### Create and Get Back
-
-```java
 Person created = client.people()
-    .post(newPerson);
+    .create(newPerson);
 
 System.out.println(created.getUserName()); // "mike"
 ```
@@ -57,7 +50,7 @@ System.out.println(created.getUserName()); // "mike"
 ### Update an Entity
 
 ```java
-PersonEntityRequest request = client.peopleByUserName("mike");
+PersonEntityRequest request = client.people().personByUserName("mike");
 
 Person updated = Person.builder()
     .firstName("Michael")
@@ -65,6 +58,30 @@ Person updated = Person.builder()
 
 request.patch(updated);
 ```
+
+### Partial vs Full Updates
+
+`patch()` sends **only the tracked changes** when the entity was built via `builder()`
+or `with*()` copy-on-write — the body below is `{"FirstName":"Michael"}`, not the whole
+entity. Entities fetched with `get()` and modified via setters track nothing and send a
+full-body merge (legal OData either way).
+
+```java
+// Partial: only FirstName is sent
+Person updated = Person.builder()
+    .firstName("Michael")
+    .build();
+request.patch(updated);
+
+// Partial via copy-on-write from a fetched entity
+Person renamed = fetched.withFirstName("Michael");
+request.patch(renamed);        // still only FirstName
+```
+
+### Full Replace (PUT)
+
+`put(entity)` replaces the entire entity (HTTP PUT); `putWithETag(entity, etag)` adds
+the `If-Match` precondition.
 
 ### Update with ETag
 
@@ -75,7 +92,7 @@ See [Handle ETags and Concurrency](etag.md).
 ### Delete an Entity
 
 ```java
-client.peopleByUserName("mike")
+client.people().personByUserName("mike")
     .delete();
 ```
 
@@ -85,21 +102,21 @@ client.peopleByUserName("mike")
 
 ```java
 Trip newTrip = Trip.builder()
-    .tripId(1001L)
+    .tripId(1001)          // Edm.Int32 -> Integer
     .name("Business Trip")
     .budget(1500.0f)
     .build();
 
-client.peopleByUserName("scottketchum")
+Trip createdTrip = client.people().personByUserName("scottketchum")
     .trips()
-    .post(newTrip);
+    .create(newTrip);
 ```
 
 ### Delete a Trip
 
 ```java
-client.peopleByUserName("scottketchum")
-    .tripByTripId(1001L)
+client.people().personByUserName("scottketchum")
+    .tripByTripId(1001)
     .delete();
 ```
 

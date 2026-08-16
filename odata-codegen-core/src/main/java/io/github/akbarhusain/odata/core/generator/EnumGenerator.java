@@ -45,6 +45,20 @@ public class EnumGenerator {
         sb.append("            if (v.value == value) return v;\n");
         sb.append("        }\n");
         sb.append("        throw new IllegalArgumentException(\"Unknown value: \" + value);\n");
+        sb.append("    }\n\n");
+
+        // Jackson mapping: member-name strings (the OData v4 JSON form) map by name, but
+        // NUMERIC payloads must map by CSDL value — Jackson's default maps numbers by
+        // ORDINAL, which is wrong whenever member values are not 0..n-1 in declaration order
+        sb.append("    @com.fasterxml.jackson.annotation.JsonCreator\n");
+        sb.append("    public static ").append(className).append(" fromJson(Object value) {\n");
+        sb.append("        if (value instanceof Number n) {\n");
+        sb.append("            return fromValue(n.longValue());\n");
+        sb.append("        }\n");
+        sb.append("        String s = value.toString();\n");
+        sb.append("        // tolerate the qualified form Namespace.Enum'Member'\n");
+        sb.append("        int quote = s.lastIndexOf('\\'');\n");
+        sb.append("        return ").append(className).append(".valueOf(quote >= 0 ? s.substring(quote + 1) : s);\n");
         sb.append("    }\n");
 
         if (enumType.isFlags()) {

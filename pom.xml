@@ -10,6 +10,29 @@
     <packaging>pom</packaging>
     <name>OData Codegen</name>
     <description>Type-safe OData v4 client generator for Java</description>
+    <url>https://github.com/akbar1214/typesafe-odata-client</url>
+
+    <licenses>
+        <license>
+            <name>Apache License, Version 2.0</name>
+            <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+
+    <developers>
+        <developer>
+            <id>akbarhusain</id>
+            <name>Akbar Husain</name>
+            <email>aspatelakbar@gmail.com</email>
+        </developer>
+    </developers>
+
+    <scm>
+        <connection>scm:git:https://github.com/akbar1214/typesafe-odata-client.git</connection>
+        <developerConnection>scm:git:git@github.com:akbar1214/typesafe-odata-client.git</developerConnection>
+        <url>https://github.com/akbar1214/typesafe-odata-client</url>
+    </scm>
 
     <modules>
         <module>odata-codegen-core</module>
@@ -19,8 +42,11 @@
     </modules>
 
     <properties>
-        <maven.compiler.source>17</maven.compiler.source>
-        <maven.compiler.target>17</maven.compiler.target>
+        <!-- release (not source/target): compiling against the JDK's own platform APIs
+             silently allows newer-JDK methods that fail at runtime on 17 -->
+        <maven.compiler.release>17</maven.compiler.release>
+        <!-- reproducible builds -->
+        <project.build.outputTimestamp>2026-01-01T00:00:00Z</project.build.outputTimestamp>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <jackson.version>2.17.0</jackson.version>
         <slf4j.version>2.0.12</slf4j.version>
@@ -70,6 +96,11 @@
                 <artifactId>slf4j-api</artifactId>
                 <version>${slf4j.version}</version>
             </dependency>
+            <dependency>
+                <groupId>org.slf4j</groupId>
+                <artifactId>slf4j-simple</artifactId>
+                <version>${slf4j.version}</version>
+            </dependency>
 
             <!-- Testing -->
             <dependency>
@@ -89,16 +120,50 @@
                     <artifactId>maven-compiler-plugin</artifactId>
                     <version>3.13.0</version>
                     <configuration>
-                        <source>17</source>
-                        <target>17</target>
+                        <release>17</release>
+                    </configuration>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-source-plugin</artifactId>
+                    <version>3.3.0</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-javadoc-plugin</artifactId>
+                    <version>3.6.3</version>
+                    <configuration>
+                        <failOnError>false</failOnError>
                     </configuration>
                 </plugin>
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-surefire-plugin</artifactId>
                     <version>3.2.5</version>
+                    <configuration>
+                        <!-- Live-service tests (services.odata.org) are excluded by default so
+                             plain `mvn test` is hermetic. Run them with: mvn test -Plive-tests -->
+                        <excludedGroups>live-service</excludedGroups>
+                    </configuration>
                 </plugin>
             </plugins>
         </pluginManagement>
     </build>
+
+    <profiles>
+        <profile>
+            <id>live-tests</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-surefire-plugin</artifactId>
+                        <configuration>
+                            <excludedGroups combine.self="override"/>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 </project>

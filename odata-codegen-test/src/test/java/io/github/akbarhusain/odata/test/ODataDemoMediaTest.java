@@ -9,6 +9,7 @@ import io.github.akbarhusain.odata.runtime.http.JdkHttpTransport;
 import io.github.akbarhusain.odata.runtime.paging.CollectionPage;
 
 import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import java.io.InputStream;
@@ -20,6 +21,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * - Media entity (Advertisement, HasStream="true") read via streamMedia() at .../Advertisements(id)/$value
  * - Named stream property (PersonDetail.Photo, Edm.Stream) read via streamPhoto() at .../PersonDetails(id)/Photo/$value
  */
+@Tag("live-service")
 class ODataDemoMediaTest {
 
     static DemoService client;

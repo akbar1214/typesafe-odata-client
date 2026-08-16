@@ -35,19 +35,19 @@ Person.FIRST_NAME.greaterThan(3)         // ✗ Compile error!
 ### NumberProperty
 
 ```java
-Person.AGE.greaterThan(25)               // ✓
-Person.AGE.lessThanOrEqualTo(65)         // ✓
-Person.AGE.multiply(2)                   // ✓
-Person.AGE.equalTo(30)                   // ✓
-Person.AGE.contains("2")                 // ✗ Compile error!
+Person.CONCURRENCY.greaterThan(25)       // ✓
+Person.CONCURRENCY.lessThanOrEqualTo(65) // ✓
+Person.CONCURRENCY.multiply(2)           // ✓
+Person.CONCURRENCY.equalTo(30)           // ✓
+Person.CONCURRENCY.contains("2")         // ✗ Compile error!
 ```
 
-### BooleanProperty
+### EnumProperty
 
 ```java
-Person.IS_ACTIVE.equalTo(true)           // ✓
-Person.IS_ACTIVE.and(otherExpression)    // ✓
-Person.IS_ACTIVE.greaterThan(5)          // ✗ Compile error!
+Person.GENDER.equalTo(PersonGender.Male) // ✓
+Person.GENDER.has(PersonGender.Male)     // ✓ (flags membership)
+Person.GENDER.contains("Ma")             // ✗ Compile error!
 ```
 
 ### CollectionProperty
@@ -89,10 +89,10 @@ Produces: `FirstName ne 'Scott'`
 
 ```java
 (Person.FIRST_NAME.equalTo("Scott").or(Person.FIRST_NAME.equalTo("Keith")))
-    .and(Person.AGE.greaterThan(25))
+    .and(Person.CONCURRENCY.greaterThan(25))
 ```
 
-Produces: `(FirstName eq 'Scott' or FirstName eq 'Keith') and Age gt 25`
+Produces: `(FirstName eq 'Scott' or FirstName eq 'Keith') and Concurrency gt 25`
 
 ## Compile-Time Safety
 
@@ -103,10 +103,10 @@ The type system prevents invalid operations at compile time:
 Person.FIRST_NAME.greaterThan(3);
 
 // This won't compile
-Person.AGE.contains("Scott");
+Person.CONCURRENCY.contains("Scott");
 
 // This won't compile
-Person.IS_ACTIVE.equalTo("true");
+Person.GENDER.equalTo("Male");
 ```
 
 The error message tells you exactly what's wrong:

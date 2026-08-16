@@ -18,9 +18,20 @@ import java.util.concurrent.CompletionException;
 public class BatchRequest {
     private final Context context;
     private final List<Object> entries = new ArrayList<>();
+    private boolean continueOnError;
 
     public BatchRequest(Context context) {
         this.context = context;
+    }
+
+    /**
+     * Requests partial processing: the service continues after a failed operation instead
+     * of aborting the rest of the batch ({@code Prefer: continue-on-error=true}, OData
+     * 4.01). Services advertise support via the Capabilities-V1 batch capabilities.
+     */
+    public BatchRequest continueOnError() {
+        this.continueOnError = true;
+        return this;
     }
 
     public BatchRequest add(BatchOperation operation) {
@@ -45,31 +56,9 @@ public class BatchRequest {
         if (entries.isEmpty()) {
             return new BatchResponse(List.of());
         }
-
-        String boundary = MultipartHelper.generateBoundary();
-        resolveEntryUrls();
-        byte[] body = MultipartHelper.encodeBatchRequest(boundary, entries);
-
-        ContextPath batchPath = context.basePath().addSegment("$batch");
-
-        Map<String, List<String>> headers = new HashMap<>();
-        headers.putAll(toMultiMap(context.authProvider().getHeaders()));
-        headers.put("Content-Type", List.of("multipart/mixed; boundary=" + boundary));
-        headers.put("Accept", List.of("multipart/mixed"));
-
-        HttpRequest request = HttpRequest.builder()
-                .method(HttpMethod.POST)
-                .url(batchPath.toUrl())
-                .headers(headers)
-                .body(body)
-                .connectTimeout(Duration.ofSeconds(30))
-                .readTimeout(Duration.ofSeconds(120))
-                .build();
-
-        HttpTransport transport = EntityOperations.buildTransportChain(context, context.transport());
-
         try {
-            HttpResponse response = transport.submit(request).join();
+            String boundary = MultipartHelper.generateBoundary();
+            HttpResponse response = submitBatch(boundary).join();
             return parseResponse(response, boundary);
         } catch (CompletionException e) {
             Throwable cause = e.getCause();
@@ -82,8 +71,13 @@ public class BatchRequest {
         if (entries.isEmpty()) {
             return CompletableFuture.completedFuture(new BatchResponse(List.of()));
         }
-
         String boundary = MultipartHelper.generateBoundary();
+        return submitBatch(boundary)
+                .thenApply(response -> parseResponse(response, boundary));
+    }
+
+    /** Shared request assembly for the sync and async paths (they had drifted into copies). */
+    private CompletableFuture<HttpResponse> submitBatch(String boundary) {
         resolveEntryUrls();
         byte[] body = MultipartHelper.encodeBatchRequest(boundary, entries);
 
@@ -93,6 +87,9 @@ public class BatchRequest {
         headers.putAll(toMultiMap(context.authProvider().getHeaders()));
         headers.put("Content-Type", List.of("multipart/mixed; boundary=" + boundary));
         headers.put("Accept", List.of("multipart/mixed"));
+        if (continueOnError) {
+            headers.put("Prefer", List.of("continue-on-error=true"));
+        }
 
         HttpRequest request = HttpRequest.builder()
                 .method(HttpMethod.POST)
@@ -104,9 +101,7 @@ public class BatchRequest {
                 .build();
 
         HttpTransport transport = EntityOperations.buildTransportChain(context, context.transport());
-
-        return transport.submit(request)
-                .thenApply(response -> parseResponse(response, boundary));
+        return transport.submit(request);
     }
 
     private void resolveEntryUrls() {
@@ -142,6 +137,12 @@ public class BatchRequest {
 
     private BatchResponse parseResponse(HttpResponse response, String boundary) {
         if (response.statusCode() < 200 || response.statusCode() >= 300) {
+            // typed exception with the parsed ODataError, like every other response path
+            io.github.akbarhusain.odata.runtime.exception.ODataException typed =
+                    io.github.akbarhusain.odata.runtime.exception.ODataException.fromResponse(response);
+            if (typed != null) {
+                throw typed;
+            }
             throw new ODataException(response.statusCode(),
                     "Batch request failed with HTTP " + response.statusCode() + ": " + response.getText());
         }
@@ -171,8 +172,13 @@ public class BatchRequest {
     private static String extractBoundary(String contentType) {
         for (String part : contentType.split(";")) {
             String trimmed = part.trim();
-            if (trimmed.startsWith("boundary=")) {
-                return trimmed.substring("boundary=".length()).strip();
+            if (trimmed.regionMatches(true, 0, "boundary=", 0, "boundary=".length())) {
+                String value = trimmed.substring("boundary=".length()).strip();
+                // RFC 2046 allows quoted boundary values; the quotes are not part of the boundary
+                if (value.length() >= 2 && value.startsWith("\"") && value.endsWith("\"")) {
+                    value = value.substring(1, value.length() - 1);
+                }
+                return value;
             }
         }
         return null;

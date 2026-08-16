@@ -26,7 +26,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-@Mojo(name = "generate", defaultPhase = LifecyclePhase.GENERATE_SOURCES)
+@Mojo(name = "generate", defaultPhase = LifecyclePhase.GENERATE_SOURCES, threadSafe = true)
 public class GenerateMojo extends AbstractMojo {
 
     @Parameter(property = "odata.metadataUrl")
@@ -47,6 +47,14 @@ public class GenerateMojo extends AbstractMojo {
     @Parameter(property = "odata.skip", defaultValue = "false")
     private boolean skip;
 
+    /**
+     * Extra HTTP headers sent when downloading {@code metadataUrl} — e.g.
+     * {@code <metadataHeaders><Authorization>Bearer ...</Authorization></metadataHeaders>}
+     * for non-public metadata endpoints.
+     */
+    @Parameter
+    private java.util.Properties metadataHeaders;
+
     @Parameter(property = "odata.forceRegenerate", defaultValue = "false")
     private boolean forceRegenerate;
 
@@ -60,6 +68,21 @@ public class GenerateMojo extends AbstractMojo {
     private MavenProject project;
 
     private static final String MARKER_FILE = ".odata-generation-marker";
+
+    /**
+     * Marker file keyed by the metadata SOURCE identity (URL or file path): multiple
+     * executions sharing one outputDirectory would otherwise invalidate each other's
+     * single marker and fully regenerate on every build. The source identity is stable
+     * across metadata content changes (so the stale-file manifest is found when the
+     * metadata changes) and distinct per execution without relying on Maven expression
+     * injection.
+     */
+    private String markerFileName() throws Exception {
+        String source = metadataUrl != null ? metadataUrl : metadataFile.getAbsolutePath();
+        java.security.MessageDigest digest = java.security.MessageDigest.getInstance("MD5");
+        String key = bytesToHex(digest.digest(source.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        return MARKER_FILE + "-" + key.substring(0, 12);
+    }
 
     @Override
     public void execute() throws MojoExecutionException, MojoFailureException {
@@ -85,6 +108,10 @@ public class GenerateMojo extends AbstractMojo {
                 return;
             }
 
+            // Manifest of the previous run (may be empty) — used to delete files that
+            // disappeared from the metadata or moved after a package remap
+            java.util.List<String> previousFiles = readMarkerManifest(outputDir);
+
             CsdlModel model = parseMetadata(metadataPath);
 
             Map<String, String> packages = new HashMap<>();
@@ -96,19 +123,28 @@ public class GenerateMojo extends AbstractMojo {
             generator.withGenerateWithMethods(generateWithMethods);
             generator.generate(model);
 
-            writeMarker(outputDir, currentHash);
+            writeMarker(outputDir, currentHash, generator.writtenFiles());
+            deleteStaleFiles(outputDir, previousFiles, generator.writtenFiles());
 
             // Add generated sources to Maven project
             project.addCompileSourceRoot(outputDir.toFile().getAbsolutePath());
 
             getLog().info("OData client generated successfully in " + outputDir);
+        } catch (MojoExecutionException | MojoFailureException e) {
+            // deliberate failures (missing file, HTTP error, too many redirects) keep
+            // their own message and failure semantics instead of being re-wrapped
+            throw e;
         } catch (Exception e) {
-            throw new MojoExecutionException("Failed to generate OData client: " + e.getMessage(), e);
+            throw new MojoExecutionException("Failed to generate OData client", e);
         }
     }
 
     private Path resolveMetadataPath() throws Exception {
         if (metadataFile != null) {
+            if (metadataUrl != null) {
+                getLog().warn("Both metadataUrl and metadataFile are configured; using metadataFile ("
+                        + metadataFile.getAbsolutePath() + ") and ignoring metadataUrl (" + metadataUrl + ")");
+            }
             if (!metadataFile.exists()) {
                 throw new MojoFailureException("Metadata file not found: " + metadataFile.getAbsolutePath());
             }
@@ -135,11 +171,16 @@ public class GenerateMojo extends AbstractMojo {
         URI current = URI.create(url);
 
         for (int hop = 0; hop < 5; hop++) {
-            HttpRequest request = HttpRequest.newBuilder()
+            HttpRequest.Builder requestBuilder = HttpRequest.newBuilder()
                     .uri(current)
                     .timeout(java.time.Duration.ofSeconds(60))
-                    .header("Accept", "application/xml, application/json")
-                    .build();
+                    .header("Accept", "application/xml");
+            if (metadataHeaders != null) {
+                for (String name : metadataHeaders.stringPropertyNames()) {
+                    requestBuilder.header(name, metadataHeaders.getProperty(name));
+                }
+            }
+            HttpRequest request = requestBuilder.build();
 
             HttpResponse<InputStream> response = client.send(request, HttpResponse.BodyHandlers.ofInputStream());
 
@@ -156,6 +197,13 @@ public class GenerateMojo extends AbstractMojo {
 
             if (response.statusCode() != 200) {
                 throw new MojoFailureException("Failed to download metadata: HTTP " + response.statusCode());
+            }
+
+            String contentType = response.headers().firstValue("Content-Type").orElse("");
+            if (contentType.contains("application/json")) {
+                throw new MojoFailureException("Metadata endpoint returned application/json, but this "
+                        + "generator only supports CSDL XML. Configure the service to serve XML metadata "
+                        + "($metadata with Accept: application/xml).");
             }
 
             // Cache to a temp file so we can hash and parse it reliably.
@@ -200,6 +248,11 @@ public class GenerateMojo extends AbstractMojo {
         config.append("generateWithMethods=").append(generateWithMethods).append('\n');
         config.append("outputDirectory=").append(outputDirectory == null ? "" : outputDirectory.getAbsolutePath()).append('\n');
         config.append("pluginVersion=").append(pluginVersion == null ? "" : pluginVersion).append('\n');
+        if (metadataHeaders != null) {
+            for (String name : metadataHeaders.stringPropertyNames()) {
+                config.append("header=").append(name).append('\n');
+            }
+        }
         for (SchemaMapping mapping : schemaPackages) {
             config.append("schema=").append(mapping.getNamespace()).append('=')
                     .append(mapping.getPackageName()).append('\n');
@@ -220,11 +273,11 @@ public class GenerateMojo extends AbstractMojo {
     }
 
     private boolean isUpToDate(Path outputDir, String currentHash) throws Exception {
-        Path marker = outputDir.resolve(MARKER_FILE);
+        Path marker = outputDir.resolve(markerFileName());
         if (!Files.exists(marker)) {
             return false;
         }
-        String previousHash = Files.readString(marker).trim();
+        String previousHash = Files.readString(marker).split("\\R", 2)[0].trim();
         if (!currentHash.equals(previousHash)) {
             return false;
         }
@@ -235,8 +288,49 @@ public class GenerateMojo extends AbstractMojo {
         }
     }
 
-    private void writeMarker(Path outputDir, String hash) throws Exception {
-        Path marker = outputDir.resolve(MARKER_FILE);
-        Files.writeString(marker, hash);
+    /**
+     * Marker format: first line is the hash, following lines are the generated file paths
+     * relative to the output directory (the manifest for stale-file cleanup).
+     */
+    private void writeMarker(Path outputDir, String hash, List<Path> generatedFiles) throws Exception {
+        StringBuilder content = new StringBuilder(hash).append('\n');
+        Path normalized = outputDir.toAbsolutePath().normalize();
+        for (Path file : generatedFiles) {
+            content.append(normalized.relativize(file.toAbsolutePath().normalize())).append('\n');
+        }
+        Files.writeString(outputDir.resolve(markerFileName()), content.toString());
+    }
+
+    private List<String> readMarkerManifest(Path outputDir) throws Exception {
+        Path marker = outputDir.resolve(markerFileName());
+        if (!Files.exists(marker)) {
+            return List.of();
+        }
+        String[] lines = Files.readString(marker).split("\\R");
+        // legacy markers (hash only, no manifest) delete nothing
+        return lines.length <= 1 ? List.of() : List.of(lines).subList(1, lines.length);
+    }
+
+    private void deleteStaleFiles(Path outputDir, List<String> previous, List<Path> current) throws Exception {
+        if (previous.isEmpty()) {
+            return;
+        }
+        java.util.Set<String> currentRelative = new java.util.HashSet<>();
+        Path normalized = outputDir.toAbsolutePath().normalize();
+        for (Path file : current) {
+            currentRelative.add(normalized.relativize(file.toAbsolutePath().normalize()).toString());
+        }
+        for (String relative : previous) {
+            if (relative.isBlank() || !relative.endsWith(".java") || currentRelative.contains(relative)) {
+                continue;
+            }
+            Path stale = normalized.resolve(relative).normalize();
+            if (!stale.startsWith(normalized)) {
+                continue; // never follow a manifest entry outside the output directory
+            }
+            if (Files.deleteIfExists(stale)) {
+                getLog().info("Deleted stale generated file: " + relative);
+            }
+        }
     }
 }
