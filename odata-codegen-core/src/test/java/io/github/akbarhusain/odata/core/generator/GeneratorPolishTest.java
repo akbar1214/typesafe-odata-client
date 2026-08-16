@@ -154,4 +154,80 @@ class GeneratorPolishTest {
         assertTrue(b1.contains("NumberProperty<B1, Integer> COUNT"),
                 "NsB.Length is Edm.Int32 (previously shadowed by the first schema's typedef). Got:\\n" + b1);
     }
+
+    @Test
+    void containerMemberCollisionFailsLoudly() throws Exception {
+        // an EntitySet and a Singleton with the same name previously emitted duplicate
+        // accessor methods that don't compile
+        CsdlModel model = parse("""
+            <?xml version="1.0" encoding="utf-8"?>
+            <edmx:Edmx Version="4.0" xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx">
+              <edmx:DataServices>
+                <Schema Namespace="Ns" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+                  <EntityType Name="T"><Key><PropertyRef Name="Id"/></Key><Property Name="Id" Type="Edm.Int32" Nullable="false"/></EntityType>
+                  <EntityContainer Name="C">
+                    <EntitySet Name="People" EntityType="Ns.T"/>
+                    <Singleton Name="People" Type="Ns.T"/>
+                  </EntityContainer>
+                </Schema>
+              </edmx:DataServices>
+            </edmx:Edmx>
+            """);
+        IllegalStateException ex = assertThrows(IllegalStateException.class,
+                () -> new ContainerGenerator("com.example.t").generate(model.schemas().get(0).containers().get(0),
+                        model.schemas().get(0)));
+        assertTrue(ex.getMessage().contains("People"), "error names the colliding members: " + ex.getMessage());
+    }
+
+    @Test
+    void typedefOfEnumFilterLiteralUsesResolvedEnum() throws Exception {
+        CsdlModel model = parse("""
+            <?xml version="1.0" encoding="utf-8"?>
+            <edmx:Edmx Version="4.0" xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx">
+              <edmx:DataServices>
+                <Schema Namespace="Ns" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+                  <EnumType Name="Color"><Member Name="Red" Value="1"/></EnumType>
+                  <TypeDefinition Name="Tint" UnderlyingType="Ns.Color"/>
+                  <EntityType Name="T">
+                    <Key><PropertyRef Name="Id"/></Key>
+                    <Property Name="Id" Type="Edm.Int32" Nullable="false"/>
+                    <Property Name="Shade" Type="Ns.Tint"/>
+                  </EntityType>
+                </Schema>
+              </edmx:DataServices>
+            </edmx:Edmx>
+            """);
+        String code = new EntityGenerator("com.example.t").generate(
+                model.schemas().get(0).entityTypes().get(0), model.schemas().get(0));
+        assertTrue(code.contains("\"Ns.Color\""),
+                "the EnumProperty literal must use the resolved enum type, not the typedef. Got:\n" + code);
+        assertFalse(code.contains("\"Ns.Tint\""), "typedef name must not appear as the literal type");
+    }
+
+    @Test
+    void builderNavSettersTrackChanges() throws Exception {
+        CsdlModel model = parse("""
+            <?xml version="1.0" encoding="utf-8"?>
+            <edmx:Edmx Version="4.0" xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx">
+              <edmx:DataServices>
+                <Schema Namespace="Ns" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+                  <EntityType Name="Other"><Key><PropertyRef Name="Id"/></Key><Property Name="Id" Type="Edm.Int32" Nullable="false"/></EntityType>
+                  <EntityType Name="T">
+                    <Key><PropertyRef Name="Id"/></Key>
+                    <Property Name="Id" Type="Edm.Int32" Nullable="false"/>
+                    <Property Name="Name" Type="Edm.String"/>
+                    <NavigationProperty Name="Other" Type="Ns.Other"/>
+                  </EntityType>
+                </Schema>
+              </edmx:DataServices>
+            </edmx:Edmx>
+            """);
+        String code = new EntityGenerator("com.example.t").generate(
+                model.schemas().get(0).entityTypes().stream()
+                        .filter(e -> e.name().equals("T")).findFirst().orElseThrow(),
+                model.schemas().get(0));
+        String builder = code.substring(code.indexOf("class Builder"));
+        assertTrue(builder.contains("changed.add(\"Other\")"),
+                "builder nav setters must record changes for partial PATCH. Builder:\n" + builder);
+    }
 }

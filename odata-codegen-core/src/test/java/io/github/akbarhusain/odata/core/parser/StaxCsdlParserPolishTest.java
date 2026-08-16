@@ -152,4 +152,49 @@ class StaxCsdlParserPolishTest {
         assertTrue(ex.getMessage().contains("UnderlyingType"),
                 "clear parse-time error: " + ex.getMessage());
     }
+
+    @Test
+    void multipleKeyElementsAreRejected() {
+        // CSDL allows at most one <Key>; accepting several produced per-key single-key
+        // accessors for a composite-key entity
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> parse("""
+                    <?xml version="1.0" encoding="utf-8"?>
+                    <edmx:Edmx Version="4.0" xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx">
+                      <edmx:DataServices>
+                        <Schema Namespace="Ns" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+                          <EntityType Name="T">
+                            <Key><PropertyRef Name="A"/></Key>
+                            <Key><PropertyRef Name="B"/></Key>
+                            <Property Name="A" Type="Edm.String" Nullable="false"/>
+                            <Property Name="B" Type="Edm.String" Nullable="false"/>
+                          </EntityType>
+                        </Schema>
+                      </edmx:DataServices>
+                    </edmx:Edmx>
+                    """));
+        assertTrue(ex.getMessage().contains("T") && ex.getMessage().contains("Key"),
+                "error names the entity and the problem: " + ex.getMessage());
+    }
+
+    @Test
+    void propertyRefWithoutNameFailsDescriptively() {
+        // previously a bare NullPointerException from KeyModel's defensive List.copyOf
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> parse("""
+                    <?xml version="1.0" encoding="utf-8"?>
+                    <edmx:Edmx Version="4.0" xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx">
+                      <edmx:DataServices>
+                        <Schema Namespace="Ns" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+                          <EntityType Name="T">
+                            <Key><PropertyRef/></Key>
+                            <Property Name="A" Type="Edm.String" Nullable="false"/>
+                          </EntityType>
+                        </Schema>
+                      </edmx:DataServices>
+                    </edmx:Edmx>
+                    """));
+        assertTrue(ex.getMessage().contains("Name"),
+                "a descriptive parse error, not a bare NPE: " + ex.getMessage());
+    }
 }

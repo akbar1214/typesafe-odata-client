@@ -1,6 +1,6 @@
 # Code Review Round 4 — `odata-codegen-core` only (zero assumptions)
 
-> **Status: all 7 confirmed findings (H1, H2, M1-M5) RESOLVED** on branch `fix/review-round4-core` — every fix is TDD-verified by `Round4CoreFixesTest` (8 tests: hostile names generate *and compile*, enum wire names round-trip reflectively, collisions fail loudly). The fix pass also surfaced and closed one adjacent gap the review had missed: key-accessor method names (`tBy + capitalize(rawKeyProp)`) were built from unsanitized CSDL names.
+> **Status: all 7 confirmed findings (H1, H2, M1-M5) RESOLVED** on branch `fix/review-round4-core` — every fix is TDD-verified by 8 tests redistributed into subject-named classes (`HostileNamesCompilationTest`, `EnumJsonDeserializationTest`, `GeneratorPolishTest`, `StaxCsdlParserPolishTest`: hostile names generate *and compile*, enum wire names round-trip reflectively, collisions fail loudly). The fix pass also surfaced and closed one adjacent gap the review had missed: key-accessor method names (`tBy + capitalize(rawKeyProp)`) were built from unsanitized CSDL names.
 
 **Date:** 2026-08-16
 **Scope:** Every main-source file in `odata-codegen-core` (parser, model, all 7 generators, `Names`), re-verified from source — prior reviews, lessons, and documented decisions were treated as *hypotheses to re-test*, not facts.
