@@ -377,14 +377,16 @@ public abstract class AbstractTypeGenerator {
 
         return "    public final " + constantType + typeParams + " " + constantName
                 + " = new " + constantType + "<>(\"x/" + prop.name() + "\", " + className + ".class"
-                + (constantType.equals("EnumProperty") ? ", " + resolveClassNameForConstant(edmType, schema) + ".class, \"" + qualifiedEdmName(edmType, schema) + "\"" : "")
+                + (constantType.equals("EnumProperty") ? ", " + resolveClassNameForConstant(edmType, schema) + ".class, \"" + qualifiedEdmName(resolveTypeDefinition(edmType, schema), schema) + "\"" : "")
                 + ");\n";
     }
 
     protected String generateFilterableNavPropertyField(NavigationPropertyModel nav, String className, SchemaModel schema) {
         String unwrapped = Names.unwrapCollectionType(nav.type());
         String elementClassName = Names.resolvedClassName(unwrapped, effectiveSchemas);
-        String constantName = Names.toConstantName(nav.name());
+        // must go through the per-type allocation like every other emission site —
+        // the raw name collides with a property constant when e.g. prop BUDGET + nav budget
+        String constantName = constantNameFor(nav.name());
         return "    public final CollectionProperty<" + className + ", "
                 + elementClassName + ", " + elementClassName + ".Filterable> " + constantName
                 + " = new CollectionProperty<>(\"x/" + nav.name() + "\", " + className + ".class, "

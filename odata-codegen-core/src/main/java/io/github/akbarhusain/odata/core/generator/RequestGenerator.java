@@ -421,7 +421,7 @@ public class RequestGenerator extends AbstractTypeGenerator {
                     String keyEdmType = keyEdmType(entityType, keyProp, schema);
                     sb.append("    public ").append(Names.entityRequestClassName(entityType.name()))
                       .append(" ").append(Names.toJavaFieldName(entityType.name()))
-                      .append("By").append(Names.capitalize(keyProp))
+                      .append("By").append(Names.capitalize(Names.toJavaFieldName(keyProp)))
                       .append("(").append(paramType).append(" ").append(paramName).append(") {\n");
                     sb.append("        return new ").append(Names.entityRequestClassName(entityType.name()))
                       .append("(context, contextPath.addKey(\"").append(keyProp).append("\", ").append(paramName)
@@ -444,7 +444,7 @@ public class RequestGenerator extends AbstractTypeGenerator {
                     }
                     sb.append("    public ").append(Names.entityRequestClassName(entityType.name()))
                       .append(" ").append(Names.toJavaFieldName(entityType.name()))
-                      .append("By").append(Names.capitalize(key.propertyRefs().get(0)))
+                      .append("By").append(Names.capitalize(Names.toJavaFieldName(key.propertyRefs().get(0))))
                       .append("(").append(params).append(") {\n");
                     sb.append("        return new ").append(Names.entityRequestClassName(entityType.name()))
                       .append("(context, ").append(args).append(");\n");

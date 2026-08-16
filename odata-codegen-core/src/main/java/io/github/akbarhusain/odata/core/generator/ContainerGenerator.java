@@ -36,6 +36,17 @@ public class ContainerGenerator {
         String pkg = basePackage + Names.packageNameSuffixContainer();
         String className = Names.containerClassName(container.name());
 
+        // Accessor methods derive from member names; two members folding onto one
+        // method (e.g. an EntitySet and a Singleton both named 'People') previously
+        // emitted duplicate methods that don't compile — fail loudly instead
+        Map<String, String> accessors = new java.util.HashMap<>();
+        for (EntitySetModel es : container.entitySets()) {
+            checkAccessorCollision(accessors, Names.toJavaFieldName(es.name()), "EntitySet '" + es.name() + "'", className);
+        }
+        for (SingletonModel singleton : container.singletons()) {
+            checkAccessorCollision(accessors, Names.toJavaFieldName(singleton.name()), "Singleton '" + singleton.name() + "'", className);
+        }
+
         StringBuilder sb = new StringBuilder();
         sb.append("package ").append(pkg).append(";\n\n");
 
@@ -99,6 +110,16 @@ public class ContainerGenerator {
 
         sb.append("}\n");
         return sb.toString();
+    }
+
+    private static void checkAccessorCollision(Map<String, String> accessors, String methodName,
+                                                String memberDescription, String className) {
+        String previous = accessors.putIfAbsent(methodName, memberDescription);
+        if (previous != null) {
+            throw new IllegalStateException("Cannot generate container " + className + ": " + previous
+                    + " and " + memberDescription + " both map to accessor '" + methodName + "()'. "
+                    + "Rename one of them in the metadata.");
+        }
     }
 
     // P0-3: Look up the base package for a cross-namespace type reference

@@ -159,7 +159,15 @@ public class StaxCsdlParser {
             if (event.isStartElement()) {
                 StartElement child = event.asStartElement();
                 switch (child.getName().getLocalPart()) {
-                    case "Key" -> keys.add(parseKey(reader));
+                    case "Key" -> {
+                        // CSDL allows at most one <Key> per entity type; accepting several
+                        // produced per-key single-key accessors for a composite-key entity
+                        if (!keys.isEmpty()) {
+                            throw new IllegalArgumentException("EntityType '" + name
+                                    + "' declares multiple <Key> elements; CSDL allows at most one");
+                        }
+                        keys.add(parseKey(reader, name));
+                    }
                     case "Property" -> properties.add(parseProperty(reader, child));
                     case "NavigationProperty" -> navProps.add(parseNavigationProperty(reader, child));
                     default -> skipElement(reader);
@@ -201,13 +209,14 @@ public class StaxCsdlParser {
         return new ComplexTypeModel(name, baseType, openType, abstractType, properties, navProps);
     }
 
-    private KeyModel parseKey(XMLEventReader reader) throws XMLStreamException {
+    private KeyModel parseKey(XMLEventReader reader, String entityName) throws XMLStreamException {
         List<String> propertyRefs = new ArrayList<>();
         List<String> aliases = new ArrayList<>();
         while (reader.hasNext()) {
             XMLEvent event = reader.nextEvent();
             if (event.isStartElement() && "PropertyRef".equals(event.asStartElement().getName().getLocalPart())) {
-                propertyRefs.add(getAttr(event.asStartElement(), "Name"));
+                propertyRefs.add(requireAttr(event.asStartElement(), "Name",
+                        "PropertyRef in <Key> of EntityType '" + entityName + "'"));
                 String alias = getAttr(event.asStartElement(), "Alias");
                 aliases.add(alias != null ? alias : "");
             } else if (event.isEndElement() && isEdmElement(event.asEndElement(), "Key")) {

@@ -93,6 +93,12 @@ public final class Names {
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < edmName.length(); i++) {
             char c = edmName.charAt(i);
+            if (!Character.isJavaIdentifierPart(c)) {
+                // hostile-but-legal CSDL names (NCNames allow '-', '.', etc.) must not
+                // leak into Java identifiers — map invalid characters to '_'
+                sb.append('_');
+                continue;
+            }
             if (i > 0 && Character.isUpperCase(c) && Character.isLowerCase(edmName.charAt(i - 1))) {
                 sb.append('_');
             }
