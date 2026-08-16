@@ -93,7 +93,7 @@ long total = client.people().countValue();
 
 // With a filter
 long adults = client.people()
-    .filter(Person.AGE.greaterThan(25))
+    .filter(Person.CONCURRENCY.greaterThan(25))
     .countValue();
 ```
 
@@ -101,7 +101,7 @@ long adults = client.people()
 
 ```java
 CollectionPage<Person> people = client.people()
-    .filter(Person.AGE.greaterThan(25))
+    .filter(Person.CONCURRENCY.greaterThan(25))
     .count()
     .get();
 

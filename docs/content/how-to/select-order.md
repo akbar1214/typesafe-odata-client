@@ -69,7 +69,7 @@ client.people()
 
 ```java
 client.people()
-    .filter(Person.AGE.greaterThan(25))
+    .filter(Person.CONCURRENCY.greaterThan(25))
     .select(Person.FIRST_NAME, Person.LAST_NAME)
     .orderBy(Person.LAST_NAME.asc())
     .top(10)

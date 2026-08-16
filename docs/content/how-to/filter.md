@@ -54,39 +54,31 @@ client.people()
 ### Numeric Operations
 
 ```java
-// Comparison operators
+// Comparison operators (Person.CONCURRENCY is Edm.Int64)
 client.people()
-    .filter(Person.AGE.greaterThan(25))
+    .filter(Person.CONCURRENCY.greaterThan(25))
     .get();
 
 client.people()
-    .filter(Person.AGE.greaterThanOrEqualTo(18))
+    .filter(Person.CONCURRENCY.greaterThanOrEqualTo(18))
     .get();
 
+// Arithmetic on the related collection via a typed lambda
 client.people()
-    .filter(Person.AGE.lessThan(65))
-    .get();
-
-client.people()
-    .filter(Person.AGE.lessThanOrEqualTo(30))
-    .get();
-
-// Range
-client.people()
-    .filter(Person.AGE.greaterThan(18).and(Person.AGE.lessThan(65)))
-    .get();
-
-// Arithmetic
-client.people()
-    .filter(Person.AGE.multiply(2).equalTo(50))
+    .filter(Person.TRIPS.any(trip -> trip.BUDGET.multiply(2).greaterThan(1000.0f)))
     .get();
 ```
 
-### Boolean Operations
+### Enum Operations
 
 ```java
 client.people()
-    .filter(Person.IS_ACTIVE.equalTo(true))
+    .filter(Person.GENDER.equalTo(PersonGender.Male))
+    .get();
+
+// Flags membership (IsFlags enums): Gender has NS.PersonGender'Male'
+client.people()
+    .filter(Person.GENDER.has(PersonGender.Male))
     .get();
 ```
 
@@ -121,27 +113,28 @@ client.people()
 ### Complex Expressions
 
 ```java
-// (FirstName = 'Scott' OR FirstName = 'Keith') AND Age > 25
+// (FirstName = 'Scott' OR FirstName = 'Keith') AND Concurrency > 25
 client.people()
     .filter(
         Person.FIRST_NAME.equalTo("Scott")
             .or(Person.FIRST_NAME.equalTo("Keith"))
     )
-    .and(Person.AGE.greaterThan(25))
+    .and(Person.CONCURRENCY.greaterThan(25))
     .get();
 ```
 
 ## Null Checks
 
+Passing `null` to `equalTo`/`notEqualTo` (or calling `isNull()`/`isNotNull()`) renders
+the null predicates — including on nullable enums and GUIDs:
+
 ```java
-// Is null
 client.people()
-    .filter(Person.EMAILS.equalTo(null))
+    .filter(Person.GENDER.equalTo(null))       // Gender eq null
     .get();
 
-// Is not null
 client.people()
-    .filter(Person.EMAILS.notEqualTo(null))
+    .filter(Person.GENDER.isNotNull())         // Gender ne null
     .get();
 ```
 
@@ -176,19 +169,38 @@ client.people()
 
 ## Date/Time Operations
 
+`DateTimeProperty` accepts pre-formatted strings (validated against the OData ABNF) or
+typed values — `LocalDate`, `OffsetDateTime`, `LocalTime`, and `Duration` are formatted
+for you. Note that `Trip.STARTS_AT` belongs to `Trip`, so the predicates appear inside a
+typed lambda or a nested `$expand` filter, keeping the compile-time entity checks:
+
 ```java
-// Year, Month, Day
+// Typed literals: OffsetDateTime renders as a bare ISO datetime literal
 client.people()
-    .filter(Trip.STARTS_AT.year().equalTo(2024))
+    .filter(Person.TRIPS.any(trip ->
+        trip.STARTS_AT.greaterThan(OffsetDateTime.parse("2024-06-01T00:00:00Z"))))
     .get();
 
+// Date/time extraction: year(), month(), day(), hour(), minute(), second()
 client.people()
-    .filter(Trip.STARTS_AT.month().equalTo(6))
+    .filter(Person.TRIPS.any(trip -> trip.STARTS_AT.year().equalTo(2024)))
     .get();
 
-// Duration
+// Durations render as duration'...' literals
 client.people()
-    .filter(Trip.DURATION.days().greaterThan(7))
+    .expand(Person.TRIPS.filter(Trip.STARTS_AT.year().equalTo(2024)))
+    .get();
+```
+
+## GUID Filters
+
+`Edm.Guid` properties use `GuidProperty`, whose literals are the bare 8-4-4-4-12 form
+(quoted strings are a type error services reject):
+
+```java
+client.people()
+    .filter(Person.TRIPS.any(trip ->
+        trip.SHARE_ID.equalTo("0c5a0f6d-f3e8-4e11-9e4c-7d2a9a61b001")))
     .get();
 ```
 

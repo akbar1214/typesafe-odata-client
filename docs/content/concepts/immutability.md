@@ -180,3 +180,11 @@ Person updated = person
 
 - [CSDL Metadata Parsing](csdl-parsing.md) — How metadata is processed
 - [Generated Code Reference](../reference/generated-code.md) — Complete structure
+
+## Why `changedFields` Exists
+
+The tracking set is not dead weight: `patch()` serializes **only the tracked fields**
+when it is non-empty, so `builder()`- and `with*()`-built entities get true partial
+updates over the wire. Entities deserialized from a `get()` and modified via setters
+deliberately track nothing (setter-side tracking would mark deserialization itself as a
+change) and fall back to a full-body merge — legal OData either way.

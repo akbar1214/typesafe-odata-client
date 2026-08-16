@@ -103,7 +103,7 @@ try {
     request.patchWithETag(updated, etag);
 } catch (PreconditionFailedException e) {
     Person current = request.get();
-    System.out.println("Conflict! Current ETag: " + current.getETag());
+    System.out.println("Conflict! Current ETag: " + current.getETag().orElse(null));
 }
 ```
 
@@ -115,7 +115,7 @@ Too many requests.
 try {
     return client.people().get();
 } catch (RateLimitException e) {
-    long retryAfter = e.getRetryAfter();
+    java.time.Instant retryAt = e.getRetryAfter();
     Thread.sleep(retryAfter * 1000);
     return client.people().get();
 }
@@ -153,7 +153,9 @@ try {
 ## Best Practices
 
 1. **Catch specific exceptions first** — `NotFoundException` before `ODataException`
-2. **Handle rate limiting** — Retry after `getRetryAfter()` seconds
+2. **Handle rate limiting** — Retry at `getRetryAfter()` (an `Instant`; check
+   `hasServerRetryAfter()` to distinguish server-specified values from the client-side
+   default)
 3. **Handle ETag conflicts** — Re-fetch entity and retry
 4. **Log errors** — Include status code and message
 5. **Don't swallow exceptions** — At minimum, log them

@@ -25,10 +25,11 @@ client.people()
 
 ## Nested Expand Options (NavQuery)
 
-A navigation property exposes `select`, `filter`, `orderBy`, and `top` methods
-that return a `NavQuery<S, T>` (source entity `S`, target entity `T`). Pass the
+A navigation property exposes `select`, `filter`, `orderBy`, `top`, `skip`, and `count`
+methods that return a `NavQuery<S, T>` (source entity `S`, target entity `T`). Pass the
 `NavQuery` to `expand(...)` to nest those options inside the `$expand` clause —
-equivalent to OData's `$expand=Trips($select=...;$filter=...;$top=...;$orderby=...)`.
+equivalent to OData's
+`$expand=Trips($select=...;$filter=...;$orderby=...;$top=...;$skip=...;$count=true)`.
 
 ```java
 client.people()
@@ -36,7 +37,8 @@ client.people()
         .select(Trip.TRIP_ID, Trip.BUDGET)
         .filter(Trip.BUDGET.greaterThan(500.0f))
         .orderBy(Trip.STARTS_AT.desc())
-        .top(5))
+        .top(5)
+        .count())          // $count=true: inline count for the expansion
     .get();
 ```
 

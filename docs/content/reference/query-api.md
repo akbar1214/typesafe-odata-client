@@ -36,7 +36,7 @@ Complete reference for type-safe query operations.
 | `add(value)` | `add` | Addition |
 | `subtract(value)` | `sub` | Subtraction |
 | `multiply(value)` | `mul` | Multiplication |
-| `divide(value)` | `div` | Division |
+| `divide(value)` | `div` / `divby` | Division — `div` for integer operands (truncating), `divby` for Double/Decimal/Single |
 | `mod(value)` | `mod` | Modulus |
 | `negate()` | `-` | Negate |
 
@@ -47,7 +47,11 @@ Complete reference for type-safe query operations.
 | `equalTo(value)` | `eq` | Exact match |
 | `notEqualTo(value)` | `ne` | Not equal |
 
-### DateProperty
+### DateTimeProperty
+
+Comparison operators accept pre-formatted strings (validated against the OData ABNF) or
+typed `LocalDate` / `OffsetDateTime` / `LocalTime` / `Duration` values, which are
+formatted per the ABNF automatically.
 
 | Method | OData | Description |
 |--------|-------|-------------|
@@ -144,17 +148,17 @@ Produces: `FirstName eq 'Scott'`
 
 ```java
 (Person.FIRST_NAME.equalTo("Scott").or(Person.FIRST_NAME.equalTo("Keith")))
-    .and(Person.AGE.greaterThan(25))
+    .and(Person.CONCURRENCY.greaterThan(25))
 ```
 
-Produces: `(FirstName eq 'Scott' or FirstName eq 'Keith') and Age gt 25`
+Produces: `(FirstName eq 'Scott' or FirstName eq 'Keith') and Concurrency gt 25`
 
 ### Lambda Expression
 
 ```java
 Person.TRIPS.any(trip ->
     trip.BUDGET.greaterThan(500.0f)
-    .and(trip.DURATION.days().greaterThan(7))
+    .and(trip.STARTS_AT.year().equalTo(2024))
 )
 ```
 
@@ -164,3 +168,38 @@ Produces: `Trips/any(x: x/Budget gt 500.0f and x/Duration gt duration'P7D')`
 
 - [HTTP Transport](http-transport.md) — API details
 - [Serialization](serialization.md) — JSON library options
+
+### GuidProperty
+
+`Edm.Guid` properties. Literals are the bare 8-4-4-4-12 value (quoted strings are an
+OData type error); anything else throws `IllegalArgumentException`.
+
+| Method | OData | Description |
+|--------|-------|-------------|
+| `equalTo(guid)` | `eq` | GUID equality |
+| `notEqualTo(guid)` | `ne` | GUID inequality |
+| `isNull()` / `isNotNull()` | `eq/ne null` | Null predicates |
+| `asc()` / `desc()` | `$orderby` | Ordering |
+
+### EnumProperty\<E, V\>
+
+| Method | OData | Description |
+|--------|-------|-------------|
+| `equalTo(value)` | `eq` | `NS.Enum'Member'` literal (fully qualified) |
+| `notEqualTo(value)` | `ne` | Not equal |
+| `has(value)` | `has` | Flags membership (IsFlags enums) |
+| `isNull()` / `isNotNull()` | `eq/ne null` | Null predicates |
+
+### CollectionProperty\<E, T, F\>
+
+| Method | OData | Description |
+|--------|-------|-------------|
+| `any(predicate)` | `/any(x: ...)` | At least one element matches (typed `Filterable` lambda) |
+| `all(predicate)` | `/all(x: ...)` | Every element matches |
+| `contains(value)` | `contains()` | Collection contains a value |
+| `length()` | `length()` | Element count |
+
+!!! note
+    `$select` accepts structural property paths only — transformation results such as
+    `Person.FIRST_NAME.toUpper()` are rejected with a clear error (function calls
+    belong in `$filter` or `$compute`; `$orderby` accepts them, which is legal OData).

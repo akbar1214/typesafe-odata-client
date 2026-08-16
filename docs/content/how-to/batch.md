@@ -190,6 +190,47 @@ for (BatchResult<?> result : response) {
 }
 ```
 
+## Correlating Changeset Results by Content-ID
+
+Changeset operations are numbered with unique `Content-ID`s (batch-wide). On the
+response side, `getByContentId(String)` finds a specific operation's result — essential
+when a changeset fails, because the server collapses the failed group into a single
+error part:
+
+```java
+BatchResponse response = ctx.batch()
+    .addChangeset(new Changeset(List.of(
+        BatchOperation.post("Customers", customerJson),   // Content-ID: 1
+        BatchOperation.post("Orders", orderJson)          // Content-ID: 2
+    )))
+    .add(BatchOperation.get("Customers"))
+    .execute();
+
+BatchResult<?> orderResult = response.getByContentId("2");
+if (orderResult != null && !orderResult.isSuccessful()) {
+    System.err.println("Order creation failed: " + orderResult.statusCode());
+}
+```
+
+## Partial Processing (continue-on-error)
+
+By default a batch aborts at the first failed operation. `continueOnError()` sends
+`Prefer: continue-on-error=true` (OData 4.01) so the service processes the remaining
+operations and reports each result individually:
+
+```java
+BatchResponse response = ctx.batch()
+    .add(BatchOperation.get("People('scottketchum')"))
+    .add(BatchOperation.get("People('keithcombs')"))
+    .continueOnError()
+    .execute();
+
+for (BatchResult<?> result : response) {
+    System.out.println(result.statusCode() + " " + (result.contentId() != null
+            ? "Content-ID " + result.contentId() : "(standalone)"));
+}
+```
+
 ## Async Execution
 
 ```java
