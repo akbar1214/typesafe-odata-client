@@ -2,6 +2,9 @@ package io.github.akbarhusain.odata.core.generator;
 
 import io.github.akbarhusain.odata.core.model.CsdlModel.EnumTypeModel;
 
+import java.util.ArrayList;
+import java.util.List;
+
 public class EnumGenerator {
 
     private final String basePackage;
@@ -19,16 +22,35 @@ public class EnumGenerator {
 
         sb.append("public enum ").append(className).append(" {\n\n");
 
+        // members whose CSDL name differs from the sanitized Java constant need a
+        // wire-name map so JSON round-trips keep using the original member names
+        List<String[]> renamed = new ArrayList<>();
         for (int i = 0; i < enumType.members().size(); i++) {
             var member = enumType.members().get(i);
             // Sanitize hostile member names (reserved words, leading digits, dashes);
             // valid identifiers are kept verbatim so existing API names don't change.
-            sb.append("    ").append(enumConstantName(member.name())).append("(").append(member.value()).append("L)");
+            String constant = enumConstantName(member.name());
+            if (!constant.equals(member.name())) {
+                renamed.add(new String[]{member.name(), constant});
+            }
+            sb.append("    ").append(constant).append("(").append(member.value()).append("L)");
             if (i < enumType.members().size() - 1) sb.append(",");
             sb.append("\n");
         }
 
         sb.append("    ;\n\n");
+
+        boolean hasRenamed = !renamed.isEmpty();
+        if (hasRenamed) {
+            sb.append("    // CSDL member name -> sanitized constant (JSON wire names)\n");
+            sb.append("    private static final java.util.Map<String, ").append(className).append("> BY_NAME =\n");
+            sb.append("            java.util.Map.ofEntries(\n");
+            for (int i = 0; i < renamed.size(); i++) {
+                sb.append("                    java.util.Map.entry(\"").append(renamed.get(i)[0]).append("\", ")
+                  .append(renamed.get(i)[1]).append(")").append(i < renamed.size() - 1 ? "," : "").append("\n");
+            }
+            sb.append("            );\n\n");
+        }
 
         sb.append("    private final long value;\n\n");
 
@@ -58,7 +80,19 @@ public class EnumGenerator {
         sb.append("        String s = value.toString();\n");
         sb.append("        // tolerate the qualified form Namespace.Enum'Member'\n");
         sb.append("        int quote = s.lastIndexOf('\\'');\n");
-        sb.append("        return ").append(className).append(".valueOf(quote >= 0 ? s.substring(quote + 1) : s);\n");
+        sb.append("        String name = quote >= 0 ? s.substring(quote + 1) : s;\n");
+        if (hasRenamed) {
+            sb.append("        try {\n");
+            sb.append("            return ").append(className).append(".valueOf(name);\n");
+            sb.append("        } catch (IllegalArgumentException notFound) {\n");
+            sb.append("            // sanitized members: the JSON wire name is the CSDL member name\n");
+            sb.append("            ").append(className).append(" mapped = BY_NAME.get(name);\n");
+            sb.append("            if (mapped != null) return mapped;\n");
+            sb.append("            throw notFound;\n");
+            sb.append("        }\n");
+        } else {
+            sb.append("        return ").append(className).append(".valueOf(name);\n");
+        }
         sb.append("    }\n");
 
         if (enumType.isFlags()) {

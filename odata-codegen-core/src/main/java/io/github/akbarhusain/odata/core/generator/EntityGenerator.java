@@ -491,7 +491,7 @@ public class EntityGenerator extends AbstractTypeGenerator {
         return "    public static final " + constantType + typeParams + " "
                 + constantName
                 + " = new " + constantType + "<>(\"" + prop.name() + "\", " + className + ".class"
-                + (constantType.equals("EnumProperty") ? ", " + resolveClassNameForConstant(edmType, schema) + ".class, \"" + qualifiedEdmName(edmType, schema) + "\"" : "")
+                + (constantType.equals("EnumProperty") ? ", " + resolveClassNameForConstant(edmType, schema) + ".class, \"" + qualifiedEdmName(resolveTypeDefinition(edmType, schema), schema) + "\"" : "")
                 + ");\n";
     }
 
@@ -620,6 +620,8 @@ public class EntityGenerator extends AbstractTypeGenerator {
             String fn = Names.toJavaFieldName(nav.name());
             sb.append("        public Builder ").append(fn).append("(").append(javaType).append(" value) {\n");
             sb.append("            this.").append(fn).append(" = value;\n");
+            // nav changes must be tracked like property changes, or partial PATCH drops them
+            sb.append("            changed.add(\"").append(nav.name()).append("\");\n");
             sb.append("            return this;\n");
             sb.append("        }\n\n");
         }
