@@ -4,15 +4,19 @@ A type-safe OData v4 client generator for Java. Parses CSDL XML metadata and gen
 
 ## Features
 
-- **Type-safe query API** — Expression builders for `$filter`, `$select`, `$orderby`, `$expand` with compile-time validation
-- **Truly immutable entities** — All fields `final`; copy-on-write semantics
-- **Entity & complex-type inheritance** — Subtypes emit real Java `extends` clauses; base-type query predicates type-check against subtypes (e.g. `Flight` is a `PlanItem`, `EventLocation` is a `Location`)
-- **Nested `$expand`** — Type-safe `$expand=Trips($select=...;$filter=...;$top=...)` via `NavQuery`
-- **Pluggable HTTP** — `HttpTransport` interface; built-in JDK `HttpClient` implementation
+- **Type-safe query API** — Expression builders for `$filter`, `$select`, `$orderby`, `$expand`, `$apply` with compile-time validation
+- **Immutable-by-contract entities** — Copy-on-write `with*()` methods; getters return unmodifiable collections and `Optional`; `patch()` sends **only the tracked changes** (partial updates)
+- **Entity & complex-type inheritance** — Subtypes emit real Java `extends` clauses; base-type query predicates type-check against subtypes (e.g. `Flight` is a `PlanItem`, `EventLocation` is a `Location`); `@odata.type` payloads deserialize to the actual subtype
+- **Nested `$expand`** — Type-safe `$expand=Trips($select=...;$filter=...;$orderby=...;$top=...;$skip=...;$count=...)` via `NavQuery`
+- **Batch with changesets** — Atomic groups with batch-wide `Content-ID`s, `getByContentId()` result correlation, and the `continue-on-error` preference
+- **Media streams** — `HasStream` entities (`.../$value`) and `Edm.Stream` named properties
+- **Open types** — Dynamic properties captured into `unmappedFields` with typed coercion
+- **Type-driven key literals** — `Edm.String` always quoted, `Edm.Guid` bare, durations `duration'...'`, enums `NS.Enum'Member'` — no value-shape guessing
+- **Pluggable HTTP** — `HttpTransport` interface; built-in JDK `HttpClient` implementation (zero extra dependencies)
 - **Pluggable serialization** — `Serializer` interface; Jackson by default
-- **Typed exceptions** — `NotFoundException`, `UnauthorizedException`, `RateLimitException`, etc.
+- **Typed exceptions** — `NotFoundException`, `UnauthorizedException`, `RateLimitException` (with parsed `Retry-After`), etc. — every exception carries the structured `ODataError` when the service sends one
 - **ETag concurrency** — `If-Match` header support for optimistic locking
-- **`$count` support** — Get total count with collection queries
+- **`$count` support** — Inline count (`$count=true`) and the plain `/$count` endpoint (`countValue()`)
 - **`$ref` support** — Add/remove navigation property links
 - **Async HTTP layer** — `HttpTransport` is `CompletableFuture`-based; generated request methods are synchronous on top of it
 
@@ -122,14 +126,15 @@ CollectionPage<Person> peopleNested = client.people()
 ### CRUD Operations
 
 ```java
-// Create entity
+// Create (POST) — returns the created entity
 Person newPerson = Person.builder()
     .userName("newuser")
     .firstName("New")
     .lastName("User")
     .build();
+Person created = client.people().create(newPerson);
 
-// PATCH with ETag
+// PATCH with ETag — copy-on-write tracks changes, so only FirstName is sent
 PersonEntityRequest req = client.people().personByUserName("newuser");
 Person existing = req.get();
 String etag = existing.getETag().orElse(null);
@@ -139,7 +144,7 @@ Person updated = req.patchWithETag(
     etag
 );
 
-// DELETE
+// DELETE (use deleteWithETag(etag) for concurrency-checked deletes)
 req.delete();
 ```
 
@@ -167,7 +172,9 @@ try {
 } catch (UnauthorizedException e) {
     System.out.println("Authentication required");
 } catch (RateLimitException e) {
-    System.out.println("Rate limited, retry after: " + e.getRetryAfter());
+    // getRetryAfter() is an Instant; hasServerRetryAfter() distinguishes
+    // server-specified values from the client-side default
+    System.out.println("Rate limited, retry at: " + e.getRetryAfter());
 } catch (ODataException e) {
     System.out.println("OData error: " + e.getMessage());
 }
@@ -208,36 +215,63 @@ odata-codegen/
 ## Generated Code Structure
 
 ```java
-// Entity (immutable, annotation-free)
+// Entity — immutable by contract: protected fields populated via @JsonProperty setters
+// (Jackson) or the Builder; copy-on-write with*() methods; unmodifiable getters
 public final class Person implements ODataEntityType {
     public static final StringProperty<Person> FIRST_NAME = ...;
     public static final CollectionProperty<Person, Trip, Trip.Filterable> TRIPS = ...;
-    private final String userName;
-    private final String firstName;
-    // Builder, with*() methods, getters
+    protected String userName;
+    protected String firstName;
+    // Builder, with*() methods, getters, typed Filterable for any()/all()
 }
 
 // Collection request (type-safe query building)
-public class PersonCollectionRequest {
+public final class PersonCollectionRequest {
     public PersonCollectionRequest filter(FilterExpression<Person> predicate);
     public PersonCollectionRequest select(PropertyExpression<? super Person, ?>... properties);
     public PersonCollectionRequest orderBy(OrderExpression<? super Person, ?>... expressions);
     public PersonCollectionRequest expand(NavProperty<? super Person, ?>... navs);
     public PersonCollectionRequest expand(NavProperty.NavQuery<? super Person, ?>... queries);
     public PersonCollectionRequest top(int count);
+    public PersonCollectionRequest skip(int count);
     public CollectionPage<Person> get();
+    public Person create(Person entity);
+    public long countValue();               // GET /People/$count
+    public PersonCollectionRequest nextPage(String nextLink);
+    public PersonEntityRequest personByUserName(String userName);
 }
 
 // Entity request (CRUD operations)
-public class PersonEntityRequest {
+public final class PersonEntityRequest {
     public Person get();
-    public Person patch(Person entity);
+    public Person patch(Person entity);           // partial when changes are tracked
     public Person patchWithETag(Person entity, String etag);
+    public Person put(Person entity);             // full replace
     public void delete();
+    public void deleteWithETag(String etag);
     public TripCollectionRequest trips();
 }
 ```
 
+## Documentation
+
+Full documentation lives in [`docs/content/`](docs/content/) — tutorials, how-to guides,
+concepts, and API reference:
+
+- [Getting Started](docs/content/getting-started.md)
+- [How-to Guides](docs/content/how-to/index.md) — filtering, CRUD, expand, batch, media, ETags, errors, auth, custom transports
+- [Reference](docs/content/reference/maven-plugin.md) — Maven plugin configuration, generated-code structure, query/HTTP/serialization APIs
+- [Release Notes](docs/content/release-notes.md)
+
+## Development
+
+```bash
+./mvnw test                  # hermetic: offline unit/integration tests only
+./mvnw test -Plive-tests     # everything, including the live services.odata.org suites
+```
+
+The build requires Java 17+ (`./mvnw` is the wrapped Maven — no local install needed).
+
 ## License
 
-Apache License 2.0
+Apache License 2.0 — see [LICENSE](LICENSE).
