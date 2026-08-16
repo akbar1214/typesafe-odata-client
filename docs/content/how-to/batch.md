@@ -221,7 +221,7 @@ operations and reports each result individually:
 ```java
 BatchResponse response = ctx.batch()
     .add(BatchOperation.get("People('scottketchum')"))
-    .add(BatchOperation.get("People('keithcombs')"))
+    .add(BatchOperation.get("People('ronaldmundy')"))
     .continueOnError()
     .execute();
 

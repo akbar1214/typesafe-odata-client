@@ -151,13 +151,13 @@ req.delete();
 ### `$ref` — Manage Navigation Links
 
 ```java
-// Add friend
+// Add friend (target entity path is resolved to an absolute @odata.id URL)
 client.people().personByUserName("scottketchum")
-    .addFriendsRef("People('keithcombs')");
+    .addFriendsRef("People('ronaldmundy')");
 
 // Remove friend
 client.people().personByUserName("scottketchum")
-    .removeFriendsRef("keithcombs");
+    .removeFriendsRef("People('ronaldmundy')");
 ```
 
 ### Error Handling
