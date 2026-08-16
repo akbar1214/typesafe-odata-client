@@ -43,13 +43,14 @@ class EntityOperationsAddRefTest {
         ContextPath path = new ContextPath("http://svc").addSegment("People").addSegment("Friends");
 
         // An OData string key may legitimately contain double quotes and backslashes.
+        // Relative entity paths are resolved to absolute @odata.id URIs.
         EntityOperations.addRef(ctx, path, "People('O\"Brien')");
 
         String body = new String(transport.lastRequest.body(), StandardCharsets.UTF_8);
         // The produced JSON must be valid: the quote inside the value must be escaped.
         assertTrue(body.contains("\\\""), "Value-internal double quote should be escaped: " + body);
-        assertEquals("{\"@odata.id\":\"People('O\\\"Brien')\"}", body,
-                "JSON body should be properly escaped");
+        assertEquals("{\"@odata.id\":\"http://svc/People('O\\\"Brien')\"}", body,
+                "JSON body should be properly escaped with an absolute @odata.id");
     }
 
     @Test
@@ -58,10 +59,10 @@ class EntityOperationsAddRefTest {
         Context ctx = context(transport);
         ContextPath path = new ContextPath("http://svc").addSegment("People").addSegment("Friends");
 
-        EntityOperations.addRef(ctx, path, "People('keithcombs')");
+        EntityOperations.addRef(ctx, path, "People('ronaldmundy')");
 
         String body = new String(transport.lastRequest.body(), StandardCharsets.UTF_8);
-        assertEquals("{\"@odata.id\":\"People('keithcombs')\"}", body,
-                "Plain URL should produce unchanged JSON body");
+        assertEquals("{\"@odata.id\":\"http://svc/People('ronaldmundy')\"}", body,
+                "relative entity paths resolve against the service root");
     }
 }

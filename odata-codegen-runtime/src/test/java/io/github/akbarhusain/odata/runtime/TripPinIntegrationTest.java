@@ -24,6 +24,48 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 @Tag("live-service")
 class TripPinIntegrationTest {
 
+    /**
+     * TripPin intermittently fails $ref link mutations with a 500 server fault — usually
+     * "Property set method not found" from its reflection provider, occasionally with an
+     * empty or differently-worded body — while identical requests succeed minutes apart.
+     * Client-side faults (relative-URI payloads, missing targets) produce DISTINCT
+     * messages and must keep failing the test.
+     */
+    /** GETs until 200 (or gives up after ~3s); TripPin's read-after-write lag 204s briefly. */
+    private HttpResponse getUntilFound(ContextPath entityPath) throws Exception {
+        HttpResponse response = null;
+        for (int attempt = 0; attempt < 10; attempt++) {
+            response = EntityOperations.executeSync(
+                    tripPinContext,
+                    io.github.akbarhusain.odata.runtime.http.HttpMethod.GET,
+                    entityPath, null, null);
+            if (response.statusCode() == 200) {
+                return response;
+            }
+            Thread.sleep(300);
+        }
+        return response;
+    }
+
+    private static boolean isTripPinLinkMutationFault(HttpResponse response) {
+        if (response.statusCode() != 500) {
+            return false;
+        }
+        String text = response.getText();
+        return text.contains("Property set method not found")
+                || text.isBlank()
+                || (text.contains("InternalServerError") && !text.contains("relative URI")
+                        && !text.contains("odata.context") && !text.contains("target"));
+    }
+
+    static final class EntityOperationsTestHelper {
+        static byte[] refBody(String targetPath) {
+            // absolute @odata.id, as EntityOperations.addRef builds it
+            return ("{\"@odata.id\":\"https://services.odata.org/V4/TripPinService/"
+                    + targetPath + "\"}").getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        }
+    }
+
     static Context tripPinContext;
     static ObjectMapper mapper;
 
@@ -374,22 +416,23 @@ class TripPinIntegrationTest {
 
         // Create person
         ContextPath basePath = tripPinContext.basePath().addSegment("People");
-        EntityOperations.executeSync(
+        HttpResponse createResponse = EntityOperations.executeSync(
                 tripPinContext,
                 io.github.akbarhusain.odata.runtime.http.HttpMethod.POST,
                 basePath,
                 createJson.getBytes(java.nio.charset.StandardCharsets.UTF_8),
                 java.util.Map.of("Content-Type", "application/json"));
+        assertTrue(createResponse.statusCode() == 201 || createResponse.statusCode() == 204,
+                "Create person should succeed, got " + createResponse.statusCode()
+                        + ": " + createResponse.getText());
 
         ContextPath entityPath = tripPinContext.basePath()
                 .addSegment("People")
                 .addKey("UserName", testUserName);
 
-        // GET to obtain ETag (TripPin requires If-Match for PATCH)
-        HttpResponse getResponse = EntityOperations.executeSync(
-                tripPinContext,
-                io.github.akbarhusain.odata.runtime.http.HttpMethod.GET,
-                entityPath, null, null);
+        // GET to obtain ETag (TripPin requires If-Match for PATCH). TripPin briefly
+        // returns 204 on reads immediately after writes (read-after-write lag) — poll.
+        HttpResponse getResponse = getUntilFound(entityPath);
         assertEquals(200, getResponse.statusCode());
 
         String etag = null;
@@ -423,11 +466,8 @@ class TripPinIntegrationTest {
         assertTrue(patchResponse.isSuccessful(),
                 "PATCH should succeed: " + patchResponse.statusCode() + " - " + patchResponse.getText());
 
-        // Verify update via GET
-        HttpResponse verifyResponse = EntityOperations.executeSync(
-                tripPinContext,
-                io.github.akbarhusain.odata.runtime.http.HttpMethod.GET,
-                entityPath, null, null);
+        // Verify update via GET (poll: reads right after writes can transiently 204)
+        HttpResponse verifyResponse = getUntilFound(entityPath);
         assertEquals(200, verifyResponse.statusCode());
         JsonNode person = mapper.readTree(verifyResponse.body());
         assertEquals("Updated", person.get("FirstName").asText());
@@ -466,12 +506,15 @@ class TripPinIntegrationTest {
 
         // Create person
         ContextPath basePath = tripPinContext.basePath().addSegment("People");
-        EntityOperations.executeSync(
+        HttpResponse createResponse = EntityOperations.executeSync(
                 tripPinContext,
                 io.github.akbarhusain.odata.runtime.http.HttpMethod.POST,
                 basePath,
                 createJson.getBytes(java.nio.charset.StandardCharsets.UTF_8),
                 java.util.Map.of("Content-Type", "application/json"));
+        assertTrue(createResponse.statusCode() == 201 || createResponse.statusCode() == 204,
+                "Create person should succeed, got " + createResponse.statusCode()
+                        + ": " + createResponse.getText());
 
         ContextPath entityPath = tripPinContext.basePath()
                 .addSegment("People")
@@ -530,48 +573,85 @@ class TripPinIntegrationTest {
 
     @Test
     void addAndRemoveFriend() throws Exception {
-        // Add friend relationship using $ref
-        ContextPath addRefPath = tripPinContext.basePath()
-                .addSegment("People")
-                .addKey("UserName", "scottketchum")
-                .addSegment("Friends")
-                .addSegment("$ref");
+        // $ref mechanics on TripPin's People/Friends, verified against the service's
+        // real behavior:
+        // 1. @odata.id and $id must be ABSOLUTE URIs (relative values are rejected with
+        //    500 "relative URI value ... odata.context annotation is missing") — the
+        //    runtime resolves entity paths against the service root.
+        // 2. The target entity must EXIST — nonexistent users make the service's
+        //    CreateLink throw (500, target=null). 'keithcombs' does not exist in the
+        //    seed data.
+        // 3. The service's reflection provider intermittently fails ALL link mutations
+        //    with 500 "Property set method not found" (its own bug — identical requests
+        //    succeed or fail across minutes). That failure is a known service limitation
+        //    and skips this test rather than failing it.
+        java.util.List<String> people = new java.util.ArrayList<>();
+        HttpResponse peopleResponse = EntityOperations.executeSync(tripPinContext,
+                io.github.akbarhusain.odata.runtime.http.HttpMethod.GET,
+                tripPinContext.basePath().addSegment("People").addQuery("$select", "UserName"),
+                null, null);
+        new com.fasterxml.jackson.databind.ObjectMapper().readTree(peopleResponse.body())
+                .get("value").forEach(n -> people.add(n.get("UserName").asText()));
 
-        String refBody = """
-                {
-                    "@odata.id": "People('keithcombs')"
-                }
-                """;
+        java.util.List<String> friends = new java.util.ArrayList<>();
+        HttpResponse friendsResponse = EntityOperations.executeSync(tripPinContext,
+                io.github.akbarhusain.odata.runtime.http.HttpMethod.GET,
+                tripPinContext.basePath().addSegment("People").addKey("UserName", "scottketchum")
+                        .addSegment("Friends").addQuery("$select", "UserName"),
+                null, null);
+        new com.fasterxml.jackson.databind.ObjectMapper().readTree(friendsResponse.body())
+                .get("value").forEach(n -> friends.add(n.get("UserName").asText()));
+
+        // pick an existing person who is not currently a friend (never delete seed links)
+        String targetUser = people.stream()
+                .filter(u -> !u.equals("scottketchum") && !friends.contains(u))
+                .findFirst().orElse(null);
+        assumeTrue(targetUser != null, "No candidate friend target available");
+        String targetPath = "People('" + targetUser + "')";
 
         HttpResponse addResponse = EntityOperations.executeSync(
                 tripPinContext,
                 io.github.akbarhusain.odata.runtime.http.HttpMethod.POST,
-                addRefPath,
-                refBody.getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                tripPinContext.basePath()
+                        .addSegment("People").addKey("UserName", "scottketchum")
+                        .addSegment("Friends").addSegment("$ref"),
+                EntityOperationsTestHelper.refBody(targetPath),
                 java.util.Map.of("Content-Type", "application/json"));
-
-        // 204 = success, 409 = conflict (already friends)
-        // TripPin returns 500 for $ref add on Friends (known service limitation, lesson 21);
-        // report as skipped rather than silently passing
-        assumeTrue(addResponse.statusCode() != 500,
-                "TripPin does not support $ref add on Friends (known limitation, lesson 21)");
+        assumeTrue(!isTripPinLinkMutationFault(addResponse),
+                "TripPin is currently failing $ref mutations server-side (known limitation); "
+                        + "request construction is covered deterministically by RefUrlResolutionTest");
         assertTrue(addResponse.statusCode() == 204 || addResponse.statusCode() == 409,
-                "Expected 204 or 409, got " + addResponse.statusCode());
+                "Expected 204 or 409, got " + addResponse.statusCode()
+                        + ": " + addResponse.getText());
 
-        // Remove friend relationship using $ref with $id query param
-        ContextPath removeRefPath = tripPinContext.basePath()
-                .addSegment("People")
-                .addKey("UserName", "scottketchum")
-                .addSegment("Friends")
-                .addSegment("$ref")
-                .addQuery("$id", "People('keithcombs')");
+        boolean added = addResponse.statusCode() == 204;
+        if (added) {
+            java.util.List<String> after = new java.util.ArrayList<>();
+            HttpResponse afterResponse = EntityOperations.executeSync(tripPinContext,
+                    io.github.akbarhusain.odata.runtime.http.HttpMethod.GET,
+                    tripPinContext.basePath().addSegment("People").addKey("UserName", "scottketchum")
+                            .addSegment("Friends").addQuery("$select", "UserName"),
+                    null, null);
+            new com.fasterxml.jackson.databind.ObjectMapper().readTree(afterResponse.body())
+                    .get("value").forEach(n -> after.add(n.get("UserName").asText()));
+            assertTrue(after.contains(targetUser), "added $ref link must be visible in Friends");
+        }
 
-        HttpResponse removeResponse = EntityOperations.executeSync(
-                tripPinContext,
-                io.github.akbarhusain.odata.runtime.http.HttpMethod.DELETE,
-                removeRefPath, null, null);
-
-        assertTrue(removeResponse.isSuccessful(),
-                "Remove friend should succeed: " + removeResponse.statusCode());
+        // Remove only the link this test added; a 409 (already friends) leaves seed data alone
+        if (added) {
+            HttpResponse removeResponse = EntityOperations.executeSync(
+                    tripPinContext,
+                    io.github.akbarhusain.odata.runtime.http.HttpMethod.DELETE,
+                    tripPinContext.basePath()
+                            .addSegment("People").addKey("UserName", "scottketchum")
+                            .addSegment("Friends").addSegment("$ref")
+                            .addQuery("$id", targetPath),
+                    null, null);
+            assumeTrue(!isTripPinLinkMutationFault(removeResponse),
+                    "TripPin is currently failing $ref mutations server-side (known limitation; "
+                            + "the added link remains on the demo data)");
+            assertTrue(removeResponse.isSuccessful(),
+                    "Remove friend should succeed: " + removeResponse.statusCode());
+        }
     }
 }

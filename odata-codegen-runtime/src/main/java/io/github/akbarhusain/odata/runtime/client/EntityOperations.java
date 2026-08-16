@@ -187,9 +187,15 @@ public class EntityOperations {
 
     public static void addRef(Context context, ContextPath navigationPath, String targetEntityUrl) {
         ContextPath refPath = navigationPath.addSegment("$ref");
+        // @odata.id must be an ABSOLUTE URI unless the payload carries @odata.context —
+        // relative values are rejected by services (TripPin: 500 "relative URI value ...
+        // odata.context annotation is missing"). Resolve like batch does (decision 12).
+        String absolute = targetEntityUrl != null && targetEntityUrl.startsWith("http")
+                ? targetEntityUrl
+                : trimTrailingSlash(context.baseUrl()) + "/" + trimLeadingSlash(targetEntityUrl);
         byte[] body;
         try {
-            body = COLLECTION_MAPPER.writeValueAsBytes(Map.of("@odata.id", targetEntityUrl));
+            body = COLLECTION_MAPPER.writeValueAsBytes(Map.of("@odata.id", absolute));
         } catch (IOException e) {
             throw new ODataException("Failed to build $ref body: " + e.getMessage(), e);
         }
@@ -198,10 +204,27 @@ public class EntityOperations {
         checkResponse(response);
     }
 
+    private static String trimTrailingSlash(String url) {
+        return url.endsWith("/") ? url.substring(0, url.length() - 1) : url;
+    }
+
+    private static String trimLeadingSlash(String url) {
+        return url.startsWith("/") ? url.substring(1) : url;
+    }
+
     public static void removeRef(Context context, ContextPath navigationPath, String targetKey) {
         ContextPath refPath = navigationPath.addSegment("$ref");
         if (targetKey != null && !targetKey.isEmpty()) {
-            refPath = refPath.addQuery("$id", targetKey);
+            // Like @odata.id, the $id query parameter must be an absolute entity URI on
+            // strict services (TripPin resolves it as a query). Entity paths (containing
+            // a '/' or a key predicate) are resolved against the service root; bare key
+            // values are passed through as-is for services that accept them.
+            String id = targetKey;
+            if (!targetKey.startsWith("http")
+                    && (targetKey.indexOf('/') >= 0 || targetKey.indexOf('(') >= 0)) {
+                id = trimTrailingSlash(context.baseUrl()) + "/" + trimLeadingSlash(targetKey);
+            }
+            refPath = refPath.addQuery("$id", id);
         }
         HttpResponse response = executeSync(context, HttpMethod.DELETE, refPath, null, null);
         checkResponse(response);
