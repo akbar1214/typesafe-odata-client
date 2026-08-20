@@ -408,35 +408,37 @@ public class EntityOperations {
         if (context.interceptors().isEmpty()) {
             return real;
         }
-        HttpTransport cached = CHAIN_CACHE.get(context);
-        if (cached != null) {
-            return cached;
-        }
-        HttpTransport transport = real;
-        List<HttpInterceptor> interceptors = context.interceptors();
-        for (int i = interceptors.size() - 1; i >= 0; i--) {
-            HttpInterceptor next = interceptors.get(i);
-            HttpTransport delegate = transport;
-            transport = new HttpTransport() {
-                @Override
-                public CompletableFuture<HttpResponse> submit(HttpRequest request) {
-                    // Interceptor failures must complete the future exceptionally, not
-                    // escape synchronously — callers compose with exceptionally()/handle()
-                    try {
-                        return CompletableFuture.completedFuture(next.intercept(request, delegate));
-                    } catch (RuntimeException e) {
-                        return CompletableFuture.failedFuture(e);
+        synchronized (CHAIN_CACHE) {
+            HttpTransport cached = CHAIN_CACHE.get(context);
+            if (cached != null) {
+                return cached;
+            }
+            HttpTransport transport = real;
+            List<HttpInterceptor> interceptors = context.interceptors();
+            for (int i = interceptors.size() - 1; i >= 0; i--) {
+                HttpInterceptor next = interceptors.get(i);
+                HttpTransport delegate = transport;
+                transport = new HttpTransport() {
+                    @Override
+                    public CompletableFuture<HttpResponse> submit(HttpRequest request) {
+                        // Interceptor failures must complete the future exceptionally, not
+                        // escape synchronously — callers compose with exceptionally()/handle()
+                        try {
+                            return CompletableFuture.completedFuture(next.intercept(request, delegate));
+                        } catch (RuntimeException e) {
+                            return CompletableFuture.failedFuture(e);
+                        }
                     }
-                }
 
-                @Override
-                public CompletableFuture<InputStream> stream(HttpRequest request) {
-                    return next.stream(request, delegate);
-                }
-            };
+                    @Override
+                    public CompletableFuture<InputStream> stream(HttpRequest request) {
+                        return next.stream(request, delegate);
+                    }
+                };
+            }
+            CHAIN_CACHE.put(context, transport);
+            return transport;
         }
-        CHAIN_CACHE.put(context, transport);
-        return transport;
     }
 
     // Internal helpers

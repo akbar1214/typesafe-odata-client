@@ -12,7 +12,23 @@ public final class Names {
     public static String toPackageName(String namespace) {
         // Locale.ROOT: default-locale lowercasing turns 'I' into dotless 'ı' on Turkish
         // JVMs, producing different packages per build machine
-        return namespace.toLowerCase(java.util.Locale.ROOT).replace(".", "_").replace("-", "_");
+        String lower = namespace.toLowerCase(java.util.Locale.ROOT);
+        StringBuilder sb = new StringBuilder(lower.length());
+        for (int i = 0; i < lower.length(); i++) {
+            char c = lower.charAt(i);
+            if (c == '.' || c == '-') {
+                sb.append('_');
+            } else if (Character.isJavaIdentifierPart(c)) {
+                sb.append(c);
+            } else {
+                sb.append('_');
+            }
+        }
+        String result = sb.toString();
+        if (result.isEmpty() || !Character.isJavaIdentifierStart(result.charAt(0))) {
+            result = "_" + result;
+        }
+        return result;
     }
 
     public static String entityClassName(String edmTypeName) {
@@ -357,23 +373,45 @@ public final class Names {
 
     public static java.util.Map<String, TypeKind> buildTypeKindMap(List<SchemaModel> schemas) {
         java.util.Map<String, TypeKind> map = new java.util.HashMap<>();
-        // Process schemas in order and use putIfAbsent for unqualified names so the
-        // first schema containing a simple-name type wins (matches original linear search).
+        // Collect qualified entries first; simple-name entries are registered only
+        // when the simple name is unambiguous (maps to a single kind across schemas).
+        // Colliding simple names (same name, different kind) are left absent so
+        // resolution requires the qualified form and is order-independent.
+        java.util.Map<String, TypeKind> simpleKind = new java.util.HashMap<>();
+        java.util.Set<String> ambiguous = new java.util.HashSet<>();
         for (SchemaModel s : schemas) {
             for (var e : s.entityTypes()) {
                 map.put(s.namespace() + "." + e.name(), TypeKind.ENTITY);
-                map.putIfAbsent(e.name(), TypeKind.ENTITY);
+                trackSimple(simpleKind, ambiguous, e.name(), TypeKind.ENTITY);
             }
             for (var c : s.complexTypes()) {
                 map.put(s.namespace() + "." + c.name(), TypeKind.COMPLEX);
-                map.putIfAbsent(c.name(), TypeKind.COMPLEX);
+                trackSimple(simpleKind, ambiguous, c.name(), TypeKind.COMPLEX);
             }
             for (var e : s.enumTypes()) {
                 map.put(s.namespace() + "." + e.name(), TypeKind.ENUM);
-                map.putIfAbsent(e.name(), TypeKind.ENUM);
+                trackSimple(simpleKind, ambiguous, e.name(), TypeKind.ENUM);
+            }
+        }
+        for (var e : simpleKind.entrySet()) {
+            if (!ambiguous.contains(e.getKey())) {
+                map.put(e.getKey(), e.getValue());
             }
         }
         return map;
+    }
+
+    private static void trackSimple(java.util.Map<String, TypeKind> simpleKind,
+                                     java.util.Set<String> ambiguous,
+                                     String name, TypeKind kind) {
+        if (ambiguous.contains(name)) return;
+        TypeKind existing = simpleKind.get(name);
+        if (existing == null) {
+            simpleKind.put(name, kind);
+        } else if (existing != kind) {
+            simpleKind.remove(name);
+            ambiguous.add(name);
+        }
     }
 
     public static String resolvedClassName(String edmType, List<SchemaModel> allSchemas) {

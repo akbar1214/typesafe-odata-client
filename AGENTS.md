@@ -729,6 +729,42 @@ Making the operators null-safe is the least surprising choice and keeps users fr
 
 **Reason:** `ContextPath.toRelativeUrl()` returns `People('scott')` (no leading `/`), but hand-written `BatchOperation.get("/People('scott')")` and any `"/"`-prefixed path produced `https://svc//People` (strict services reject double-slash). Unconditional `"/"` also broke when `baseUrl` was already trimmed but `url` had leading slash. Case-insensitive `http` avoids `HTTP://` false-positive relative resolution. Verified by `BatchRequestDoubleSlashTest` (3, leading-slash body now `…/People` not `…//People`).
 
+### 64. Path Traversal Guard on Generated Package Names (H7)
+
+**Decision:** `Generator.validatePackage` rejects any package containing `/`, `\`, `:` or `.` edge cases (`..`, empty segment, leading/trailing `.`) and requires each dot-segment to be a valid Java identifier (`isJavaIdentifierStart/Part`). `writeCode` additionally normalizes the target path and asserts `target.startsWith(outputDir)` after `toAbsolutePath().normalize()` so any `../../evil` or absolute `/tmp/evil` that slipped through cannot escape the output directory.
+
+**Reason:** `Generator.writeCode` did `outputDir.resolve(packageDir)` with no validation. A hostile `basePackage=../../evil` or `schemaPackages` value `com/test/../evil` wrote outside `target`. Validated early in `generate()` for `defaultBasePackage` and each resolved `basePackage`, plus defense-in-depth in `writeCode`. Verified by `GeneratorPathTraversalTest` (3, hostile `../../evil`, slash, absolute).
+
+### 65. Marker Hash Folds Header Values, Not Just Names (H8)
+
+**Decision:** `GenerateMojo.computeMarkerHash` appends `header=<name>=<value>` (was `header=<name>` only), so rotating an `Authorization: Bearer <token>` invalidates the marker and forces regeneration.
+
+**Reason:** Only hashing the header name kept the hash stable when a secret rotated, so the second build incorrectly reused stale generated sources. Verified by `GenerateMojoMarkerValueTest` (1 failing → pass: `token1` vs `token2` hashes differ).
+
+### 66. Only 301/302/303/307/308 Are Redirects (H9)
+
+**Decision:** `GenerateMojo.downloadMetadata` treats only `301,302,303,307,308` as redirects (was `300–399`). Other 3xx such as `304 Not Modified` fall through to `status != 200` → `Failed to download metadata: HTTP 304`.
+
+**Reason:** `304` has no `Location` header and is not a redirect; the old `>=300 && <400` branch threw `Redirect without Location: HTTP 304`, masking a legitimate non-200 failure. Verified by `GenerateMojoRedirectTest` (304 now `Failed...`, 302 still follows).
+
+### 67. `toPackageName` Sanitizes Leading-Digit Segments (H10)
+
+**Decision:** `Names.toPackageName` lowercases with `Locale.ROOT`, maps `.`/`-` to `_`, maps any non-identifier char to `_`, and prefixes `_` when the result is empty or does not start with a valid Java identifier start. `3D.Model` → `_3d_model` (was illegal `3d_model`).
+
+**Reason:** `3d_model` starts with a digit → `package 3d_model;` is illegal. The fix is component-safe for the flattened package form while preserving `Com.Example.Model` → `com_example_model`. Verified by `NamesToPackageNameTest` (leading-digit now valid, hyphen still sanitized).
+
+### 68. Order-Independent Simple-Name Resolution (H11)
+
+**Decision:** `Names.buildTypeKindMap` registers a simple name only when it maps to a single `TypeKind` across all schemas; colliding names (e.g., `Address` as `ENTITY` in one schema and `COMPLEX` in another) are left absent so resolution requires the qualified `NS.Address` form. `AbstractTypeGenerator.resolveTypeDefinition` does the same for typedef underlying types — simple `Length` with conflicting `Int32` vs `Double` stays unregistered, so unqualified `Length` is not order-dependent.
+
+**Reason:** `putIfAbsent(e.name(), kind)` made unqualified resolution first-wins. With two schemas sharing a simple name but different kinds, the first kind in iteration order won, yielding nondeterministic packages/imports. Collecting qualified entries first and only promoting unambiguous simple names makes `mapAB.get("Address") == mapBA.get("Address")` regardless of schema order. Verified by `TypeKindCacheFirstWinsTest` (2, simple lookup now order-independent; TypeDefinition test drives real `AbstractTypeGenerator` subclass).
+
+### 69. Atomic Interceptor Chain Construction (H12)
+
+**Decision:** `EntityOperations.buildTransportChain` wraps the `get`→build→`put` compound in `synchronized (CHAIN_CACHE)` (was unsynchronized `get` then `put` on a `synchronizedMap(WeakHashMap)`).
+
+**Reason:** `Collections.synchronizedMap` only synchronizes per-method, so two threads racing on the same `Context` could each build a distinct wrapper chain. The `synchronized` block makes construction atomic while retaining weak keys (contexts don't get pinned). Zero-interceptor fast path still returns `real` without touching the cache. Verified by `EntityOperationsChainCacheTest` (concurrent 10-thread barrier now returns single instance).
+
 ## Architecture
 
 ```
@@ -1034,3 +1070,9 @@ Run `mvn test` from the repo root. All modules build in one reactor; the runtime
 124. **Don’t restore `%3D` (`=`) in query values — it’s the `name=value` separator.** `URLEncoder.encode("a=b")` → `a%3Db`; restoring to `a=b` makes `?q=a=b` parse as `q=a` + stray `b`. `appendSegments` already adds the single `name + "=" + encode(value)` separator. Restoring `$ ' ( ) , / : @` is correct for OData, but `=` must stay `%3D`. Fix: drop `case "3D"` in `ContextPath.encodeQueryParam`. Updated `ContextPathTest` expectation (`a%2Bb%3Dc` not `a%2Bb=c`). Verified by `ContextPathEncodeQueryParamTest`.
 125. **Key literals need `%2F` and `%2B` — `/` and `+` are legal inside string keys.** `People('a/b')` with a literal `/` splits the URL path; `a+b` is ambiguous (`+` decoded as space on some stacks). Both are legal in `Edm.String` keys (file paths, tokens). Fix: `ContextPath.encodeKeyValue` adds `'/'=>%2F`, `'+'=>%2B`. Verified by `ContextPathEncodeKeyValueSlashPlusTest`.
 126. **`BatchRequest.resolveOperationUrl` must avoid `//` and be case-insensitive on the scheme.** `baseUrl + "/" + url` with `url="/People('scott')"` (hand-written) produced `https://svc//People`. Also `startsWith("http")` missed `HTTP://`. Fix: `baseUrl + (url.startsWith("/")?"":"/") + url` and `regionMatches(true,0,"http",0,4)`. `ContextPath.toRelativeUrl` already returns no leading `/` for generated batch ops, but the hardening is needed for manual `BatchOperation` callers. Verified by `BatchRequestDoubleSlashTest`.
+127. **Path traversal needs both package-name validation and path normalization.** `Generator.writeCode` did `outputDir.resolve(packageDir)` with no checks. Hostile `basePackage=../../evil` or `schemaPackages` with `/` writes outside `target`. Fix: `validatePackage` rejects `/`, `\`, `:`, `..`, empty segments, and non-identifier chars; `writeCode` additionally normalizes and asserts `target.startsWith(outputDir)`. The two layers give a clear early error plus defense-in-depth if `toPackageName` ever produces a bad package. Verified by `GeneratorPathTraversalTest`.
+128. **Marker hashes must fold header values, not just names.** `GenerateMojo.computeMarkerHash` appended `header=<name>` only, so rotating `Authorization: Bearer <token>` left the hash unchanged and reuse stale sources. Fix: append `header=<name>=<value>`. No secret leakage — value is folded into the digest, not logged. Verified by `GenerateMojoMarkerValueTest`.
+129. **Only 301/302/303/307/308 are redirects; 304 is not.** `downloadMetadata` used `code>=300 && <400` as redirect test. `304 Not Modified` has no `Location` and was thrown as `Redirect without Location: HTTP 304`, masking the real `Failed to download metadata: HTTP 304`. Fix: explicit set `301,302,303,307,308`. Verified by `GenerateMojoRedirectTest`.
+130. **`toPackageName` must produce a valid Java package, not just lowercased namespace.** `3D.Model` → `3d_model` is illegal (starts with digit). Fix: map `.`/`-`/other non-identifier chars to `_` and prefix `_` when the result doesn't start with a valid identifier start. `3D.Model` → `_3d_model`, `Com.Example.Model` still → `com_example_model`. Verified by `NamesToPackageNameTest`.
+131. **Simple-name caches must be order-independent; ambiguous collisions require qualified lookup.** `Names.buildTypeKindMap` with `putIfAbsent(e.name(), kind)` made `Address` as ENTITY in one schema and COMPLEX in another first-wins. `AbstractTypeGenerator` typedef cache did the same for `Length` → `Int32` vs `Double`. Fix: collect qualified entries first, only promote a simple name when it maps to a single kind/value across schemas; colliding names stay absent and require `NS.Name`. Verified by `TypeKindCacheFirstWinsTest`.
+132. **Atomic interceptor-chain construction is a synchronized compound, not per-method.** `Collections.synchronizedMap(WeakHashMap)` only synchronizes per-method, so `get` then `put` can race and build duplicate chains. Fix: `synchronized (CHAIN_CACHE)` around the compound `get`→`build`→`put`. Zero-interceptor fast path still returns the real transport without touching the cache. Verified by `EntityOperationsChainCacheTest`.

@@ -51,32 +51,37 @@ class TypeKindCacheFirstWinsTest {
 
     @Test
     void typeDefinitionSimpleFallbackFirstWins() {
-        // NS.A Length -> Int32, NS.B Length -> Double
+        // NS.A Length -> Int32, NS.B Length -> Double (same simple name, different underlying)
         var tdA = new TypeDefinitionModel("Length", "Edm.Int32");
         var tdB = new TypeDefinitionModel("Length", "Edm.Double");
         SchemaModel sA = schema("NS.A", List.of(), List.of(), List.of(tdA));
         SchemaModel sB = schema("NS.B", List.of(), List.of(), List.of(tdB));
 
-        // Simulate AbstractTypeGenerator's typeDefCache simple fallback:
-        // first schema's Length wins for unqualified "Length"
-        // Build a generator to test resolveTypeDefinition via reflection or via Names? Instead test map directly.
-        var mapAB = new java.util.HashMap<String,String>();
-        // mimic putIfAbsent logic
-        mapAB.put("NS.A.Length", "Edm.Int32");
-        mapAB.putIfAbsent("Length", "Edm.Int32");
-        mapAB.put("NS.B.Length", "Edm.Double");
-        mapAB.putIfAbsent("Length", "Edm.Double"); // second putIfAbsent keeps first
-
-        assertEquals("Edm.Int32", mapAB.get("Length"),
-                "setup shows first-wins for AB order");
-        var mapBA = new java.util.HashMap<String,String>();
-        mapBA.put("NS.B.Length", "Edm.Double");
-        mapBA.putIfAbsent("Length", "Edm.Double");
-        mapBA.put("NS.A.Length", "Edm.Int32");
-        mapBA.putIfAbsent("Length", "Edm.Int32");
+        // Drive the real AbstractTypeGenerator.resolveTypeDefinition via a minimal subclass
+        String resolvedAB = resolveWithOrder(List.of(sA, sB), "Length");
+        String resolvedBA = resolveWithOrder(List.of(sB, sA), "Length");
 
         // H11: unqualified "Length" must not be order-dependent; currently it is
-        assertEquals(mapAB.get("Length"), mapBA.get("Length"),
-                "H11: TypeDefinition simple fallback order-dependent: AB Length=" + mapAB.get("Length") + " BA Length=" + mapBA.get("Length"));
+        assertEquals(resolvedAB, resolvedBA,
+                "H11: TypeDefinition simple fallback order-dependent: AB Length=" + resolvedAB + " BA Length=" + resolvedBA);
+
+        // Qualified lookups must still be correct regardless of order
+        assertEquals("Edm.Int32", resolveWithOrder(List.of(sA, sB), "NS.A.Length"));
+        assertEquals("Edm.Double", resolveWithOrder(List.of(sA, sB), "NS.B.Length"));
+    }
+
+    private static String resolveWithOrder(List<SchemaModel> schemas, String type) {
+        TestGen gen = new TestGen(schemas);
+        return gen.resolve(type);
+    }
+
+    static class TestGen extends AbstractTypeGenerator {
+        TestGen(List<SchemaModel> schemas) {
+            super("com.test", java.util.Map.of(), "com.test", schemas);
+            this.effectiveSchemas = schemas;
+        }
+        String resolve(String edmType) {
+            return resolveTypeDefinition(edmType, effectiveSchemas.get(0));
+        }
     }
 }

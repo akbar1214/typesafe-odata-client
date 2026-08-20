@@ -191,15 +191,29 @@ public abstract class AbstractTypeGenerator {
         if (Names.isPrimitiveType(edmType)) return edmType;
         if (typeDefCache == null) {
             typeDefCache = new java.util.HashMap<>();
+            java.util.Map<String, String> simpleDef = new java.util.HashMap<>();
+            java.util.Set<String> ambiguous = new java.util.HashSet<>();
             for (SchemaModel s : effectiveSchemas) {
                 for (var td : s.typeDefinitions()) {
                     String qualified = s.namespace() + "." + td.name();
                     if (!typeDefCache.containsKey(qualified)) {
-                        typeDefCache.put(qualified,
-                                resolveTypeDefinitionChain(qualified, new java.util.HashSet<>()));
+                        String resolved = resolveTypeDefinitionChain(qualified, new java.util.HashSet<>());
+                        typeDefCache.put(qualified, resolved);
+                        if (!ambiguous.contains(td.name())) {
+                            String existing = simpleDef.get(td.name());
+                            if (existing == null) {
+                                simpleDef.put(td.name(), resolved);
+                            } else if (!existing.equals(resolved)) {
+                                simpleDef.remove(td.name());
+                                ambiguous.add(td.name());
+                            }
+                        }
                     }
-                    // simple-name fallback only for the FIRST schema declaring that name
-                    typeDefCache.putIfAbsent(td.name(), typeDefCache.get(qualified));
+                }
+            }
+            for (var e : simpleDef.entrySet()) {
+                if (!ambiguous.contains(e.getKey())) {
+                    typeDefCache.put(e.getKey(), e.getValue());
                 }
             }
         }
