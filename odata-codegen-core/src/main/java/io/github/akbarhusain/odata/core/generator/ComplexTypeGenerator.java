@@ -438,7 +438,26 @@ public class ComplexTypeGenerator extends AbstractTypeGenerator {
         ComplexTypeModel base = complexTypeByQualifiedName.get(bt);
         if (base != null) return base;
         // Fallback: same-schema by simple name
-        return complexTypeMap.get(Names.complexTypeClassName(Names.simpleNameFromFullName(bt)));
+        ComplexTypeModel sameSchema = complexTypeMap.get(Names.complexTypeClassName(Names.simpleNameFromFullName(bt)));
+        if (sameSchema != null) return sameSchema;
+        // Cross-schema unqualified fallback
+        return findBaseGlobal(bt);
+    }
+
+    private ComplexTypeModel findBaseGlobal(String bt) {
+        if (bt == null || bt.isBlank()) return null;
+        ComplexTypeModel base = complexTypeByQualifiedName.get(bt);
+        if (base != null) return base;
+        String simple = Names.simpleNameFromFullName(bt);
+        String className = Names.complexTypeClassName(simple);
+        for (SchemaModel s : effectiveSchemas) {
+            for (ComplexTypeModel ct : s.complexTypes()) {
+                if (Names.complexTypeClassName(ct.name()).equals(className)) {
+                    return ct;
+                }
+            }
+        }
+        return null;
     }
 
     private String generateNavWithMethod(NavigationPropertyModel nav, List<PropertyModel> allProps, List<NavigationPropertyModel> allNavs, String className, boolean hierarchyHasOpen, SchemaModel schema) {

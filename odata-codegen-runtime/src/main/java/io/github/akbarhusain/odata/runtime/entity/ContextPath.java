@@ -237,7 +237,6 @@ public record ContextPath(
                     case "2C" -> sb.append(',');
                     case "2F" -> sb.append('/');
                     case "3A" -> sb.append(':');
-                    case "3D" -> sb.append('=');
                     case "40" -> sb.append('@');
                     default -> { sb.append('%'); sb.append(h1); sb.append(h2); }
                 }
@@ -298,6 +297,8 @@ public record ContextPath(
                 case '#'  -> sb.append("%23");
                 case '%'  -> sb.append("%25");
                 case ' '  -> sb.append("%20");
+                case '/'  -> sb.append("%2F");
+                case '+'  -> sb.append("%2B");
                 default   -> sb.append(c);
             }
         }
