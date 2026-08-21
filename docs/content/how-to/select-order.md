@@ -26,9 +26,12 @@ Returns all fields (this is the default behavior).
 
 ### Select Nested Properties
 
+`$select` accepts only structural properties (`PropertyExpression`), not navigation properties. To include related entities, use `$expand`:
+
 ```java
 client.people()
-    .select(Person.FIRST_NAME, Person.TRIPS)
+    .select(Person.FIRST_NAME, Person.LAST_NAME)
+    .expand(Person.TRIPS)
     .get();
 ```
 

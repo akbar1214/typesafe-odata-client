@@ -34,7 +34,7 @@ mvn test
 Integration tests require a running TripPin service:
 
 ```bash
-mvn verify -Pintegration-tests
+mvn verify -Plive-tests
 ```
 
 ## Project Structure
