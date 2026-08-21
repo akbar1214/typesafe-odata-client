@@ -115,8 +115,12 @@ public final class Names {
                 sb.append('_');
                 continue;
             }
-            if (i > 0 && Character.isUpperCase(c) && Character.isLowerCase(edmName.charAt(i - 1))) {
-                sb.append('_');
+            if (i > 0 && Character.isUpperCase(c)) {
+                char prev = edmName.charAt(i - 1);
+                boolean nextIsLower = i + 1 < edmName.length() && Character.isLowerCase(edmName.charAt(i + 1));
+                if (Character.isLowerCase(prev) || (Character.isUpperCase(prev) && nextIsLower)) {
+                    sb.append('_');
+                }
             }
             sb.append(Character.toUpperCase(c));
         }
@@ -324,7 +328,7 @@ public final class Names {
                  "try", "void", "volatile", "while", "true", "false", "null",
                  "var", "record", "sealed", "permits", "yield", "module",
                  "open", "requires", "exports", "opens", "to", "with",
-                 "uses", "provides", "transitive" -> true;
+                 "uses", "provides", "transitive", "when", "non-sealed" -> true;
             default -> false;
         };
     }

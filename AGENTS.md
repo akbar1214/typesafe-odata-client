@@ -849,6 +849,60 @@ Making the operators null-safe is the least surprising choice and keeps users fr
 
 **Reason:** `HTTP://` should be considered absolute; case-sensitive check prepended `baseUrl` → `https://service/HTTP://...`. Verified by `EntityOperationsMediumTest` (4 checks).
 
+### 84. Reserved Words Cover Java 17+ Contextual Keywords (L1)
+
+**Decision:** `Names.isReservedWord` now includes `"when"` and `"non-sealed"` (was missing). `"when"` is a contextual keyword for pattern matching (Java 17+), `"non-sealed"` for sealed classes. Enum member or property named `when` is now sanitized, not kept verbatim as an invalid identifier.
+
+**Reason:** `isReservedWord` listed up to `transitive` (Java 17) but omitted `when` (added in 17) and `non-sealed` (hyphenated sealed variant). A CSDL enum member `when` stayed verbatim `when` → invalid or shadowed. Verified by `NamesLowTest` (`when` now reserved, `non-sealed` reserved).
+
+### 85. Acronym-Aware Constant Splitting (L2)
+
+**Decision:** `Names.toConstantName` now inserts `'_'` when current char is upper and next char is lower while previous is upper (acronym boundary). `XMLHttp` → `XML_HTTP` (was `XMLHTTP`); `XMLHttpRequest` → `XML_HTTP_REQUEST`.
+
+**Reason:** Previous check only `prev is lower` missed `XML|Http` where `H` is upper, prev `L` upper, next `t` lower → boundary. Verified by `NamesLowTest` (XMLHttp cases).
+
+### 86. Malformed Percent-Encoding Tolerated (L3)
+
+**Decision:** `ContextPath.decodePercent` leaves malformed `%ZZ` verbatim (was already) and `encodeQueryParam` correctly encodes literal `'%'` as `%25` only for valid contexts; `fromNextLink` round-trips without double-encoding valid `%20` and without throwing for malformed. No code change beyond ensuring `decodePercent` handles incomplete `%` at end gracefully (already did).
+
+**Reason:** `%ZZ` is not a valid `%HH` — leaving verbatim then re-encoding as `%25ZZ` is actually correct single-encoding of a literal `'%'`. The low-severity note is documented, and `LowIssuesTest.l3` verifies malformed is handled without exception. No double-encode beyond expected.
+
+### 87. Unknown Edm Type Strings Are Quoted (L4)
+
+**Decision:** `ContextPath.formatTypedValue` default case now checks `value instanceof String s` → `"'" + encodeKeyValue(s) + "'"` before falling through to `Enum` or `String.valueOf`. Unknown `Edm.UnknownType` with `"test"` now renders `'test'` (was bare `test`).
+
+**Reason:** String key literals must be quoted per OData ABNF regardless of whether the Edm type is known; bare `test` is not a valid key literal. Verified by `LowIssuesTest.l4`.
+
+### 88. Boundary Pattern Allows Spaces Around '=' (L5)
+
+**Decision:** `MultipartHelper.BOUNDARY_PATTERN` now `boundary\\s*=\\s*(?:\"([^\"]*)\"|([^;\\s]+))` (was `boundary=`). `boundary = "myBoundary"` with spaces now parses (was missed → changeset not decoded).
+
+**Reason:** RFC 2046 allows `boundary = "abc"` with optional whitespace. Real services and tests may emit spaced form. Verified by `LowIssuesTest.l5`.
+
+### 89. Missing Closing Boundary Detected (L6)
+
+**Decision:** `MultipartHelper.decodeParts` tracks `foundClosing` and throws `ODataException` if body ends at delimiter without trailing `"--"` (was silently returning partial results).
+
+**Reason:** A batch response that ends at `--boundary` without `--` is malformed truncated; previous code exited loop without error, returning partial results. Verified by `LowIssuesTest.l6`.
+
+### 90. CollectionPage Defensive Copy (L7)
+
+**Decision:** `CollectionPage` now `Collections.unmodifiableList(new ArrayList<>(currentPage))` (was `unmodifiableList(currentPage)` without copy).
+
+**Reason:** Caller mutation of the original list (e.g., `list.add("c")` after `new CollectionPage(list, null)`) was visible through `currentPage()` because it wrapped the same list instance. Copy isolates. Verified by `LowIssuesTest.l7`.
+
+### 91. BatchResponse Null-Safe Content-ID Lookup (L8)
+
+**Decision:** `BatchResponse.getByContentId` now `Objects.equals(contentId, result.contentId())` (was `contentId.equals(...)` → NPE when `contentId == null`).
+
+**Reason:** `BatchResult` without Content-ID has `null` contentId; lookup with `null` should return the matching null entry or null, not NPE. Verified by `LowIssuesTest.l8`.
+
+### 92. DynamicPropertyConverter Reuses Shared Mapper (L9)
+
+**Decision:** `DynamicPropertyConverter` now `private static final ObjectMapper MAPPER = JacksonSerializer.sharedMapper()` (was `new ObjectMapper()` with duplicate `Jdk8Module`/`JavaTimeModule` config). `JacksonSerializer` exposes `sharedMapper()` package-private.
+
+**Reason:** Duplicate `ObjectMapper` with identical `Jdk8Module`+`JavaTimeModule` config was wasteful (two instances, same modules). Reusing the shared mapper saves memory and ensures consistent date handling. Verified by `LowIssuesTest.l9` (`assertSame`).
+
 ## Architecture
 
 ```
@@ -1174,3 +1228,12 @@ Run `mvn test` from the repo root. All modules build in one reactor; the runtime
 144. **Temp files need explicit cleanup, not just deleteOnExit.** `GenerateMojo.downloadMetadata` did `createTempFile` + `deleteOnExit` + `Files.copy` with no try-catch cleanup and `execute` never deleted after `parseMetadata` → `/tmp` accumulation in daemons. Fix: `Files.copy` wrapped in try-catch with `deleteIfExists` on failure, and `execute` deletes temp file after `parseMetadata` when `metadataUrl` was used. Verified by `GenerateMojoMediumTest`.
 145. **Stale generated files must be cleaned across Generator calls.** `Generator.generate` did `written.clear()` at start, so `Foo.java` renamed to `Bar.java` left old `Foo.java` on disk → stale class on classpath. Fix: snapshot `previousFiles = new HashSet<>(written.keySet())` before clear, then after generation delete any `old ∉ written`. `GenerateMojo` already handles cross-process via marker manifest; `Generator` now handles in-process. Verified by `GeneratorMediumTest`.
 146. **Case-insensitive absolute URL check for @odata.id / $id.** `EntityOperations.addRef`/`removeRef` did `startsWith("http")` → `"HTTP://"` treated as relative → `https://service/HTTP://...`. Fix: `regionMatches(true,0,"http",0,4)` via `isAbsoluteHttpUrl`. Verified by `EntityOperationsMediumTest` (4 checks).
+147. **Contextual keywords appear after the language version you target.** `isReservedWord` covered `transitive` (Java 14) but omitted `when` (Java 19 pattern matching) and `non-sealed` (Java 17 sealed). A CSDL enum member named `when` stayed verbatim → invalid Java. Fix: add `when`/`non-sealed` to the switch; `toConstantName` already maps `-`→`_` so `non-sealed`→`NON_SEALED`. Verified by `NamesLowTest`.
+148. **Acronym boundaries need lookahead, not just lookbehind.** `toConstantName` split only on `lower→Upper` ( `a→B` ), so `XMLHttp` stayed `XMLHTTP`. Correct is `XML_HTTP`: insert `'_'` when `Upper` follows `Upper` and next is `lower` (`L→H→t`). Fix: check `prev is lower || (prev is upper && next is lower)`. Verified by `NamesLowTest` (`XMLHttp`→`XML_HTTP`).
+149. **Malformed percent-escapes should be tolerated, not rejected, but must not be double-encoded.** `ContextPath.decodePercent` correctly leaves `%ZZ` verbatim; re-encoding a literal `'%'` as `%25` gives `%25ZZ` — the single correct encoding of a literal `%`. No code change beyond ensuring incomplete trailing `%`/`%2` is handled without `StringIndexOutOfBounds`. Low-severity, verified by `LowIssuesTest.l3` (no throw, round-trips).
+150. **Quoting depends on the Edm type, not just the Java type.** `ContextPath.formatTypedValue` returned `String.valueOf` for unknown types, so `Edm.UnknownType` string `test` rendered `test` not `'test'`. Fix: `default` now checks `String s` → `'`+`encodeKeyValue`+`'` before `Enum`/`String.valueOf`. Quoted strings are required even for unknown String-typed keys. Verified by `LowIssuesTest.l4`.
+151. **RFC 2046 allows whitespace around `boundary=`** `MultipartHelper.BOUNDARY_PATTERN` was `boundary=` (no spaces). Real `Content-Type: multipart/mixed; boundary = "abc"` (spaces) was missed → 0 parts decoded. Fix: `boundary\\s*=\\s*`. Verified by `LowIssuesTest.l5` (spaced boundary now parses).
+152. **A batch that ends at the delimiter without `--` is truncated, not complete.** `MultipartHelper.decodeParts` returned partial results when the body ended at `--boundary` (no trailing `--`). Fix: track `foundClosing`, throw `missing closing boundary '--'` if loop exits without having seen `--`. Verified by `LowIssuesTest.l6`.
+153. **Defensive copies matter even for `unmodifiableList`.** `CollectionPage` did `unmodifiableList(currentPage)` without copy; caller mutating the original list after construction was visible through `currentPage()`. Fix: `unmodifiableList(new ArrayList<>(currentPage))`. Verified by `LowIssuesTest.l7`.
+154. **Null-safe equality for nullable content IDs.** `BatchResponse.getByContentId` did `contentId.equals(result.contentId())` → NPE when `contentId==null` (standalone parts have `null`). Fix: `Objects.equals`. Verified by `LowIssuesTest.l8`.
+155. **One `ObjectMapper` with identical config is enough.** `DynamicPropertyConverter` created `new ObjectMapper()` with same `Jdk8Module`/`JavaTimeModule` as `JacksonSerializer`; two instances, same modules, wasted memory and risk of drift. Fix: `DynamicPropertyConverter.MAPPER = JacksonSerializer.sharedMapper()` (package-private accessor). Verified by `LowIssuesTest.l9` (`assertSame`).

@@ -29,7 +29,8 @@ public class MultipartHelper {
     private static final Pattern STATUS_LINE_PATTERN = Pattern.compile("HTTP/\\d\\.\\d\\s+(\\d{3})\\s*(.*)");
     private static final Pattern HEADER_PATTERN = Pattern.compile("^([\\w-]+):\\s*(.*)");
     // boundary parameter may be quoted: boundary="abc" (RFC 2046) — quotes are not part of the value
-    private static final Pattern BOUNDARY_PATTERN = Pattern.compile("boundary=(?:\"([^\"]*)\"|([^;\\s]+))");
+    // allow spaces around = : boundary = "abc" is legal
+    private static final Pattern BOUNDARY_PATTERN = Pattern.compile("boundary\\s*=\\s*(?:\"([^\"]*)\"|([^;\\s]+))");
 
     private MultipartHelper() {}
 
@@ -143,6 +144,7 @@ public class MultipartHelper {
         }
         pos += delimiter.length;
 
+        boolean foundClosing = false;
         while (pos < endPos) {
             // Skip CRLF or LF after the delimiter
             if (pos + 1 < endPos && body[pos] == '\r' && body[pos + 1] == '\n') {
@@ -174,9 +176,14 @@ public class MultipartHelper {
             }
 
             if (closing) {
+                foundClosing = true;
                 return;
             }
             pos = next + delimiter.length;
+        }
+        if (!foundClosing) {
+            throw new ODataException("Malformed multipart response: missing closing boundary '"
+                    + new String(delimiter, StandardCharsets.US_ASCII) + "--'");
         }
     }
 

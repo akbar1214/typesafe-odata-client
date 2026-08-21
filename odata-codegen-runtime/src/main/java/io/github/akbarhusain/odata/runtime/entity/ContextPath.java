@@ -280,9 +280,11 @@ public record ContextPath(
             case "Edm.Duration" -> "duration'" + value + "'";
             case "Edm.Boolean", "Edm.Byte", "Edm.SByte", "Edm.Int16", "Edm.Int32", "Edm.Int64",
                  "Edm.Single", "Edm.Double", "Edm.Decimal" -> String.valueOf(value);
-            default -> value instanceof Enum<?> e
-                    ? edmType + "'" + e.name() + "'"  // qualified enum type
-                    : String.valueOf(value);
+            default -> {
+                if (value instanceof Enum<?> e) yield edmType + "'" + e.name() + "'";
+                if (value instanceof String s) yield "'" + encodeKeyValue(s) + "'";
+                yield String.valueOf(value);
+            }
         };
     }
 

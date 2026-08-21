@@ -16,10 +16,7 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
  */
 public final class DynamicPropertyConverter {
 
-    private static final ObjectMapper MAPPER = new ObjectMapper()
-            .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
-            .registerModule(new Jdk8Module())
-            .registerModule(new JavaTimeModule());
+    private static final ObjectMapper MAPPER = JacksonSerializer.sharedMapper();
 
     private DynamicPropertyConverter() {}
 

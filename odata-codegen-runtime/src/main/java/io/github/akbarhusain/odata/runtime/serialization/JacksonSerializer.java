@@ -58,6 +58,11 @@ public class JacksonSerializer implements Serializer {
                 .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
     }
 
+    // Shared mapper for DynamicPropertyConverter to avoid duplicate ObjectMapper config (L9)
+    static ObjectMapper sharedMapper() {
+        return MAPPER;
+    }
+
     @Override
     public <T> byte[] serialize(T value, Class<T> type) {
         try {

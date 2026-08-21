@@ -14,7 +14,7 @@ public class CollectionPage<T> implements Iterable<T> {
     }
 
     public CollectionPage(List<T> currentPage, String nextLink, Long count) {
-        this.currentPage = Collections.unmodifiableList(currentPage);
+        this.currentPage = Collections.unmodifiableList(new ArrayList<>(currentPage));
         this.nextLink = nextLink;
         this.count = count;
     }
