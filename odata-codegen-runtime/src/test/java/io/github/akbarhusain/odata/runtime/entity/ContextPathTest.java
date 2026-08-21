@@ -195,9 +195,9 @@ class ContextPathTest {
         ContextPath path = new ContextPath(BASE).addSegment("People");
         ContextPath nextPath = path.fromNextLink(BASE + "/People?$skiptoken=a%2Bb%3Dc");
 
-        // %2B stays a literal plus (re-encoded as %2B); %3D ('=') is restored verbatim
-        // like other OData-safe characters (see the round-trip test above).
-        assertEquals(BASE + "/People?$skiptoken=a%2Bb=c", nextPath.toUrl(),
+        // %2B stays a literal plus (re-encoded as %2B); %3D ('=') stays %3D
+        // (H4: '=' inside query value must stay %3D to avoid spurious param split).
+        assertEquals(BASE + "/People?$skiptoken=a%2Bb%3Dc", nextPath.toUrl(),
                 "%2B (literal plus) must not become a space");
     }
 

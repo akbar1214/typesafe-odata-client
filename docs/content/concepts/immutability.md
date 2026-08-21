@@ -27,29 +27,32 @@ public class Person {
 3. **Null risks** — Fields can be null even when the schema requires them
 4. **Framework coupling** — Often requires `@JacksonInject`, `@JsonProperty`, etc.
 
-## Our Approach: Records
+## Our Approach: Immutable-by-Contract Classes
 
-OData Codegen uses Java records:
+OData Codegen generates `final` classes with copy-on-write semantics:
 
 ```java
-public record Person(
-    String userName,
-    String firstName,
-    String lastName,
-    List<String> emails,
-    Long age,
-    List<Trip> trips
-) implements ODataEntityType {
-    // Builder, static properties, etc.
+public final class Person implements ODataEntityType {
+    public static final StringProperty<Person> FIRST_NAME = new StringProperty<>("FirstName", Person.class);
+    public static final StringProperty<Person> LAST_NAME = new StringProperty<>("LastName", Person.class);
+    public static final CollectionProperty<Person, Trip, Trip.Filterable> TRIPS = new CollectionProperty<>("Trips", Person.class, Trip.class, Trip.Filterable::new);
+
+    protected String userName;
+    protected String firstName;
+    protected String lastName;
+    protected List<String> emails;
+    protected Long age;
+    protected List<Trip> trips;
+    // Builder, with*() copy-on-write, getters return unmodifiableList / Optional, Jackson @JsonProperty setters
 }
 ```
 
 ### Benefits
 
-1. **True immutability** — All fields are `final`
-2. **Thread safe** — Safe to share across threads
-3. **No hidden state** — No `changedFields`, no mutation tracking
-4. **Annotation-free** — No Jackson/Gson annotations, serialization is pluggable
+1. **Immutability by contract** — `with*()` copy-on-write and `Builder` are the only mutation paths; protected fields are mutated only via Jackson setters (deserialization) or `with*()` defensive copies
+2. **Thread safe** — Instances are effectively immutable after construction (`List.copyOf` / `Collections.unmodifiableList`, immutable `unmappedFields` copies)
+3. **No hidden state leaks** — `changedFields` is tracked separately for `patch()` and not exposed as mutable
+4. **Jackson-annotated, serializer-pluggable** — `@JsonProperty` setters for deserialization, `Serializer` interface for custom JSON handling
 5. **Concise** — 30+ entity types without boilerplate
 
 ## Copy-on-Write with Builders

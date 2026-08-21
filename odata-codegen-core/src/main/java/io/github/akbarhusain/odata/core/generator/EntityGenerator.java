@@ -339,16 +339,42 @@ public class EntityGenerator extends AbstractTypeGenerator {
                 for (EntityTypeModel et : s.entityTypes()) {
                     String bt = et.baseType();
                     if (bt != null && !bt.isBlank()) {
-                        String baseNs = Names.namespaceFromFullName(bt);
-                        if (baseNs.isEmpty()) baseNs = s.namespace();
+                        EntityTypeModel base = findBaseGlobal(bt);
+                        String baseNs;
+                        if (base != null) {
+                            baseNs = entityNamespace.getOrDefault(Names.entityClassName(base.name()), Names.namespaceFromFullName(bt));
+                            if (baseNs == null || baseNs.isEmpty()) baseNs = s.namespace();
+                        } else {
+                            baseNs = Names.namespaceFromFullName(bt);
+                            if (baseNs.isEmpty()) baseNs = s.namespace();
+                        }
                         if (baseNs.equals(ns)) {
-                            bases.add(Names.entityClassName(Names.simpleNameFromFullName(bt)));
+                            String baseName = base != null ? base.name() : Names.simpleNameFromFullName(bt);
+                            bases.add(Names.entityClassName(baseName));
                         }
                     }
                 }
             }
             return bases;
         });
+    }
+
+    private EntityTypeModel findBaseGlobal(String bt) {
+        if (bt == null || bt.isBlank()) return null;
+        EntityTypeModel base = entityTypeByQualifiedName.get(bt);
+        if (base != null) return base;
+        String simple = Names.simpleNameFromFullName(bt);
+        String className = Names.entityClassName(simple);
+        // Search across all schemas for simple name (handles unqualified cross-schema)
+        for (SchemaModel s : effectiveSchemas) {
+            for (EntityTypeModel et : s.entityTypes()) {
+                if (Names.entityClassName(et.name()).equals(className)) {
+                    // Prefer exact simple match; if multiple, first wins (same as generator's putIfAbsent)
+                    return et;
+                }
+            }
+        }
+        return null;
     }
 
     private Set<String> openRootNamesForSchema(String namespace) {
@@ -398,7 +424,10 @@ public class EntityGenerator extends AbstractTypeGenerator {
         EntityTypeModel base = entityTypeByQualifiedName.get(bt);
         if (base != null) return base;
         // Fallback: same-schema by simple name
-        return entityTypeMap.get(Names.entityClassName(Names.simpleNameFromFullName(bt)));
+        EntityTypeModel sameSchema = entityTypeMap.get(Names.entityClassName(Names.simpleNameFromFullName(bt)));
+        if (sameSchema != null) return sameSchema;
+        // Cross-schema unqualified fallback: search all schemas for simple name
+        return findBaseGlobal(bt);
     }
 
     private List<PropertyModel> inheritedProperties(EntityTypeModel entityType) {
@@ -488,10 +517,16 @@ public class EntityGenerator extends AbstractTypeGenerator {
             default -> "<" + className + ">";
         };
 
+        String extra = "";
+        if (constantType.equals("EnumProperty")) {
+            extra = ", " + resolveClassNameForConstant(edmType, schema) + ".class, \"" + qualifiedEdmName(resolveTypeDefinition(edmType, schema), schema) + "\"";
+        } else if (constantType.equals("NumberProperty")) {
+            extra = ", \"" + resolveTypeDefinition(edmType, schema) + "\"";
+        }
         return "    public static final " + constantType + typeParams + " "
                 + constantName
                 + " = new " + constantType + "<>(\"" + prop.name() + "\", " + className + ".class"
-                + (constantType.equals("EnumProperty") ? ", " + resolveClassNameForConstant(edmType, schema) + ".class, \"" + qualifiedEdmName(resolveTypeDefinition(edmType, schema), schema) + "\"" : "")
+                + extra
                 + ");\n";
     }
 

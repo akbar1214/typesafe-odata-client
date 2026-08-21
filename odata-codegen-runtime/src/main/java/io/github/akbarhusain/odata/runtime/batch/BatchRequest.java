@@ -126,8 +126,8 @@ public class BatchRequest {
 
     private static BatchOperation resolveOperationUrl(BatchOperation op, String baseUrl) {
         String url = op.url();
-        if (!url.startsWith("http")) {
-            url = baseUrl + "/" + url;
+        if (!url.regionMatches(true, 0, "http", 0, 4)) {
+            url = baseUrl + (url.startsWith("/") ? "" : "/") + url;
         }
         if (op.body() != null && op.body().length > 0) {
             return new BatchOperation(op.method(), url, op.headers(), op.body());

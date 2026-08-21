@@ -68,6 +68,22 @@ public record BatchOperation(
                         what + " must not contain CR/LF/NUL (batch header injection): " + value);
             }
         }
+        // Also reject percent-encoded CRLF/NUL: %0D, %0A, %00 (case-insensitive) -> decoded as control
+        for (int i = 0; i < value.length() - 2; i++) {
+            if (value.charAt(i) == '%') {
+                char h1 = value.charAt(i + 1);
+                char h2 = value.charAt(i + 2);
+                int d1 = Character.digit(h1, 16);
+                int d2 = Character.digit(h2, 16);
+                if (d1 != -1 && d2 != -1) {
+                    int decoded = (d1 << 4) | d2;
+                    if (decoded == '\r' || decoded == '\n' || decoded == '\0') {
+                        throw new IllegalArgumentException(
+                                what + " must not contain encoded CR/LF/NUL (batch header injection): " + value);
+                    }
+                }
+            }
+        }
     }
 
     public static BatchOperation get(String url) {

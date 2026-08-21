@@ -32,17 +32,20 @@ public final class CollectionProperty<E, T, F> extends NavProperty<E, T> {
         return lambda("all", predicate);
     }
 
+    private static final ThreadLocal<Integer> LAMBDA_DEPTH = ThreadLocal.withInitial(() -> 0);
+
     private FilterExpression<E> lambda(String operator, Function<F, FilterExpression<T>> predicate) {
         if (filterableFactory == null) {
             throw new IllegalStateException("CollectionProperty '" + edmName
                     + "' has no filterable factory; construct it with the element type's Filterable::new "
                     + "(generated property constants provide one)");
         }
-        F element = filterableFactory.get();
-        FilterExpression<T> result = predicate.apply(element);
-        // The lambda alias must match the element's property prefix ("x/Name" needs alias x);
-        // generated Filterable classes use "x/", manual FilterableElement may customize it
-        String alias = element instanceof FilterableElement<?> fe ? fe.prefix() : "x";
+        int depth = LAMBDA_DEPTH.get();
+        // Need element to know its base alias (FilterableElement may have custom prefix like "d")
+        // Create element first to determine base alias, then compute unique alias for this depth
+        F probe = filterableFactory.get();
+        String baseAlias = probe instanceof FilterableElement<?> fe ? fe.prefix() : "x";
+        String alias = depth == 0 ? baseAlias : baseAlias + depth;
         if (alias.isEmpty() || !Character.isJavaIdentifierStart(alias.charAt(0))) {
             throw new IllegalArgumentException("Invalid lambda alias '" + alias + "': must be a simple identifier");
         }
@@ -51,8 +54,19 @@ public final class CollectionProperty<E, T, F> extends NavProperty<E, T> {
                 throw new IllegalArgumentException("Invalid lambda alias '" + alias + "': must be a simple identifier");
             }
         }
-        return new RawFilterExpression<>(edmName + "/" + operator + "(" + alias + ": "
-                + result.toODataExpression() + ")");
+        LAMBDA_DEPTH.set(depth + 1);
+        try {
+            // Reuse probe as element for predicate (already created)
+            FilterExpression<T> result = predicate.apply(probe);
+            String expr = result.toODataExpression();
+            // Remap hard-coded prefix to unique alias for nested lambdas
+            if (!baseAlias.equals(alias)) {
+                expr = expr.replace(baseAlias + "/", alias + "/");
+            }
+            return new RawFilterExpression<>(edmName + "/" + operator + "(" + alias + ": " + expr + ")");
+        } finally {
+            LAMBDA_DEPTH.set(depth);
+        }
     }
 
     public FilterExpression<E> contains(T value) {

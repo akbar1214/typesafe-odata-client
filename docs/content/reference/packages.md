@@ -48,12 +48,13 @@ Runtime library for generated code.
 ### Contents
 
 - `entity/` — Context, ContextPath, SchemaInfo
-- `query/` — Expression hierarchy
-- `http/` — HttpTransport, JdkHttpTransport, JdkHttpTransport
+- `query/` — Expression hierarchy (StringProperty, NumberProperty, BooleanProperty, DateTimeProperty, GuidProperty, EnumProperty, CollectionProperty, FilterExpression)
+- `http/` — HttpTransport, HttpRequest, HttpResponse, JdkHttpTransport
 - `auth/` — AuthProvider implementations
-- `serialization/` — JacksonSerializer
+- `serialization/` — JacksonSerializer, DynamicPropertyConverter
 - `paging/` — CollectionPage
-- `exception/` — Typed exceptions
+- `batch/` — BatchOperation, BatchRequest, BatchResponse, MultipartHelper
+- `exception/` — Typed exceptions (ODataException hierarchy)
 - `client/` — EntityOperations (HTTP execution)
 
 ### Dependencies
@@ -81,12 +82,12 @@ Code generated from CSDL metadata.
 
 ### Contents
 
-- `entity/` — Immutable entity records
-- `complex/` — Immutable complex type records
-- `enums/` — Java enums
-- `request/` — Request classes
-- `container/` — Client entry points
-- `schema/` — SchemaInfo implementations
+- `entity/` — Immutable entity classes (final, copy-on-write, `with*()` / `Builder`)
+- `complex/` — Immutable complex type classes
+- `enums/` — Java enums (with `fromValue` / `fromJson` / `fromFlags`)
+- `request/` — Collection and entity request classes (type-safe query, CRUD, `$ref`, media)
+- `container/` — Client entry points (e.g., `DefaultContainer`)
+- `schema/` — SchemaInfo implementations (`ServiceSchemaInfo`)
 
 ### Dependencies
 

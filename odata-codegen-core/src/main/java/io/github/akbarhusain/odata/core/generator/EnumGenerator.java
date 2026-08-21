@@ -24,15 +24,31 @@ public class EnumGenerator {
 
         // members whose CSDL name differs from the sanitized Java constant need a
         // wire-name map so JSON round-trips keep using the original member names
+        // Also dedupe collisions: A-B -> A_B collides with verbatim A_B
         List<String[]> renamed = new ArrayList<>();
-        for (int i = 0; i < enumType.members().size(); i++) {
-            var member = enumType.members().get(i);
-            // Sanitize hostile member names (reserved words, leading digits, dashes);
-            // valid identifiers are kept verbatim so existing API names don't change.
-            String constant = enumConstantName(member.name());
+        java.util.Map<String, Integer> usedCount = new java.util.HashMap<>();
+        java.util.Set<String> usedNames = new java.util.HashSet<>();
+        List<String> constants = new ArrayList<>();
+        for (var member : enumType.members()) {
+            String base = enumConstantName(member.name());
+            String constant = base;
+            if (usedNames.contains(constant)) {
+                int suffix = usedCount.getOrDefault(base, 1) + 1;
+                while (usedNames.contains(base + "_" + suffix)) suffix++;
+                constant = base + "_" + suffix;
+                usedCount.put(base, suffix);
+            } else {
+                usedCount.putIfAbsent(base, 1);
+            }
+            usedNames.add(constant);
+            constants.add(constant);
             if (!constant.equals(member.name())) {
                 renamed.add(new String[]{member.name(), constant});
             }
+        }
+        for (int i = 0; i < enumType.members().size(); i++) {
+            var member = enumType.members().get(i);
+            String constant = constants.get(i);
             sb.append("    ").append(constant).append("(").append(member.value()).append("L)");
             if (i < enumType.members().size() - 1) sb.append(",");
             sb.append("\n");

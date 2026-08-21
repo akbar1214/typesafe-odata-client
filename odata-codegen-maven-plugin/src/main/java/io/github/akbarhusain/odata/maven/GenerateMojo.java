@@ -113,6 +113,12 @@ public class GenerateMojo extends AbstractMojo {
             java.util.List<String> previousFiles = readMarkerManifest(outputDir);
 
             CsdlModel model = parseMetadata(metadataPath);
+            // Clean up temp file created by downloadMetadata (M12: deleteOnExit leaks in daemons)
+            if (metadataUrl != null && metadataFile == null) {
+                try {
+                    Files.deleteIfExists(metadataPath);
+                } catch (Exception ignore) {}
+            }
 
             Map<String, String> packages = new HashMap<>();
             for (SchemaMapping mapping : schemaPackages) {
@@ -184,19 +190,22 @@ public class GenerateMojo extends AbstractMojo {
 
             HttpResponse<InputStream> response = client.send(request, HttpResponse.BodyHandlers.ofInputStream());
 
-            if (response.statusCode() >= 300 && response.statusCode() < 400) {
+            int status = response.statusCode();
+            boolean isRedirect = status == 301 || status == 302 || status == 303
+                    || status == 307 || status == 308;
+            if (isRedirect) {
                 String location = response.headers().firstValue("Location").orElse(null);
                 if (location == null || location.isBlank()) {
                     throw new MojoFailureException(
-                            "Redirect without Location header: HTTP " + response.statusCode());
+                            "Redirect without Location header: HTTP " + status);
                 }
                 current = resolveRedirectUri(current, location);
                 getLog().info("Following redirect to: " + current);
                 continue;
             }
 
-            if (response.statusCode() != 200) {
-                throw new MojoFailureException("Failed to download metadata: HTTP " + response.statusCode());
+            if (status != 200) {
+                throw new MojoFailureException("Failed to download metadata: HTTP " + status);
             }
 
             String contentType = response.headers().firstValue("Content-Type").orElse("");
@@ -209,7 +218,12 @@ public class GenerateMojo extends AbstractMojo {
             // Cache to a temp file so we can hash and parse it reliably.
             Path tempFile = Files.createTempFile("odata-metadata-", ".xml");
             tempFile.toFile().deleteOnExit();
-            Files.copy(response.body(), tempFile, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            try {
+                Files.copy(response.body(), tempFile, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            } catch (Exception e) {
+                try { Files.deleteIfExists(tempFile); } catch (Exception ignore) {}
+                throw e;
+            }
             return tempFile;
         }
 
@@ -250,7 +264,8 @@ public class GenerateMojo extends AbstractMojo {
         config.append("pluginVersion=").append(pluginVersion == null ? "" : pluginVersion).append('\n');
         if (metadataHeaders != null) {
             for (String name : metadataHeaders.stringPropertyNames()) {
-                config.append("header=").append(name).append('\n');
+                config.append("header=").append(name).append('=')
+                        .append(metadataHeaders.getProperty(name)).append('\n');
             }
         }
         for (SchemaMapping mapping : schemaPackages) {

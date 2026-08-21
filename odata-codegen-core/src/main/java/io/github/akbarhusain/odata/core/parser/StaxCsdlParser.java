@@ -32,6 +32,8 @@ public class StaxCsdlParser {
     private String currentAlias;
     private static final String EDMX_NS_V3 = "http://schemas.microsoft.com/ado/2007/06/edmx";
 
+    private final Map<String, String> globalAliasMap = new HashMap<>();
+
     private final List<String> warnings = new ArrayList<>();
 
     public CsdlModel parse(InputStream xml) throws XMLStreamException {
@@ -53,7 +55,79 @@ public class StaxCsdlParser {
             }
         }
 
+        schemas = fixupCrossSchemaAliases(schemas);
+
         return new CsdlModel(mergeContainerInheritance(schemas), List.copyOf(warnings));
+    }
+
+    private List<SchemaModel> fixupCrossSchemaAliases(List<SchemaModel> schemas) {
+        if (globalAliasMap.isEmpty()) return schemas;
+        List<SchemaModel> fixed = new ArrayList<>(schemas.size());
+        for (SchemaModel s : schemas) {
+            List<EntityTypeModel> ets = new ArrayList<>();
+            for (EntityTypeModel e : s.entityTypes()) {
+                List<PropertyModel> props = new ArrayList<>();
+                for (PropertyModel p : e.properties()) props.add(new PropertyModel(p.name(), fixAlias(p.edmType()), p.nullable(), p.defaultValue(), p.annotations()));
+                List<NavigationPropertyModel> navs = new ArrayList<>();
+                for (NavigationPropertyModel n : e.navigationProperties()) navs.add(new NavigationPropertyModel(n.name(), fixAlias(n.type()), n.partner(), n.containsTarget(), n.nullable(), n.referentialConstraints(), n.annotations()));
+                ets.add(new EntityTypeModel(e.name(), fixAlias(e.baseType()), e.openType(), e.abstractType(), e.hasStream(), e.keys(), props, navs));
+            }
+            List<ComplexTypeModel> cts = new ArrayList<>();
+            for (ComplexTypeModel c : s.complexTypes()) {
+                List<PropertyModel> props = new ArrayList<>();
+                for (PropertyModel p : c.properties()) props.add(new PropertyModel(p.name(), fixAlias(p.edmType()), p.nullable(), p.defaultValue(), p.annotations()));
+                List<NavigationPropertyModel> navs = new ArrayList<>();
+                for (NavigationPropertyModel n : c.navigationProperties()) navs.add(new NavigationPropertyModel(n.name(), fixAlias(n.type()), n.partner(), n.containsTarget(), n.nullable(), n.referentialConstraints(), n.annotations()));
+                cts.add(new ComplexTypeModel(c.name(), fixAlias(c.baseType()), c.openType(), c.abstractType(), props, navs));
+            }
+            List<EnumTypeModel> enums = s.enumTypes();
+            List<TypeDefinitionModel> tds = new ArrayList<>();
+            for (TypeDefinitionModel td : s.typeDefinitions()) tds.add(new TypeDefinitionModel(td.name(), fixAlias(td.underlyingType())));
+            List<FunctionModel> fns = new ArrayList<>();
+            for (FunctionModel fn : s.functions()) {
+                List<ParameterModel> params = new ArrayList<>();
+                for (ParameterModel pm : fn.parameters()) params.add(new ParameterModel(pm.name(), fixAlias(pm.type()), pm.nullable()));
+                ReturnTypeModel rt = fn.returnType() == null ? null : new ReturnTypeModel(fixAlias(fn.returnType().type()), fn.returnType().nullable());
+                fns.add(new FunctionModel(fn.name(), fn.isBound(), fn.isComposable(), fn.entitySetPath(), params, rt));
+            }
+            List<ActionModel> acts = new ArrayList<>();
+            for (ActionModel a : s.actions()) {
+                List<ParameterModel> params = new ArrayList<>();
+                for (ParameterModel pm : a.parameters()) params.add(new ParameterModel(pm.name(), fixAlias(pm.type()), pm.nullable()));
+                ReturnTypeModel rt = a.returnType() == null ? null : new ReturnTypeModel(fixAlias(a.returnType().type()), a.returnType().nullable());
+                acts.add(new ActionModel(a.name(), a.isBound(), a.entitySetPath(), params, rt));
+            }
+            List<ContainerModel> containers = new ArrayList<>();
+            for (ContainerModel c : s.containers()) {
+                List<EntitySetModel> ess = new ArrayList<>();
+                for (EntitySetModel es : c.entitySets()) ess.add(new EntitySetModel(es.name(), fixAlias(es.entityType()), es.navigationPropertyBindings(), es.annotations()));
+                List<SingletonModel> sing = new ArrayList<>();
+                for (SingletonModel sm : c.singletons()) sing.add(new SingletonModel(sm.name(), fixAlias(sm.type()), sm.navigationPropertyBindings()));
+                List<FunctionImportModel> fim = new ArrayList<>();
+                for (FunctionImportModel fi : c.functionImports()) fim.add(new FunctionImportModel(fi.name(), fixAlias(fi.function()), fi.entitySet(), fi.includeInServiceDocument()));
+                List<ActionImportModel> aim = new ArrayList<>();
+                for (ActionImportModel ai : c.actionImports()) aim.add(new ActionImportModel(ai.name(), fixAlias(ai.action()), ai.entitySet()));
+                containers.add(new ContainerModel(c.name(), fixAlias(c.extendsContainer()), ess, sing, fim, aim));
+            }
+            fixed.add(new SchemaModel(s.namespace(), s.alias(), ets, cts, enums, tds, fns, acts, containers));
+        }
+        return fixed;
+    }
+
+    private String fixAlias(String raw) {
+        if (raw == null) return null;
+        raw = raw.trim();
+        boolean isCollection = raw.startsWith("Collection(") && raw.endsWith(")");
+        String inner = isCollection ? raw.substring("Collection(".length(), raw.length() - 1).trim() : raw;
+        int dot = inner.indexOf('.');
+        if (dot > 0) {
+            String alias = inner.substring(0, dot);
+            String ns = globalAliasMap.get(alias);
+            if (ns != null) {
+                inner = ns + inner.substring(alias.length());
+            }
+        }
+        return isCollection ? "Collection(" + inner + ")" : inner;
     }
 
     /**
@@ -104,6 +178,9 @@ public class StaxCsdlParser {
         // while parsing this schema are normalized to the real namespace immediately
         this.currentNamespace = namespace;
         this.currentAlias = alias;
+        if (alias != null && !alias.isBlank()) {
+            globalAliasMap.putIfAbsent(alias, namespace);
+        }
 
         List<EntityTypeModel> entityTypes = new ArrayList<>();
         List<ComplexTypeModel> complexTypes = new ArrayList<>();
@@ -282,7 +359,7 @@ public class StaxCsdlParser {
                     case "Principal" -> section = "P";
                     case "Dependent" -> section = "D";
                     case "PropertyRef" -> {
-                        String name = getAttr(el, "Name");
+                        String name = requireAttr(el, "Name", "PropertyRef in ReferentialConstraint");
                         if ("P".equals(section)) principal.add(name);
                         else if ("D".equals(section)) dependent.add(name);
                     }
@@ -413,7 +490,7 @@ public class StaxCsdlParser {
                 switch (child.getName().getLocalPart()) {
                     case "Parameter" -> parameters.add(parseParameter(child));
                     case "ReturnType" -> returnType = new ReturnTypeModel(
-                            getAttr(child, "Type"),
+                            resolveTypeRef(getAttr(child, "Type")),
                             !"false".equals(getAttr(child, "Nullable")));
                     default -> skipElement(reader);
                 }
@@ -570,6 +647,7 @@ public class StaxCsdlParser {
      * Resolves alias-qualified type references ({@code self.Address}) to the schema's real
      * namespace, preserving {@code Collection(...)} wrappers. Without this, alias refs
      * resolve as unknown types and the generators emit wrong packages/imports.
+     * Checks global alias map (cross-schema) first, then current schema alias.
      */
     private String resolveTypeRef(String raw) {
         if (raw == null) {
@@ -578,8 +656,15 @@ public class StaxCsdlParser {
         raw = raw.trim();
         boolean isCollection = raw.startsWith("Collection(") && raw.endsWith(")");
         String inner = isCollection ? raw.substring("Collection(".length(), raw.length() - 1).trim() : raw;
-        if (currentAlias != null && currentNamespace != null && inner.startsWith(currentAlias + ".")) {
-            inner = currentNamespace + inner.substring(currentAlias.length());
+        int dot = inner.indexOf('.');
+        if (dot > 0) {
+            String alias = inner.substring(0, dot);
+            String ns = globalAliasMap.get(alias);
+            if (ns != null) {
+                inner = ns + inner.substring(alias.length());
+            } else if (currentAlias != null && currentNamespace != null && inner.startsWith(currentAlias + ".")) {
+                inner = currentNamespace + inner.substring(currentAlias.length());
+            }
         }
         return isCollection ? "Collection(" + inner + ")" : inner;
     }
@@ -640,13 +725,23 @@ public class StaxCsdlParser {
             base = byQualifiedName.get(namespaceOf.get(container) + "." + extendsName);
         }
         if (base == null) {
-            // unqualified ref to a container in another schema — accept a unique simple-name match
+            // unqualified ref to a container in another schema — accept only a unique simple-name match
+            ContainerModel found = null;
+            int matches = 0;
+            String simple = Names.simpleNameFromFullName(extendsName);
             for (ContainerModel candidate : byQualifiedName.values()) {
-                if (candidate != container
-                        && candidate.name().equals(Names.simpleNameFromFullName(extendsName))) {
-                    base = candidate;
-                    break;
+                if (candidate != container && candidate.name().equals(simple)) {
+                    found = candidate;
+                    matches++;
                 }
+            }
+            if (matches == 1) {
+                base = found;
+            } else if (matches > 1) {
+                throw new IllegalArgumentException(
+                        "Ambiguous unqualified EntityContainer Extends '" + extendsName
+                                + "' in '" + fqn + "': matches " + matches
+                                + " containers with that simple name; use qualified name");
             }
         }
         if (base == null) {

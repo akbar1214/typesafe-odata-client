@@ -71,29 +71,28 @@ The generated Java files are compiled alongside your application code. This is w
 
 For each OData entity type, the generator creates:
 
-1. **Record class** — immutable data holder with `final` fields
-2. **Builder class** — for constructing instances
-3. **Static property constants** — for type-safe queries
-4. **Static `entityType()` method** — returns the OData type name
+1. **Immutable-by-contract class** — `final` class with `protected` fields, copy-on-write `with*()`, and `Builder`
+2. **Builder class** — for constructing instances (root-level concrete types only)
+3. **Static property constants** — for type-safe queries (`UPPER_CASE`, e.g., `Person.FIRST_NAME`)
+4. **`odataTypeName()` method** — returns the OData type name
 
 ## Key Design Decisions
 
-### Records Over Classes
+### Immutable-by-Contract Classes Over Records
 
-Using Java records ensures true immutability:
+Generated entities are `final` classes with protected fields and Jackson `@JsonProperty` setters, not records:
 
 ```java
 // Generated entity
-public record Person(
-    String userName,
-    String firstName,
-    String lastName,
-    List<String> emails,
-    Long age,
-    List<Trip> trips,
-    // ... other fields
-) implements ODataEntityType {
-    // Builder, static properties, etc.
+public final class Person implements ODataEntityType {
+    public static final StringProperty<Person> FIRST_NAME = new StringProperty<>("FirstName", Person.class);
+    protected String userName;
+    protected String firstName;
+    protected String lastName;
+    protected List<String> emails;
+    protected Long age;
+    protected List<Trip> trips;
+    // Builder, with*() copy-on-write, getters (unmodifiableList / Optional)
 }
 ```
 

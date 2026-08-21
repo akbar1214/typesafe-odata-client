@@ -219,6 +219,11 @@ odata-codegen/
 // (Jackson) or the Builder; copy-on-write with*() methods; unmodifiable getters
 public final class Person implements ODataEntityType {
     public static final StringProperty<Person> FIRST_NAME = ...;
+    public static final NumberProperty<Person, Integer> AGE = ...;
+    public static final BooleanProperty<Person> IS_ACTIVE = ...;
+    public static final DateTimeProperty<Person> BIRTHDAY = ...;
+    public static final GuidProperty<Person> SHARE_ID = ...;
+    public static final EnumProperty<Person, PersonGender> GENDER = ...;
     public static final CollectionProperty<Person, Trip, Trip.Filterable> TRIPS = ...;
     protected String userName;
     protected String firstName;
