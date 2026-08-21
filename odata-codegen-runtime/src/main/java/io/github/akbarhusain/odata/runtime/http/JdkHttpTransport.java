@@ -95,8 +95,16 @@ public class JdkHttpTransport implements HttpTransport {
                 .uri(URI.create(request.url()))
                 .timeout(request.readTimeout());
 
-        builder.header("OData-MaxVersion", "4.01");
-        builder.header("OData-Version", "4.0");
+        boolean hasMaxVersion = request.headers().keySet().stream()
+                .anyMatch(k -> k != null && k.equalsIgnoreCase("OData-MaxVersion"));
+        boolean hasVersion = request.headers().keySet().stream()
+                .anyMatch(k -> k != null && k.equalsIgnoreCase("OData-Version"));
+        if (!hasMaxVersion) {
+            builder.header("OData-MaxVersion", "4.01");
+        }
+        if (!hasVersion) {
+            builder.header("OData-Version", "4.0");
+        }
         boolean hasAccept = request.headers().keySet().stream()
                 .anyMatch(k -> k != null && k.equalsIgnoreCase("Accept"));
         if (!hasAccept) {

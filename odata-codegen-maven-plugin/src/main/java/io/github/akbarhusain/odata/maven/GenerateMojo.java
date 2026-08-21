@@ -113,6 +113,12 @@ public class GenerateMojo extends AbstractMojo {
             java.util.List<String> previousFiles = readMarkerManifest(outputDir);
 
             CsdlModel model = parseMetadata(metadataPath);
+            // Clean up temp file created by downloadMetadata (M12: deleteOnExit leaks in daemons)
+            if (metadataUrl != null && metadataFile == null) {
+                try {
+                    Files.deleteIfExists(metadataPath);
+                } catch (Exception ignore) {}
+            }
 
             Map<String, String> packages = new HashMap<>();
             for (SchemaMapping mapping : schemaPackages) {
@@ -212,7 +218,12 @@ public class GenerateMojo extends AbstractMojo {
             // Cache to a temp file so we can hash and parse it reliably.
             Path tempFile = Files.createTempFile("odata-metadata-", ".xml");
             tempFile.toFile().deleteOnExit();
-            Files.copy(response.body(), tempFile, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            try {
+                Files.copy(response.body(), tempFile, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            } catch (Exception e) {
+                try { Files.deleteIfExists(tempFile); } catch (Exception ignore) {}
+                throw e;
+            }
             return tempFile;
         }
 

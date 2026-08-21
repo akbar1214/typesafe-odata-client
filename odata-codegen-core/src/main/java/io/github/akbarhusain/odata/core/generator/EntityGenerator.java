@@ -517,10 +517,16 @@ public class EntityGenerator extends AbstractTypeGenerator {
             default -> "<" + className + ">";
         };
 
+        String extra = "";
+        if (constantType.equals("EnumProperty")) {
+            extra = ", " + resolveClassNameForConstant(edmType, schema) + ".class, \"" + qualifiedEdmName(resolveTypeDefinition(edmType, schema), schema) + "\"";
+        } else if (constantType.equals("NumberProperty")) {
+            extra = ", \"" + resolveTypeDefinition(edmType, schema) + "\"";
+        }
         return "    public static final " + constantType + typeParams + " "
                 + constantName
                 + " = new " + constantType + "<>(\"" + prop.name() + "\", " + className + ".class"
-                + (constantType.equals("EnumProperty") ? ", " + resolveClassNameForConstant(edmType, schema) + ".class, \"" + qualifiedEdmName(resolveTypeDefinition(edmType, schema), schema) + "\"" : "")
+                + extra
                 + ");\n";
     }
 

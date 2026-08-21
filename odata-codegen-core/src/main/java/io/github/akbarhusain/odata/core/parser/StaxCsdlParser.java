@@ -359,7 +359,7 @@ public class StaxCsdlParser {
                     case "Principal" -> section = "P";
                     case "Dependent" -> section = "D";
                     case "PropertyRef" -> {
-                        String name = getAttr(el, "Name");
+                        String name = requireAttr(el, "Name", "PropertyRef in ReferentialConstraint");
                         if ("P".equals(section)) principal.add(name);
                         else if ("D".equals(section)) dependent.add(name);
                     }
@@ -725,13 +725,23 @@ public class StaxCsdlParser {
             base = byQualifiedName.get(namespaceOf.get(container) + "." + extendsName);
         }
         if (base == null) {
-            // unqualified ref to a container in another schema — accept a unique simple-name match
+            // unqualified ref to a container in another schema — accept only a unique simple-name match
+            ContainerModel found = null;
+            int matches = 0;
+            String simple = Names.simpleNameFromFullName(extendsName);
             for (ContainerModel candidate : byQualifiedName.values()) {
-                if (candidate != container
-                        && candidate.name().equals(Names.simpleNameFromFullName(extendsName))) {
-                    base = candidate;
-                    break;
+                if (candidate != container && candidate.name().equals(simple)) {
+                    found = candidate;
+                    matches++;
                 }
+            }
+            if (matches == 1) {
+                base = found;
+            } else if (matches > 1) {
+                throw new IllegalArgumentException(
+                        "Ambiguous unqualified EntityContainer Extends '" + extendsName
+                                + "' in '" + fqn + "': matches " + matches
+                                + " containers with that simple name; use qualified name");
             }
         }
         if (base == null) {

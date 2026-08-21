@@ -253,7 +253,7 @@ public final class Names {
                 }
             } else if (Character.isJavaIdentifierPart(c)) {
                 sb.append(c);
-            } else if (c == '.' || c == '/') {
+            } else {
                 sb.append('_');
             }
         }

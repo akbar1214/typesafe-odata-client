@@ -618,7 +618,9 @@ public class RequestGenerator extends AbstractTypeGenerator {
         // never matches the type-kind map, so collection navs to complex types would
         // fall through and emit references to CollectionRequest classes that are only
         // generated for entity types — uncompilable output.
+        // Also unwrap TypeDefinition chain: MyAddr -> NS.Shared.Address (complex) must be skipped
         String unwrapped = Names.unwrapCollectionType(nav.type());
-        return Names.resolveTypeKind(unwrapped, effectiveSchemas) == Names.TypeKind.COMPLEX;
+        String resolved = resolveTypeDefinition(unwrapped, schema);
+        return Names.resolveTypeKind(resolved, effectiveSchemas) == Names.TypeKind.COMPLEX;
     }
 }

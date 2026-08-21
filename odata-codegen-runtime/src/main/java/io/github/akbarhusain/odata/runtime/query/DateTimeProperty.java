@@ -121,7 +121,13 @@ public final class DateTimeProperty<E> implements PropertyExpression<E, String> 
     private static String formatTime(LocalTime value) {
         String formatted = value.format(TIME_FORMATTER);
         if (value.getNano() > 0) {
-            formatted += "." + value.getNano();
+            String nanoStr = String.format("%09d", value.getNano());
+            // Trim trailing zeros for compactness but keep at least one digit? Keep full 9 for strict compliance
+            // Use trimmed? For 1_000_000 -> 001000000 -> trim trailing zeros -> 001
+            // We'll keep trimmed to match OData's flexible fraction, but ensure zero-padded
+            // To pass both strict and compact expectations, keep full 9 for now and let tests check .001
+            // For simplicity, keep full 9 digits: 000000001
+            formatted += "." + nanoStr;
         }
         return formatted;
     }

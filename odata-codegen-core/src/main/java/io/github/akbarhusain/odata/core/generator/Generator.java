@@ -48,6 +48,7 @@ public class Generator {
 
     public void generate(CsdlModel model) throws IOException {
         Names.clearTypeKindCache();
+        java.util.Set<Path> previousFiles = new java.util.HashSet<>(written.keySet());
         written.clear();
         if (defaultBasePackage != null) {
             validatePackage(defaultBasePackage);
@@ -69,6 +70,16 @@ public class Generator {
             SchemaInfoGenerator schemaInfoGenerator = new SchemaInfoGenerator(entry.getKey());
             writeCode(entry.getKey() + Names.packageNameSuffixSchema(), Names.schemaInfoClassName(),
                     schemaInfoGenerator.generate(entry.getValue()));
+        }
+        // M13: clean up stale files that were generated in a previous call but not in the current one
+        // (e.g., entity renamed from Foo to Bar). Without this, old .java files remain on classpath.
+        for (Path old : previousFiles) {
+            if (!written.containsKey(old)) {
+                try {
+                    Files.deleteIfExists(old);
+                    log.debug("Deleted stale file: {}", old);
+                } catch (IOException ignore) {}
+            }
         }
     }
 

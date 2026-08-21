@@ -16,6 +16,7 @@ public class JacksonSerializer implements Serializer {
     private static final ObjectMapper MAPPER = createMapper();
     private static final ObjectMapper MAPPER_INCLUDE_NULLS = createMapperIncludeNulls();
     private static final ObjectMapper MAPPER_PRETTY = createMapperPretty();
+    private static final ObjectMapper MAPPER_FOR_PATCH = createMapperForPatch();
 
     private static ObjectMapper createMapper() {
         return configureCollectionInclusion(baseMapper()
@@ -42,6 +43,12 @@ public class JacksonSerializer implements Serializer {
         mapper.configOverride(java.util.List.class).setInclude(nonEmpty);
         mapper.configOverride(java.util.Set.class).setInclude(nonEmpty);
         return mapper;
+    }
+
+    private static ObjectMapper createMapperForPatch() {
+        // For PATCH with includeFields, empty collections must be serialized when explicitly requested
+        // (e.g., clearing tags with []), so don't hide NON_EMPTY
+        return baseMapper().setSerializationInclusion(JsonInclude.Include.NON_ABSENT);
     }
 
     private static ObjectMapper baseMapper() {
@@ -119,11 +126,11 @@ public class JacksonSerializer implements Serializer {
         if (includeFields == null || includeFields.isEmpty()) {
             return serialize(value, type);
         }
-        // Serialize through a tree, then keep only the changed fields — honors the wire
-        // mapper's inclusion rules (NON_ABSENT, NON_EMPTY collections, ignored lifecycle
-        // members) exactly like full serialization
+        // Serialize through a tree, then keep only the changed fields — for PATCH with
+        // explicit includeFields, empty collections must be included when requested (e.g., clearing)
+        // so use mapper without NON_EMPTY override; full serialization still hides empty collections
         try {
-            com.fasterxml.jackson.databind.JsonNode tree = MAPPER.valueToTree(value);
+            com.fasterxml.jackson.databind.JsonNode tree = MAPPER_FOR_PATCH.valueToTree(value);
             if (tree.isObject()) {
                 // collect first (cannot mutate while iterating fieldNames)
                 java.util.List<String> names = new java.util.ArrayList<>();
@@ -134,7 +141,7 @@ public class JacksonSerializer implements Serializer {
                     }
                 }
             }
-            return MAPPER.writeValueAsBytes(tree);
+            return MAPPER_FOR_PATCH.writeValueAsBytes(tree);
         } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
             throw new io.github.akbarhusain.odata.runtime.exception.ODataException(
                     "Failed to serialize changed fields: " + e.getMessage(), e);
