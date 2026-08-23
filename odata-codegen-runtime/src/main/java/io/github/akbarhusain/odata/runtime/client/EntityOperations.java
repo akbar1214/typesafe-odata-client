@@ -53,13 +53,34 @@ public class EntityOperations {
                                             SchemaInfo schemaInfo) {
         HttpResponse response = executeSync(context, HttpMethod.GET, path, null, null);
         checkResponse(response);
+        T entity;
         if (schemaInfo != null && response.body() != null && response.body().length > 0) {
             T polymorphic = deserializePolymorphic(response.body(), context, type, schemaInfo);
-            if (polymorphic != null) {
-                return polymorphic;
+            entity = polymorphic != null ? polymorphic : deserializeOrNull(response, context, type);
+        } else {
+            entity = deserializeOrNull(response, context, type);
+        }
+        applyEtagHeader(entity, response);
+        return entity;
+    }
+
+    /**
+     * Captures a header-only ETag onto the entity (M7): services that return the
+     * concurrency token only as a header would otherwise force users to raw HTTP
+     * before any conditional write. The body's {@code @odata.etag} annotation wins.
+     */
+    private static void applyEtagHeader(Object entity, HttpResponse response) {
+        if (!(entity instanceof io.github.akbarhusain.odata.runtime.entity.ODataEntityType odataEntity)
+                || odataEntity.getETag().isPresent()) {
+            return;
+        }
+        List<String> etags = response.headers().get("ETag");
+        if (etags != null && !etags.isEmpty()) {
+            String etag = etags.get(0);
+            if (etag != null && !etag.isEmpty()) {
+                odataEntity.applyETagFromResponse(etag);
             }
         }
-        return deserializeOrNull(response, context, type);
     }
 
     @SuppressWarnings("unchecked")
@@ -190,6 +211,12 @@ public class EntityOperations {
     }
 
     public static void addRef(Context context, ContextPath navigationPath, String targetEntityUrl) {
+        // Validate here rather than letting Map.of NPE deep inside the body build
+        if (targetEntityUrl == null || targetEntityUrl.isBlank()) {
+            throw new IllegalArgumentException(
+                    "targetEntityUrl must not be null or blank (pass the target entity's absolute "
+                            + "or root-relative URI, e.g. People('key'))");
+        }
         ContextPath refPath = navigationPath.addSegment("$ref");
         // @odata.id must be an ABSOLUTE URI unless the payload carries @odata.context —
         // relative values are rejected by services (TripPin: 500 "relative URI value ...
@@ -364,9 +391,8 @@ public class EntityOperations {
         try {
             return streamMediaAsync(context, path).join();
         } catch (CompletionException e) {
-            Throwable cause = e.getCause();
-            if (cause instanceof RuntimeException re) throw re;
-            throw new ODataException("Stream failed: " + cause.getMessage(), cause);
+            rethrowCause(e, "Stream failed");
+            throw new ODataException("Stream failed: " + e.getCause().getMessage(), e.getCause());
         }
     }
 
@@ -397,8 +423,7 @@ public class EntityOperations {
         if (etag != null && !etag.isEmpty()) {
             headers.put("If-Match", etag);
         }
-        HttpResponse response = executeSync(context, HttpMethod.PUT, path, body,
-                headers.isEmpty() ? null : headers);
+        HttpResponse response = executeSync(context, HttpMethod.PUT, path, body, headers);
         checkResponse(response);
     }
 
@@ -452,10 +477,26 @@ public class EntityOperations {
         try {
             return executeAsync(context, method, path, body, extraHeaders).join();
         } catch (CompletionException e) {
-            Throwable cause = e.getCause();
-            if (cause instanceof RuntimeException re) throw re;
-            throw new ODataException("Request failed: " + cause.getMessage(), cause);
+            rethrowCause(e, "Request failed");
+            throw new ODataException("Request failed: " + e.getCause().getMessage(), e.getCause());
         }
+    }
+
+    /**
+     * Unwraps {@code join()} failures. RuntimeExceptions rethrow as-is; an
+     * {@link InterruptedException} cause (the async task was interrupted — executor
+     * shutdown, cancelled I/O) restores the interrupt flag on the CALLING thread before
+     * throwing, so outer code can observe cancellation. Note: {@link
+     * CompletableFuture#join} itself is not interruptible (JDK behavior), so this is the
+     * only interruption path that reaches sync callers.
+     */
+    private static void rethrowCause(CompletionException e, String what) {
+        Throwable cause = e.getCause();
+        if (cause instanceof InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            throw new ODataException(what + ": interrupted (" + ie.getMessage() + ")", ie);
+        }
+        if (cause instanceof RuntimeException re) throw re;
     }
 
     public static CompletableFuture<HttpResponse> executeAsync(Context context, HttpMethod method,

@@ -91,6 +91,21 @@ public class NumberExpression<N, E> implements OrderExpression<E, N> {
         return new NumberExpression<>("(-" + expression + ")", entityType);
     }
 
+    /** OData canonical {@code ceiling(value)} — rounds up to the nearest integer. */
+    public NumberExpression<N, E> ceiling() {
+        return new NumberExpression<>("(ceiling(" + expression + "))", entityType);
+    }
+
+    /** OData canonical {@code floor(value)} — rounds down to the nearest integer. */
+    public NumberExpression<N, E> floor() {
+        return new NumberExpression<>("(floor(" + expression + "))", entityType);
+    }
+
+    /** OData canonical {@code round(value)} — rounds to the nearest integer. */
+    public NumberExpression<N, E> round() {
+        return new NumberExpression<>("(round(" + expression + "))", entityType);
+    }
+
     public FilterExpression<E> isNull() {
         return new RawFilterExpression(expression + " eq null");
     }

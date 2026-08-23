@@ -62,6 +62,12 @@ public class BatchRequest {
             return parseResponse(response, boundary);
         } catch (CompletionException e) {
             Throwable cause = e.getCause();
+            if (cause instanceof InterruptedException) {
+                // join() is not itself interruptible; the async task failed interrupted —
+                // restore the flag on the calling thread (parity with EntityOperations)
+                Thread.currentThread().interrupt();
+                throw new ODataException("Batch request failed: interrupted (" + cause.getMessage() + ")", cause);
+            }
             if (cause instanceof RuntimeException re) throw re;
             throw new ODataException("Batch request failed: " + cause.getMessage(), cause);
         }
@@ -78,8 +84,27 @@ public class BatchRequest {
 
     /** Shared request assembly for the sync and async paths (they had drifted into copies). */
     private CompletableFuture<HttpResponse> submitBatch(String boundary) {
-        resolveEntryUrls();
-        byte[] body = MultipartHelper.encodeBatchRequest(boundary, entries);
+        // Resolve URLs into a LOCAL copy — mutating this.entries consumed the builder
+        // as a side effect of execution
+        List<Object> resolvedEntries = new ArrayList<>(entries.size());
+        String root = context.baseUrl();
+        if (root.endsWith("/")) {
+            root = root.substring(0, root.length() - 1);
+        }
+        final String serviceRoot = root;
+        for (Object entry : entries) {
+            if (entry instanceof BatchOperation op) {
+                resolvedEntries.add(resolveOperationUrl(op, serviceRoot));
+            } else if (entry instanceof Changeset cs) {
+                resolvedEntries.add(new Changeset(cs.operations().stream()
+                        .map(op -> resolveOperationUrl(op, serviceRoot))
+                        .toList()));
+            } else {
+                resolvedEntries.add(entry);
+            }
+        }
+
+        byte[] body = MultipartHelper.encodeBatchRequest(boundary, resolvedEntries);
 
         ContextPath batchPath = context.basePath().addSegment("$batch");
 
@@ -102,26 +127,6 @@ public class BatchRequest {
 
         HttpTransport transport = EntityOperations.buildTransportChain(context, context.transport());
         return transport.submit(request);
-    }
-
-    private void resolveEntryUrls() {
-        String serviceRoot = context.baseUrl();
-        if (serviceRoot.endsWith("/")) {
-            serviceRoot = serviceRoot.substring(0, serviceRoot.length() - 1);
-        }
-        final String baseUrl = serviceRoot;
-
-        for (int i = 0; i < entries.size(); i++) {
-            Object entry = entries.get(i);
-            if (entry instanceof BatchOperation op) {
-                entries.set(i, resolveOperationUrl(op, baseUrl));
-            } else if (entry instanceof Changeset cs) {
-                List<BatchOperation> resolved = cs.operations().stream()
-                        .map(op -> resolveOperationUrl(op, baseUrl))
-                        .toList();
-                entries.set(i, new Changeset(resolved));
-            }
-        }
     }
 
     private static BatchOperation resolveOperationUrl(BatchOperation op, String baseUrl) {

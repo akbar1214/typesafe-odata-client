@@ -36,13 +36,15 @@ public class JdkHttpTransport implements HttpTransport {
 
     private static final Duration DEFAULT_CONNECT_TIMEOUT = Duration.ofSeconds(30);
     // HttpClient's connect timeout is per-client, so clients are cached per requested
-    // duration — HttpRequest.connectTimeout is honored without allocating a client per request
-    private static final ConcurrentHashMap<Duration, HttpClient> CLIENTS_BY_CONNECT_TIMEOUT =
+    // duration — HttpRequest.connectTimeout is honored without allocating a client per
+    // request. The cache is PER TRANSPORT INSTANCE (not static): sharing clients across
+    // instances would couple transports that may later carry distinct configuration.
+    private final ConcurrentHashMap<Duration, HttpClient> clientsByConnectTimeout =
             new ConcurrentHashMap<>();
 
-    static HttpClient clientFor(Duration connectTimeout) {
+    HttpClient clientFor(Duration connectTimeout) {
         Duration effective = connectTimeout != null ? connectTimeout : DEFAULT_CONNECT_TIMEOUT;
-        return CLIENTS_BY_CONNECT_TIMEOUT.computeIfAbsent(effective, d -> HttpClient.newBuilder()
+        return clientsByConnectTimeout.computeIfAbsent(effective, d -> HttpClient.newBuilder()
                 .connectTimeout(d)
                 .followRedirects(HttpClient.Redirect.NEVER)
                 .build());

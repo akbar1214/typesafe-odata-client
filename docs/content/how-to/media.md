@@ -30,6 +30,9 @@ try (InputStream media = client.advertisements()
 `streamMedia()` issues `GET .../<EntitySet>(key)/$value` and requests
 `Accept: */*` so the server returns the raw bytes, not JSON metadata.
 
+Always close the returned stream (try-with-resources as above) — an unclosed
+stream holds the HTTP connection out of the client's pool.
+
 ## Write a Media Entity
 
 Upload new bytes with `setMedia(...)`. Pass the current ETag for optimistic
@@ -42,6 +45,12 @@ client.advertisements()
 ```
 
 Without an ETag, `setMedia(InputStream)` sends a plain `PUT`.
+
+> **Known limitation:** uploads are buffered — `setMedia(InputStream)` reads the
+> whole stream into memory before sending, because the request layer carries
+> `byte[]` bodies. Fine for images/documents; not suitable for very large media.
+> True streaming upload needs a body-publisher abstraction in `HttpRequest`
+> and is tracked as future work.
 
 ## Read a Named Stream (`Edm.Stream`)
 

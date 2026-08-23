@@ -55,6 +55,6 @@ public class CollectionPage<T> implements Iterable<T> {
     public Spliterator<T> spliterator() {
         // No NONNULL: JSON "value" arrays can legally contain null elements
         return Spliterators.spliterator(currentPage.iterator(), currentPage.size(),
-                Spliterator.ORDERED | Spliterator.IMMUTABLE);
+                Spliterator.ORDERED | Spliterator.IMMUTABLE | Spliterator.SIZED);
     }
 }

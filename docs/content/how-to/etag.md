@@ -16,6 +16,11 @@ Person person = request.get();
 String etag = person.getETag().orElse(null);
 ```
 
+The etag comes from the `@odata.etag` annotation in the response body. If a service
+sends the token **only as an `ETag` header**, the client captures it onto the entity
+automatically during `get()` — so `patchWithETag`/`deleteWithETag` work there too,
+without dropping to raw HTTP. A body annotation always wins over the header.
+
 ## Update with ETag
 
 ### Use patchWithETag

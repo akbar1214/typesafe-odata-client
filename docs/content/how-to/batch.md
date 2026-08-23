@@ -158,6 +158,10 @@ System.out.println(result.getText());     // JSON string
 Person person = response.get(0, Person.class).getEntity(context.serializer());
 ```
 
+Typed views (`get(i, type)`, `getAll(type)`) keep every field of the original
+result — including the part-level `contentId()` — so correlation survives the
+raw → typed transition.
+
 ### Iterating
 
 ```java
