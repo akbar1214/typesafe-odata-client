@@ -20,4 +20,14 @@ public interface ODataEntityType extends ODataType {
     default Optional<String> getETag() {
         return Optional.empty();
     }
+
+    /**
+     * Receives the {@code ETag} response header after a GET so header-only etag
+     * services still support patchWithETag/deleteWithETag. Default is a no-op;
+     * generated root entity classes override it to store the value. The runtime only
+     * calls this when the entity carries no etag from the body annotation.
+     */
+    default void applyETagFromResponse(String etag) {
+        // no-op by default
+    }
 }

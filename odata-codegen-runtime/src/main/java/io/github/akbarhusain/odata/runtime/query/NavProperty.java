@@ -54,10 +54,12 @@ public class NavProperty<E, T> {
     }
 
     public NavQuery<E, T> top(int count) {
+        requireNonNegative("top", count);
         return new NavQuery<>(edmName, List.of(), List.of(), List.of(), "$top=" + count, null, null, List.of());
     }
 
     public NavQuery<E, T> skip(int count) {
+        requireNonNegative("skip", count);
         return new NavQuery<>(edmName, List.of(), List.of(), List.of(), null, "$skip=" + count, null, List.of());
     }
 
@@ -80,6 +82,13 @@ public class NavProperty<E, T> {
             expands.add(p.getEdmName());
         }
         return new NavQuery<>(edmName, List.of(), List.of(), List.of(), null, null, null, expands);
+    }
+
+    /** $top/$skip must be >= 0 — negative values render invalid OData (parity with ApplyBuilder). */
+    private static void requireNonNegative(String option, int count) {
+        if (count < 0) {
+            throw new IllegalArgumentException(option + " must be >= 0, got: " + count);
+        }
     }
 
     public record NavQuery<S, T>(
@@ -123,10 +132,12 @@ public class NavProperty<E, T> {
         }
 
         public NavQuery<S, T> top(int count) {
+            requireNonNegative("top", count);
             return new NavQuery<>(edmName, selects, filters, orderings, "$top=" + count, skipOption, countOption, expands);
         }
 
         public NavQuery<S, T> skip(int count) {
+            requireNonNegative("skip", count);
             return new NavQuery<>(edmName, selects, filters, orderings, topOption, "$skip=" + count, countOption, expands);
         }
 

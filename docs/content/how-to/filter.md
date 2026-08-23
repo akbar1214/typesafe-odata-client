@@ -110,6 +110,24 @@ client.people()
     .get();
 ```
 
+### Chaining filter() Calls
+
+Multiple `filter()` calls are ANDed together. Each predicate is parenthesized
+before the join, so an `or` inside one predicate cannot bind across the
+implicit `and`:
+
+```java
+// Renders: $filter=(FirstName eq 'Scott' or FirstName eq 'Keith') and Concurrency gt 25
+client.people()
+    .filter(Person.FIRST_NAME.equalTo("Scott")
+        .or(Person.FIRST_NAME.equalTo("Keith")))
+    .filter(Person.CONCURRENCY.greaterThan(25))
+    .get();
+```
+
+Prefer explicit `.and()`/`.or()` composition when the boolean structure matters;
+chaining is a convenience for independent conditions.
+
 ### Complex Expressions
 
 ```java

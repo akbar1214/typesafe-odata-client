@@ -40,18 +40,20 @@ public class BatchResponse implements Iterable<BatchResult<?>> {
     @SuppressWarnings("unchecked")
     public <T> BatchResult<T> get(int index, Class<T> type) {
         BatchResult<?> raw = results.get(index);
-        return new BatchResult<>(raw.statusCode(), raw.headers(), raw.body(), type);
+        // Preserve the part-level Content-ID — dropping it here broke response
+        // correlation as soon as a caller took a typed view of a changeset result
+        return new BatchResult<>(raw.statusCode(), raw.headers(), raw.body(), type, raw.contentId());
     }
 
     public <T> BatchResult<T> get(int index, Type type) {
         BatchResult<?> raw = results.get(index);
-        return new BatchResult<>(raw.statusCode(), raw.headers(), raw.body(), type);
+        return new BatchResult<>(raw.statusCode(), raw.headers(), raw.body(), type, raw.contentId());
     }
 
     @SuppressWarnings("unchecked")
     public <T> List<BatchResult<T>> getAll(Class<T> type) {
         return results.stream()
-            .map(r -> new BatchResult<T>(r.statusCode(), r.headers(), r.body(), type))
+            .map(r -> new BatchResult<T>(r.statusCode(), r.headers(), r.body(), type, r.contentId()))
             .toList();
     }
 

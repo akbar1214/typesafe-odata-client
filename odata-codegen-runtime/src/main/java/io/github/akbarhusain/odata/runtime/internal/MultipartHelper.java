@@ -26,7 +26,8 @@ public class MultipartHelper {
     private static final byte[] CRLF = "\r\n".getBytes(StandardCharsets.US_ASCII);
     private static final byte[] CRLFCRLF = "\r\n\r\n".getBytes(StandardCharsets.US_ASCII);
     private static final byte[] DOUBLE_LF = "\n\n".getBytes(StandardCharsets.US_ASCII);
-    private static final Pattern STATUS_LINE_PATTERN = Pattern.compile("HTTP/\\d\\.\\d\\s+(\\d{3})\\s*(.*)");
+    // HTTP/2 emits "HTTP/2 200" (no minor version); HTTP/1.x is "HTTP/1.1 200"
+    private static final Pattern STATUS_LINE_PATTERN = Pattern.compile("HTTP/\\d(?:\\.\\d)?\\s+(\\d{3})\\s*(.*)");
     private static final Pattern HEADER_PATTERN = Pattern.compile("^([\\w-]+):\\s*(.*)");
     // boundary parameter may be quoted: boundary="abc" (RFC 2046) — quotes are not part of the value
     // allow spaces around = : boundary = "abc" is legal
@@ -104,6 +105,9 @@ public class MultipartHelper {
     }
 
     private static void encodeOperation(ByteArrayOutputStream out, BatchOperation op) {
+        // Absolute-form request target (URLs are resolved against the service root before
+        // encoding) makes a Host header unnecessary per RFC 9112 §3.2.2 — services that
+        // require one still accept the absolute form.
         write(out, op.method().name() + " " + op.url() + " HTTP/1.1\r\n");
         boolean hasContentType = op.headers().keySet().stream()
                 .anyMatch(k -> k != null && k.equalsIgnoreCase("Content-Type"));
@@ -121,6 +125,7 @@ public class MultipartHelper {
         }
     }
 
+    /** Framing lines are ASCII; UTF-8 is used so any non-ASCII header value survives. */
     private static void write(ByteArrayOutputStream out, String ascii) {
         out.writeBytes(ascii.getBytes(StandardCharsets.UTF_8));
     }
@@ -154,7 +159,7 @@ public class MultipartHelper {
             }
 
             int next = indexOfBoundary(body, delimiter, pos, endPos);
-            if (next < 0 || next > endPos) {
+            if (next < 0) {
                 throw new ODataException("Malformed multipart response: missing closing boundary '"
                         + new String(delimiter, StandardCharsets.US_ASCII) + "--'");
             }

@@ -19,6 +19,10 @@ import java.util.regex.Pattern;
  * else (prevents arbitrary text — including injected predicates — from being concatenated
  * into $filter). Typed overloads ({@link LocalDate}, {@link OffsetDateTime}, {@link LocalTime},
  * {@link Duration}) format the literal per the ABNF automatically.
+ *
+ * <p>Note on generics: this class declares {@code PropertyExpression<E, String>} so it can be
+ * selected/ordered like a string property, but comparison operators accept typed values too —
+ * the {@code T=String} refers to how the property renders, not which value types are legal.</p>
  */
 public final class DateTimeProperty<E> implements PropertyExpression<E, String> {
 

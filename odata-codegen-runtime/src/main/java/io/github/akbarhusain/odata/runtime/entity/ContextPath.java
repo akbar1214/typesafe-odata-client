@@ -55,6 +55,9 @@ public record ContextPath(
     }
 
     public ContextPath addQuery(String name, String value) {
+        if ("$search".equals(name)) {
+            validateSearchTerm(value);
+        }
         // Queries are stored in the last segment or as a special trailing segment
         // For simplicity, store them as a Segment with name="" and keys as queries
         if (!segments.isEmpty()) {
@@ -67,6 +70,25 @@ public record ContextPath(
         }
         return new ContextPath(basePath, append(segments,
                 new Segment("", List.of(), List.of(new KeyValuePair(name, value)))));
+    }
+
+    /**
+     * $search has its own grammar (terms, quoted phrases, AND/OR/NOT, parentheses) which
+     * we pass through verbatim — but control characters would corrupt the URL. The full
+     * grammar is allowed; anything below 0x20 or DEL is rejected.
+     */
+    private static void validateSearchTerm(String term) {
+        if (term == null) {
+            throw new IllegalArgumentException("$search term must not be null");
+        }
+        for (int i = 0; i < term.length(); i++) {
+            char c = term.charAt(i);
+            if (c < 0x20 || c == 0x7F) {
+                throw new IllegalArgumentException(
+                        "$search term contains a control character at index " + i
+                                + " — use the OData $search grammar (terms, \"quoted phrases\", AND/OR/NOT)");
+            }
+        }
     }
 
     public ContextPath clearQueries() {
@@ -101,7 +123,7 @@ public record ContextPath(
             queryPart = trimmed.substring(queryIdx + 1);
         }
         String base;
-        if (pathPart.startsWith("http://") || pathPart.startsWith("https://")) {
+        if (pathPart.regionMatches(true, 0, "http", 0, 4)) {
             base = pathPart;
         } else {
             String root = basePath;
@@ -128,27 +150,50 @@ public record ContextPath(
      * Decodes only {@code %HH} escapes. NextLink query strings are percent-encoded, not
      * form-encoded: a literal {@code +} inside a value (common in $skiptoken continuation
      * tokens) must survive as a plus, so URLDecoder — which maps {@code +} to space —
-     * must not be used here. Malformed escapes are left verbatim.
+     * must not be used here. Malformed escapes are left verbatim. Bytes are collected
+     * and decoded once as UTF-8 — per-char decoding turns multi-byte sequences
+     * ({@code %C3%A9}) into mojibake.
      */
     private static String decodePercent(String value) {
         if (value.indexOf('%') < 0) {
             return value;
         }
-        StringBuilder sb = new StringBuilder(value.length());
+        java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream(value.length());
+        StringBuilder verbatim = new StringBuilder(value.length());
         for (int i = 0; i < value.length(); i++) {
             char c = value.charAt(i);
             if (c == '%' && i + 2 < value.length()) {
                 int h1 = Character.digit(value.charAt(i + 1), 16);
                 int h2 = Character.digit(value.charAt(i + 2), 16);
                 if (h1 >= 0 && h2 >= 0) {
-                    sb.append((char) ((h1 << 4) | h2));
+                    flushVerbatim(bytes, verbatim);
+                    bytes.write((h1 << 4) | h2);
                     i += 2;
                     continue;
                 }
             }
-            sb.append(c);
+            verbatim.append(c);
         }
-        return sb.toString();
+        if (verbatim.length() > 0) {
+            flushVerbatim(bytes, verbatim);
+        }
+        return new String(bytes.toByteArray(), StandardCharsets.UTF_8);
+    }
+
+    /** Verbatim chars are ASCII-safe here: they came from the URL's own characters. */
+    private static void flushVerbatim(java.io.ByteArrayOutputStream bytes, StringBuilder verbatim) {
+        for (int i = 0; i < verbatim.length(); i++) {
+            char c = verbatim.charAt(i);
+            // Non-ASCII verbatim chars (already-decoded text, not raw percent escapes)
+            // cannot go through the byte stream — append after decoding instead.
+            if (c < 0x80) {
+                bytes.write(c);
+            } else {
+                byte[] utf8 = String.valueOf(c).getBytes(StandardCharsets.UTF_8);
+                bytes.writeBytes(utf8);
+            }
+        }
+        verbatim.setLength(0);
     }
 
     /**

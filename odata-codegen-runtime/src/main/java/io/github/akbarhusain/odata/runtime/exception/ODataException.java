@@ -53,8 +53,11 @@ public class ODataException extends RuntimeException {
             case 401 -> new UnauthorizedException(text, error);
             case 403 -> new ForbiddenException(text, error);
             case 404 -> new NotFoundException(text, error);
+            case 408 -> new RequestTimeoutException(response.getText(), error);
+            case 410 -> new ResourceGoneException(response.getText(), error);
             case 409 -> new ConflictException(text, error);
             case 412 -> new PreconditionFailedException(text, error);
+            case 428 -> new PreconditionRequiredException(response.getText(), error);
             case 429 -> new RateLimitException(response);
             default -> {
                 if (code >= 500 && code < 600) {

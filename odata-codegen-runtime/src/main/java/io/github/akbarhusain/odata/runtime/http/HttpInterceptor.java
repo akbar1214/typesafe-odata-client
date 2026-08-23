@@ -12,6 +12,10 @@ public interface HttpInterceptor {
      * to buffering the response through {@link #intercept} — interceptors that want
      * true streaming (e.g. media downloads) should override this and delegate to
      * {@code delegate.stream(request)}.
+     *
+     * <p>Like {@link HttpTransport#submit}, failures are delivered through the returned
+     * future — never by throwing synchronously — so callers can compose uniformly with
+     * {@code exceptionally()}/{@code handle()}.</p>
      */
     default CompletableFuture<InputStream> stream(HttpRequest request, HttpTransport delegate) {
         try {
@@ -20,15 +24,16 @@ public interface HttpInterceptor {
             // error (e.g. 404 on a media download) into a stream of the error body —
             // error semantics must not change just by adding an interceptor
             if (!response.isSuccessful()) {
-                throw io.github.akbarhusain.odata.runtime.exception.ODataException.fromResponse(response);
+                return CompletableFuture.failedFuture(
+                        io.github.akbarhusain.odata.runtime.exception.ODataException.fromResponse(response));
             }
             return CompletableFuture.completedFuture(
                     new ByteArrayInputStream(response.body() == null ? new byte[0] : response.body()));
         } catch (RuntimeException e) {
-            throw e;
+            return CompletableFuture.failedFuture(e);
         } catch (Exception e) {
-            throw new io.github.akbarhusain.odata.runtime.exception.ODataException(
-                    "Interceptor failed: " + e.getMessage(), e);
+            return CompletableFuture.failedFuture(new io.github.akbarhusain.odata.runtime.exception.ODataException(
+                    "Interceptor failed: " + e.getMessage(), e));
         }
     }
 }

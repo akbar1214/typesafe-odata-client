@@ -239,6 +239,14 @@ public class EntityGenerator extends AbstractTypeGenerator {
         sb.append("        return Optional.ofNullable(etag);\n");
         sb.append("    }\n\n");
 
+        // Header-only etag services: the runtime captures the ETag response header onto
+        // root entities (the field lives here) when the body carried no @odata.etag
+        sb.append("    @Override\n    public void applyETagFromResponse(String value) {\n");
+        sb.append("        if (value != null && !value.isEmpty()) {\n");
+        sb.append("            this.etag = value;\n");
+        sb.append("        }\n");
+        sb.append("    }\n\n");
+
         if (openType) {
             sb.append("    @com.fasterxml.jackson.annotation.JsonAnyGetter\n");
         }

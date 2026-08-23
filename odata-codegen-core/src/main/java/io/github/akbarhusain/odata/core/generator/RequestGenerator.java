@@ -73,7 +73,7 @@ public class RequestGenerator extends AbstractTypeGenerator {
         }
         sb.append("\n");
 
-        sb.append("public class ").append(className).append(" {\n\n");
+        sb.append("public final class ").append(className).append(" {\n\n");
         sb.append("    private final Context context;\n");
         sb.append("    private final ContextPath contextPath;\n\n");
         sb.append("    public ").append(className).append("(Context context, ContextPath contextPath) {\n");
@@ -339,7 +339,13 @@ public class RequestGenerator extends AbstractTypeGenerator {
         sb.append("    public ContextPath buildContext() {\n");
         sb.append("        ContextPath ctx = contextPath;\n");
         sb.append("        if (!filters.isEmpty()) {\n");
-        sb.append("            ctx = ctx.addQuery(\"$filter\", String.join(\" and \", filters));\n");
+        // Chained filter() calls are ANDed. Parenthesize each predicate (except a lone
+        // one) so 'or' inside a predicate cannot bind across the implicit 'and' —
+        // same rule as NavQuery.toODataExpand()
+        sb.append("            String joinedFilter = filters.size() == 1\n");
+        sb.append("                    ? filters.get(0)\n");
+        sb.append("                    : filters.stream().map(f -> \"(\" + f + \")\").collect(java.util.stream.Collectors.joining(\" and \"));\n");
+        sb.append("            ctx = ctx.addQuery(\"$filter\", joinedFilter);\n");
         sb.append("        }\n");
         sb.append("        if (!selects.isEmpty()) {\n");
         sb.append("            ctx = ctx.addQuery(\"$select\", String.join(\",\", selects));\n");

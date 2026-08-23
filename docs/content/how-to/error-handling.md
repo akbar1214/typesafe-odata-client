@@ -10,8 +10,11 @@ ODataException (base)
 ├── UnauthorizedException (401)
 ├── ForbiddenException (403)
 ├── NotFoundException (404)
+├── RequestTimeoutException (408)
 ├── ConflictException (409)
+├── ResourceGoneException (410)
 ├── PreconditionFailedException (412)
+├── PreconditionRequiredException (428)
 ├── RateLimitException (429)
 └── ServerException (5xx)
 ```
@@ -78,6 +81,23 @@ try {
     Person current = request.get();
     System.out.println("Conflict! Current version: " + current.getETag().orElse(null));
     // Handle conflict resolution
+}
+```
+
+## Precondition Required (Missing ETag)
+
+Services that *require* conditional writes — notably TripPin — return
+**428 Precondition Required** when a PATCH/DELETE is sent without `If-Match`.
+It has its own exception so the etag-missing case is distinguishable from a
+genuine conflict (412):
+
+```java
+try {
+    request.patch(updated);          // no etag sent
+} catch (PreconditionRequiredException e) {
+    // Service demands If-Match: re-GET to obtain a fresh etag, then retry
+    Person current = request.get();  // etag captured automatically (see etag.md)
+    request.patchWithETag(updated, current.getETag().orElse(null));
 }
 ```
 

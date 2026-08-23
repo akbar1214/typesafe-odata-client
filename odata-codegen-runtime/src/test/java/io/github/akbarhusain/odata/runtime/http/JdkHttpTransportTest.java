@@ -53,4 +53,16 @@ class JdkHttpTransportTest {
         assertSame(default30, nullDuration, "null request timeout falls back to the 30s default client");
         assertNotSame(default30, five, "connect timeout is per-HttpClient; different durations need distinct clients");
     }
+
+    @Test
+    void m10ClientCacheIsIsolatedPerTransportInstance() {
+        // The cache used to be static — clients were shared across transport instances,
+        // a footgun the moment per-instance configuration (proxy/TLS) is introduced.
+        JdkHttpTransport t1 = new JdkHttpTransport();
+        JdkHttpTransport t2 = new JdkHttpTransport();
+        assertSame(t1.clientFor(java.time.Duration.ofSeconds(30)), t1.clientFor(java.time.Duration.ofSeconds(30)),
+                "cache still applies within one instance");
+        assertNotSame(t1.clientFor(java.time.Duration.ofSeconds(30)), t2.clientFor(java.time.Duration.ofSeconds(30)),
+                "clients must not leak across transport instances");
+    }
 }
