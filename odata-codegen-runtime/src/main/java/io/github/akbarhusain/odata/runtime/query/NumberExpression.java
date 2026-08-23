@@ -9,9 +9,7 @@ public class NumberExpression<N, E> implements OrderExpression<E, N> {
         this.entityType = entityType;
     }
 
-    protected String getExpression() { return expression; }
     protected Class<E> getEntityType() { return entityType; }
-    protected static String formatValueStatic(Object value) { return String.valueOf(value); }
 
     @Override
     public String toODataExpression() { return expression; }

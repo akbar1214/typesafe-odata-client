@@ -78,7 +78,10 @@ public class Generator {
                 try {
                     Files.deleteIfExists(old);
                     log.debug("Deleted stale file: {}", old);
-                } catch (IOException ignore) {}
+                } catch (IOException e) {
+                    // A stale file left on disk silently pollutes the classpath — surface it
+                    log.warn("Could not delete stale generated file: {}", old, e);
+                }
             }
         }
     }
@@ -135,9 +138,6 @@ public class Generator {
         for (String part : packageName.split("\\.", -1)) {
             if (part.isEmpty()) {
                 throw new IllegalArgumentException("Invalid package name '" + packageName + "': empty segment");
-            }
-            if ("..".equals(part)) {
-                throw new IllegalArgumentException("Invalid package name '" + packageName + "': segment '..' not allowed");
             }
             if (!Character.isJavaIdentifierStart(part.charAt(0))) {
                 throw new IllegalArgumentException("Invalid package name '" + packageName + "': segment '" + part + "' is not a valid Java identifier");

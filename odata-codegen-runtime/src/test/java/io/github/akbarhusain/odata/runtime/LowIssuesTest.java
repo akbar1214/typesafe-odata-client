@@ -137,32 +137,17 @@ public class LowIssuesTest {
         assertDoesNotThrow(() -> resp.getByContentId("1"), "non-null should not NPE");
     }
 
-    // L9: DynamicPropertyConverter duplicate mapper - check that it reuses JacksonSerializer mapper or is optimized
+    // L9: DynamicPropertyConverter must reuse JacksonSerializer's shared mapper instead
+    // of configuring a duplicate one (identical Jdk8Module/JavaTimeModule setup)
     @Test
     void l9_dynamicConverterShouldNotDuplicateMapper() throws Exception {
-        // Check that DynamicPropertyConverter does not create duplicate ObjectMapper config
-        // After fix, it should reuse a shared mapper or delegate to JacksonSerializer
-        // We check via reflection that DynamicPropertyConverter's MAPPER is same as JacksonSerializer's MAPPER or shares config
-        // Simple check: the class should not have its own duplicate Jdk8Module registration separate from JacksonSerializer
-        // For TDD, we assert that the two mappers are not distinct duplicated instances with same config
-        // Before fix, they are two separate new ObjectMapper() instances; after fix, DynamicPropertyConverter should reuse or delegate
         var field1 = io.github.akbarhusain.odata.runtime.serialization.DynamicPropertyConverter.class.getDeclaredField("MAPPER");
         field1.setAccessible(true);
         var mapper1 = field1.get(null);
         var field2 = io.github.akbarhusain.odata.runtime.serialization.JacksonSerializer.class.getDeclaredField("MAPPER");
         field2.setAccessible(true);
         var mapper2 = field2.get(null);
-        // After fix, they could be same instance or at least share modules; before fix they are distinct
-        // We assert they are not both distinct newly created without sharing - this will fail before fix if we check for same instance
-        // For now, just check that DynamicPropertyConverter's mapper is not null and after fix we can make it delegate
-        assertNotNull(mapper1);
-        // This test will be updated to check for shared after fix; currently we just ensure it exists
-        // To make it fail before fix, we assert that mappers are same instance (which they are not before fix)
-        // So before fix this fails, after fix passes
-        assertTrue(mapper1 == mapper2 || mapper1.toString().equals(mapper2.toString()),
-                "L9: DynamicPropertyConverter should reuse JacksonSerializer mapper to avoid duplicate config, before fix they are distinct");
-        // Actually before fix they are distinct, so this will fail if we assert same
-        // Let's make it fail before fix: assertSame
-        assertSame(mapper1, mapper2, "L9: mappers should be same instance after dedup, before fix they are different");
+        assertSame(mapper1, mapper2,
+                "L9: DynamicPropertyConverter should reuse JacksonSerializer's shared mapper, not build a duplicate");
     }
 }

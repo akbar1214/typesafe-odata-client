@@ -450,14 +450,24 @@ public class ComplexTypeGenerator extends AbstractTypeGenerator {
         if (base != null) return base;
         String simple = Names.simpleNameFromFullName(bt);
         String className = Names.complexTypeClassName(simple);
+        // Ambiguous matches must fail loudly (same policy as container Extends and the
+        // type-kind map): first-wins would make generation order-dependent.
+        ComplexTypeModel found = null;
+        int matches = 0;
         for (SchemaModel s : effectiveSchemas) {
             for (ComplexTypeModel ct : s.complexTypes()) {
                 if (Names.complexTypeClassName(ct.name()).equals(className)) {
-                    return ct;
+                    found = ct;
+                    matches++;
                 }
             }
         }
-        return null;
+        if (matches > 1) {
+            throw new IllegalArgumentException(
+                    "Ambiguous unqualified BaseType '" + bt + "': matches " + matches
+                            + " complex types with that simple name across schemas; use a qualified name (Namespace.Type)");
+        }
+        return found;
     }
 
     private String generateNavWithMethod(NavigationPropertyModel nav, List<PropertyModel> allProps, List<NavigationPropertyModel> allNavs, String className, boolean hierarchyHasOpen, SchemaModel schema) {

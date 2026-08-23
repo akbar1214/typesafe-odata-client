@@ -121,13 +121,24 @@ public class StaxCsdlParser {
         String inner = isCollection ? raw.substring("Collection(".length(), raw.length() - 1).trim() : raw;
         int dot = inner.indexOf('.');
         if (dot > 0) {
-            String alias = inner.substring(0, dot);
-            String ns = globalAliasMap.get(alias);
-            if (ns != null) {
-                inner = ns + inner.substring(alias.length());
+            String rewritten = applyAliasMap(inner, dot);
+            if (rewritten != null) {
+                inner = rewritten;
             }
         }
         return isCollection ? "Collection(" + inner + ")" : inner;
+    }
+
+    /**
+     * Shared rewrite for both {@link #resolveTypeRef} (parse time) and {@link #fixAlias}
+     * (post-pass): if the prefix before the first dot is a known document alias, returns
+     * the name rewritten to that alias's real namespace; otherwise {@code null}.
+     * Keeping one implementation prevents the two paths from drifting apart.
+     */
+    private String applyAliasMap(String inner, int dot) {
+        String alias = inner.substring(0, dot);
+        String ns = globalAliasMap.get(alias);
+        return ns != null ? ns + inner.substring(alias.length()) : null;
     }
 
     /**
@@ -179,7 +190,15 @@ public class StaxCsdlParser {
         this.currentNamespace = namespace;
         this.currentAlias = alias;
         if (alias != null && !alias.isBlank()) {
-            globalAliasMap.putIfAbsent(alias, namespace);
+            String existingNs = globalAliasMap.putIfAbsent(alias, namespace);
+            if (existingNs != null && !existingNs.equals(namespace)) {
+                // CSDL requires an alias to be unambiguous across the document; a conflict
+                // would silently resolve references to the FIRST namespace (order-dependent)
+                throw new IllegalArgumentException(
+                        "Duplicate Alias '" + alias + "' maps to multiple namespaces ('"
+                                + existingNs + "' and '" + namespace
+                                + "'); aliases must be unambiguous within a document");
+            }
         }
 
         List<EntityTypeModel> entityTypes = new ArrayList<>();
@@ -658,12 +677,13 @@ public class StaxCsdlParser {
         String inner = isCollection ? raw.substring("Collection(".length(), raw.length() - 1).trim() : raw;
         int dot = inner.indexOf('.');
         if (dot > 0) {
-            String alias = inner.substring(0, dot);
-            String ns = globalAliasMap.get(alias);
-            if (ns != null) {
-                inner = ns + inner.substring(alias.length());
-            } else if (currentAlias != null && currentNamespace != null && inner.startsWith(currentAlias + ".")) {
-                inner = currentNamespace + inner.substring(currentAlias.length());
+            String rewritten = applyAliasMap(inner, dot);
+            if (rewritten == null && currentAlias != null && currentNamespace != null
+                    && inner.startsWith(currentAlias + ".")) {
+                rewritten = currentNamespace + inner.substring(currentAlias.length());
+            }
+            if (rewritten != null) {
+                inner = rewritten;
             }
         }
         return isCollection ? "Collection(" + inner + ")" : inner;

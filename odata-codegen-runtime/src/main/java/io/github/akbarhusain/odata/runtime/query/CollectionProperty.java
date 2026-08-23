@@ -59,14 +59,63 @@ public final class CollectionProperty<E, T, F> extends NavProperty<E, T> {
             // Reuse probe as element for predicate (already created)
             FilterExpression<T> result = predicate.apply(probe);
             String expr = result.toODataExpression();
-            // Remap hard-coded prefix to unique alias for nested lambdas
+            // Rebind hard-coded prefix to the unique alias for nested lambdas
             if (!baseAlias.equals(alias)) {
-                expr = expr.replace(baseAlias + "/", alias + "/");
+                expr = rebindAlias(expr, baseAlias, alias);
             }
             return new RawFilterExpression<>(edmName + "/" + operator + "(" + alias + ": " + expr + ")");
         } finally {
             LAMBDA_DEPTH.set(depth);
         }
+    }
+
+    /**
+     * Rewrites lambda variable references {@code baseAlias/} to {@code newAlias/} outside
+     * of quoted string literals. A reference is matched only when not preceded by an
+     * identifier character, so {@code 'x/y'} literals and longer paths like {@code Max/}
+     * are left untouched instead of being silently corrupted.
+     */
+    private static String rebindAlias(String expr, String baseAlias, String newAlias) {
+        String target = baseAlias + "/";
+        StringBuilder out = new StringBuilder(expr.length());
+        boolean inLiteral = false;
+        int i = 0;
+        while (i < expr.length()) {
+            char c = expr.charAt(i);
+            if (inLiteral) {
+                out.append(c);
+                if (c == '\'') {
+                    // '' inside a literal is an escaped quote, not the terminator
+                    if (i + 1 < expr.length() && expr.charAt(i + 1) == '\'') {
+                        out.append('\'');
+                        i++;
+                    } else {
+                        inLiteral = false;
+                    }
+                }
+                i++;
+                continue;
+            }
+            if (c == '\'') {
+                inLiteral = true;
+                out.append(c);
+                i++;
+                continue;
+            }
+            if (expr.startsWith(target, i)
+                    && (i == 0 || !isIdentifierPart(expr.charAt(i - 1)))) {
+                out.append(newAlias).append('/');
+                i += target.length();
+                continue;
+            }
+            out.append(c);
+            i++;
+        }
+        return out.toString();
+    }
+
+    private static boolean isIdentifierPart(char c) {
+        return Character.isJavaIdentifierPart(c);
     }
 
     public FilterExpression<E> contains(T value) {

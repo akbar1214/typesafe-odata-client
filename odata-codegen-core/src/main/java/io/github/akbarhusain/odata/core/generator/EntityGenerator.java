@@ -365,16 +365,25 @@ public class EntityGenerator extends AbstractTypeGenerator {
         if (base != null) return base;
         String simple = Names.simpleNameFromFullName(bt);
         String className = Names.entityClassName(simple);
-        // Search across all schemas for simple name (handles unqualified cross-schema)
+        // Search across all schemas for simple name (handles unqualified cross-schema).
+        // Ambiguous matches must fail loudly (same policy as container Extends and the
+        // type-kind map): first-wins would make generation order-dependent.
+        EntityTypeModel found = null;
+        int matches = 0;
         for (SchemaModel s : effectiveSchemas) {
             for (EntityTypeModel et : s.entityTypes()) {
                 if (Names.entityClassName(et.name()).equals(className)) {
-                    // Prefer exact simple match; if multiple, first wins (same as generator's putIfAbsent)
-                    return et;
+                    found = et;
+                    matches++;
                 }
             }
         }
-        return null;
+        if (matches > 1) {
+            throw new IllegalArgumentException(
+                    "Ambiguous unqualified BaseType '" + bt + "': matches " + matches
+                            + " entity types with that simple name across schemas; use a qualified name (Namespace.Type)");
+        }
+        return found;
     }
 
     private Set<String> openRootNamesForSchema(String namespace) {

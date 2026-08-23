@@ -305,7 +305,10 @@ public abstract class AbstractTypeGenerator {
 
     protected String navJavaType(NavigationPropertyModel nav, SchemaModel schema) {
         String unwrapped = Names.unwrapCollectionType(nav.type());
-        String elementClassName = Names.resolvedClassName(unwrapped, effectiveSchemas);
+        // Resolve TypeDefinition chains so the Java type references the UNDERLYING
+        // entity/complex/enum class (a typedef has no generated class of its own)
+        String resolved = resolveTypeDefinition(unwrapped, schema);
+        String elementClassName = Names.resolvedClassName(resolved, effectiveSchemas);
         if (Names.isCollectionType(nav.type())) {
             return "List<" + elementClassName + ">";
         }

@@ -91,4 +91,21 @@ class BatchRequestDoubleSlashTest {
         assertFalse(transport.lastBodyAsString.contains("//People"),
                 "H6: double slash: " + transport.lastBodyAsString);
     }
+
+    // Both sides hostile at once: trailing slash on the base AND leading slash on the
+    // operation URL. resolveEntryUrls strips the base's trailing slash, so the two
+    // slashes must not combine into //
+    @Test
+    void batchTrailingSlashBaseUrlWithLeadingSlashUrlIsSingleSlash() {
+        CapturingTransport transport = new CapturingTransport();
+        Context ctx = Context.builder().baseUrl("https://services.odata.org/V4/TripPinService/").transport(transport).build();
+
+        ctx.batch().add(BatchOperation.get("/People('scott')")).execute();
+
+        assertTrue(transport.lastBodyAsString.contains("https://services.odata.org/V4/TripPinService/People('scott')"),
+                "H6: trailing-slash baseUrl + leading-slash url must still be a single slash, body: "
+                        + transport.lastBodyAsString);
+        assertFalse(transport.lastBodyAsString.contains("//People"),
+                "H6: double slash: " + transport.lastBodyAsString);
+    }
 }

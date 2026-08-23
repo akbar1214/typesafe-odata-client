@@ -116,4 +116,46 @@ class StaxCsdlParserMediumTest {
                 .containers().get(0);
         assertTrue(derived.entitySets().size() >= 2, "Derived should have merged entitySets, got: " + derived.entitySets());
     }
+
+    // Duplicate alias mapping to DIFFERENT namespaces: silent first-wins would resolve
+    // the second schema's own references against the wrong namespace (order-dependent)
+    @Test
+    void m2_duplicateAliasDifferentNamespacesThrows() {
+        String xml = """
+                <?xml version="1.0" encoding="utf-8"?>
+                <edmx:Edmx Version="4.0" xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx">
+                  <edmx:DataServices>
+                    <Schema Namespace="NS.A" Alias="shared" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+                      <EntityType Name="Foo"><Key><PropertyRef Name="Id"/></Key><Property Name="Id" Type="Edm.Int32" Nullable="false"/></EntityType>
+                    </Schema>
+                    <Schema Namespace="NS.B" Alias="shared" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+                      <EntityType Name="Bar"><Key><PropertyRef Name="Id"/></Key><Property Name="Id" Type="Edm.Int32" Nullable="false"/></EntityType>
+                    </Schema>
+                  </edmx:DataServices>
+                </edmx:Edmx>
+                """;
+        StaxCsdlParser parser = new StaxCsdlParser();
+        Exception ex = assertThrows(Exception.class, () ->
+                parser.parse(new ByteArrayInputStream(xml.getBytes(StandardCharsets.UTF_8))),
+                "duplicate alias with conflicting namespaces must fail loudly");
+        assertTrue(ex.getMessage().contains("Alias") && ex.getMessage().contains("shared"),
+                "message should name the conflicting alias, got: " + ex.getMessage());
+    }
+
+    @Test
+    void m2_uniqueAliasStillAccepted() throws Exception {
+        String xml = """
+                <?xml version="1.0" encoding="utf-8"?>
+                <edmx:Edmx Version="4.0" xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx">
+                  <edmx:DataServices>
+                    <Schema Namespace="NS.A" Alias="a1" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+                      <EntityType Name="Foo"><Key><PropertyRef Name="Id"/></Key><Property Name="Id" Type="Edm.Int32" Nullable="false"/></EntityType>
+                    </Schema>
+                  </edmx:DataServices>
+                </edmx:Edmx>
+                """;
+        // A unique alias must parse without error
+        assertDoesNotThrow(() ->
+                new StaxCsdlParser().parse(new ByteArrayInputStream(xml.getBytes(StandardCharsets.UTF_8))));
+    }
 }

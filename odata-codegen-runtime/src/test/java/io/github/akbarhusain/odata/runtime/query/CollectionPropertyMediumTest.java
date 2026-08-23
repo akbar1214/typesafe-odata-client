@@ -25,25 +25,47 @@ class CollectionPropertyMediumTest {
         CollectionProperty<Person, Tag, TagFilterable> tags =
                 new CollectionProperty<>("Tags", Person.class, Tag.class, TagFilterable::new);
 
-        // Nested any: Tags/any(x: x/Name eq 'a' and x/Names/any(x: ...)) -> inner x shadows outer x
-        // After fix, aliases should be unique like x and x1
         String expr = tags.any(outer -> outer.NAME.equalTo("a")
                 .and(outer.NAMES.any(inner -> inner.stringField("Value").equalTo("b"))))
                 .toODataExpression();
 
-        // M8: currently both use x: Tags/any(x: x/Name eq 'a' and x/Names/any(x: x/Value eq 'b'))
-        // Inner alias should be different (e.g., x1)
-        assertTrue(expr.contains("x1:") || expr.contains("x0:") || expr.contains("y:") || expr.contains("x_"),
-                "M8: nested any should use unique aliases (e.g., x and x1), got: " + expr);
-        // Also ensure not both are exactly "any(x:" twice with same alias
-        int first = expr.indexOf("any(x:");
-        int second = expr.indexOf("any(x", first + 1);
-        // After fix, second should be any(x1: or similar, not any(x:
-        if (first != -1 && second != -1) {
-            String secondAlias = expr.substring(second, Math.min(expr.length(), second + 8));
-            assertFalse(secondAlias.startsWith("any(x:"),
-                    "M8: inner any should not reuse alias x, got: " + expr);
-        }
+        assertEquals("Tags/any(x: (x/Name eq 'a') and (x/Names/any(x1: x1/Value eq 'b')))",
+                expr,
+                "M8: nested any must use unique aliases (outer x, inner x1) and rebind every reference");
+    }
+
+    @Test
+    void m8_aliasRebindMustNotCorruptQuotedLiterals() {
+        CollectionProperty<Person, Tag, TagFilterable> tags =
+                new CollectionProperty<>("Tags", Person.class, Tag.class, TagFilterable::new);
+
+        // The inner predicate's literal 'x/value' contains "x/" — the alias rebinding at
+        // depth 1 must leave quoted literals untouched
+        String expr = tags.any(outer -> outer.NAME.equalTo("a")
+                .and(outer.NAMES.any(inner -> inner.stringField("Value").equalTo("x/value"))))
+                .toODataExpression();
+
+        assertTrue(expr.contains("x1/Value eq 'x/value'"),
+                "M8: quoted literal must survive alias rebinding verbatim, got: " + expr);
+        assertFalse(expr.contains("'x1/value'"),
+                "M8: quoted literal must not be rewritten, got: " + expr);
+    }
+
+    @Test
+    void m8_aliasRebindMustNotMatchInsideLongerIdentifiers() {
+        CollectionProperty<Person, Tag, TagFilterable> tags =
+                new CollectionProperty<>("Tags", Person.class, Tag.class, TagFilterable::new);
+
+        // A property path like x/Max/Value contains "x/" inside "Max/" — only standalone
+        // references preceded by a non-identifier character may be rebound
+        String expr = tags.any(outer -> outer.NAME.equalTo("a")
+                .and(outer.NAMES.any(inner -> inner.stringField("Max/Value").equalTo("b"))))
+                .toODataExpression();
+
+        assertTrue(expr.contains("x1/Max/Value eq 'b'"),
+                "M8: rebinding must not touch 'Max/' inside a longer path, got: " + expr);
+        assertFalse(expr.contains("Max1/"),
+                "M8: longer identifiers containing the alias must stay intact, got: " + expr);
     }
 
     @Test

@@ -100,42 +100,50 @@ public class GenerateMojo extends AbstractMojo {
             Files.createDirectories(outputDir);
 
             Path metadataPath = resolveMetadataPath();
-            String currentHash = computeMarkerHash(metadataPath);
+            // URL metadata is cached to a temp file — it must be deleted on EVERY exit path
+            // (up-to-date early return, failure, success), not just after parsing, or
+            // daemon builds accumulate files in /tmp
+            boolean downloaded = metadataFile == null;
+            try {
+                String currentHash = computeMarkerHash(metadataPath);
 
-            if (!forceRegenerate && isUpToDate(outputDir, currentHash)) {
-                getLog().info("OData client is up-to-date; skipping generation (metadata and config unchanged). Use odata.forceRegenerate=true to override.");
+                if (!forceRegenerate && isUpToDate(outputDir, currentHash)) {
+                    getLog().info("OData client is up-to-date; skipping generation (metadata and config unchanged). Use odata.forceRegenerate=true to override.");
+                    project.addCompileSourceRoot(outputDir.toFile().getAbsolutePath());
+                    return;
+                }
+
+                // Manifest of the previous run (may be empty) — used to delete files that
+                // disappeared from the metadata or moved after a package remap
+                java.util.List<String> previousFiles = readMarkerManifest(outputDir);
+
+                CsdlModel model = parseMetadata(metadataPath);
+
+                Map<String, String> packages = new HashMap<>();
+                for (SchemaMapping mapping : schemaPackages) {
+                    packages.put(mapping.getNamespace(), mapping.getPackageName());
+                }
+
+                Generator generator = new Generator(outputDir, packages, basePackage);
+                generator.withGenerateWithMethods(generateWithMethods);
+                generator.generate(model);
+
+                writeMarker(outputDir, currentHash, generator.writtenFiles());
+                deleteStaleFiles(outputDir, previousFiles, generator.writtenFiles());
+
+                // Add generated sources to Maven project
                 project.addCompileSourceRoot(outputDir.toFile().getAbsolutePath());
-                return;
+
+                getLog().info("OData client generated successfully in " + outputDir);
+            } finally {
+                if (downloaded) {
+                    try {
+                        Files.deleteIfExists(metadataPath);
+                    } catch (Exception e) {
+                        getLog().warn("Could not delete temporary metadata file: " + metadataPath, e);
+                    }
+                }
             }
-
-            // Manifest of the previous run (may be empty) — used to delete files that
-            // disappeared from the metadata or moved after a package remap
-            java.util.List<String> previousFiles = readMarkerManifest(outputDir);
-
-            CsdlModel model = parseMetadata(metadataPath);
-            // Clean up temp file created by downloadMetadata (M12: deleteOnExit leaks in daemons)
-            if (metadataUrl != null && metadataFile == null) {
-                try {
-                    Files.deleteIfExists(metadataPath);
-                } catch (Exception ignore) {}
-            }
-
-            Map<String, String> packages = new HashMap<>();
-            for (SchemaMapping mapping : schemaPackages) {
-                packages.put(mapping.getNamespace(), mapping.getPackageName());
-            }
-
-            Generator generator = new Generator(outputDir, packages, basePackage);
-            generator.withGenerateWithMethods(generateWithMethods);
-            generator.generate(model);
-
-            writeMarker(outputDir, currentHash, generator.writtenFiles());
-            deleteStaleFiles(outputDir, previousFiles, generator.writtenFiles());
-
-            // Add generated sources to Maven project
-            project.addCompileSourceRoot(outputDir.toFile().getAbsolutePath());
-
-            getLog().info("OData client generated successfully in " + outputDir);
         } catch (MojoExecutionException | MojoFailureException e) {
             // deliberate failures (missing file, HTTP error, too many redirects) keep
             // their own message and failure semantics instead of being re-wrapped
