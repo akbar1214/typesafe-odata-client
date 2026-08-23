@@ -100,36 +100,50 @@ public class GenerateMojo extends AbstractMojo {
             Files.createDirectories(outputDir);
 
             Path metadataPath = resolveMetadataPath();
-            String currentHash = computeMarkerHash(metadataPath);
+            // URL metadata is cached to a temp file — it must be deleted on EVERY exit path
+            // (up-to-date early return, failure, success), not just after parsing, or
+            // daemon builds accumulate files in /tmp
+            boolean downloaded = metadataFile == null;
+            try {
+                String currentHash = computeMarkerHash(metadataPath);
 
-            if (!forceRegenerate && isUpToDate(outputDir, currentHash)) {
-                getLog().info("OData client is up-to-date; skipping generation (metadata and config unchanged). Use odata.forceRegenerate=true to override.");
+                if (!forceRegenerate && isUpToDate(outputDir, currentHash)) {
+                    getLog().info("OData client is up-to-date; skipping generation (metadata and config unchanged). Use odata.forceRegenerate=true to override.");
+                    project.addCompileSourceRoot(outputDir.toFile().getAbsolutePath());
+                    return;
+                }
+
+                // Manifest of the previous run (may be empty) — used to delete files that
+                // disappeared from the metadata or moved after a package remap
+                java.util.List<String> previousFiles = readMarkerManifest(outputDir);
+
+                CsdlModel model = parseMetadata(metadataPath);
+
+                Map<String, String> packages = new HashMap<>();
+                for (SchemaMapping mapping : schemaPackages) {
+                    packages.put(mapping.getNamespace(), mapping.getPackageName());
+                }
+
+                Generator generator = new Generator(outputDir, packages, basePackage);
+                generator.withGenerateWithMethods(generateWithMethods);
+                generator.generate(model);
+
+                writeMarker(outputDir, currentHash, generator.writtenFiles());
+                deleteStaleFiles(outputDir, previousFiles, generator.writtenFiles());
+
+                // Add generated sources to Maven project
                 project.addCompileSourceRoot(outputDir.toFile().getAbsolutePath());
-                return;
+
+                getLog().info("OData client generated successfully in " + outputDir);
+            } finally {
+                if (downloaded) {
+                    try {
+                        Files.deleteIfExists(metadataPath);
+                    } catch (Exception e) {
+                        getLog().warn("Could not delete temporary metadata file: " + metadataPath, e);
+                    }
+                }
             }
-
-            // Manifest of the previous run (may be empty) — used to delete files that
-            // disappeared from the metadata or moved after a package remap
-            java.util.List<String> previousFiles = readMarkerManifest(outputDir);
-
-            CsdlModel model = parseMetadata(metadataPath);
-
-            Map<String, String> packages = new HashMap<>();
-            for (SchemaMapping mapping : schemaPackages) {
-                packages.put(mapping.getNamespace(), mapping.getPackageName());
-            }
-
-            Generator generator = new Generator(outputDir, packages, basePackage);
-            generator.withGenerateWithMethods(generateWithMethods);
-            generator.generate(model);
-
-            writeMarker(outputDir, currentHash, generator.writtenFiles());
-            deleteStaleFiles(outputDir, previousFiles, generator.writtenFiles());
-
-            // Add generated sources to Maven project
-            project.addCompileSourceRoot(outputDir.toFile().getAbsolutePath());
-
-            getLog().info("OData client generated successfully in " + outputDir);
         } catch (MojoExecutionException | MojoFailureException e) {
             // deliberate failures (missing file, HTTP error, too many redirects) keep
             // their own message and failure semantics instead of being re-wrapped
@@ -184,19 +198,22 @@ public class GenerateMojo extends AbstractMojo {
 
             HttpResponse<InputStream> response = client.send(request, HttpResponse.BodyHandlers.ofInputStream());
 
-            if (response.statusCode() >= 300 && response.statusCode() < 400) {
+            int status = response.statusCode();
+            boolean isRedirect = status == 301 || status == 302 || status == 303
+                    || status == 307 || status == 308;
+            if (isRedirect) {
                 String location = response.headers().firstValue("Location").orElse(null);
                 if (location == null || location.isBlank()) {
                     throw new MojoFailureException(
-                            "Redirect without Location header: HTTP " + response.statusCode());
+                            "Redirect without Location header: HTTP " + status);
                 }
                 current = resolveRedirectUri(current, location);
                 getLog().info("Following redirect to: " + current);
                 continue;
             }
 
-            if (response.statusCode() != 200) {
-                throw new MojoFailureException("Failed to download metadata: HTTP " + response.statusCode());
+            if (status != 200) {
+                throw new MojoFailureException("Failed to download metadata: HTTP " + status);
             }
 
             String contentType = response.headers().firstValue("Content-Type").orElse("");
@@ -209,7 +226,12 @@ public class GenerateMojo extends AbstractMojo {
             // Cache to a temp file so we can hash and parse it reliably.
             Path tempFile = Files.createTempFile("odata-metadata-", ".xml");
             tempFile.toFile().deleteOnExit();
-            Files.copy(response.body(), tempFile, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            try {
+                Files.copy(response.body(), tempFile, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            } catch (Exception e) {
+                try { Files.deleteIfExists(tempFile); } catch (Exception ignore) {}
+                throw e;
+            }
             return tempFile;
         }
 
@@ -250,7 +272,8 @@ public class GenerateMojo extends AbstractMojo {
         config.append("pluginVersion=").append(pluginVersion == null ? "" : pluginVersion).append('\n');
         if (metadataHeaders != null) {
             for (String name : metadataHeaders.stringPropertyNames()) {
-                config.append("header=").append(name).append('\n');
+                config.append("header=").append(name).append('=')
+                        .append(metadataHeaders.getProperty(name)).append('\n');
             }
         }
         for (SchemaMapping mapping : schemaPackages) {

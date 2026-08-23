@@ -48,13 +48,21 @@ public class Generator {
 
     public void generate(CsdlModel model) throws IOException {
         Names.clearTypeKindCache();
+        java.util.Set<Path> previousFiles = new java.util.HashSet<>(written.keySet());
         written.clear();
+        if (defaultBasePackage != null) {
+            validatePackage(defaultBasePackage);
+        }
+        for (Map.Entry<String, String> e : schemaPackages.entrySet()) {
+            validatePackage(e.getValue());
+        }
         // Schemas sharing an output package must share one aggregate ServiceSchemaInfo,
         // so collect them per package while generating
         Map<String, List<SchemaModel>> schemasByPackage = new LinkedHashMap<>();
         for (SchemaModel schema : model.schemas()) {
             String basePackage = schemaPackages.getOrDefault(schema.namespace(),
                     defaultBasePackage != null ? defaultBasePackage : Names.toPackageName(schema.namespace()));
+            validatePackage(basePackage);
             generateSchema(schema, basePackage, model.schemas());
             schemasByPackage.computeIfAbsent(basePackage, k -> new ArrayList<>()).add(schema);
         }
@@ -62,6 +70,19 @@ public class Generator {
             SchemaInfoGenerator schemaInfoGenerator = new SchemaInfoGenerator(entry.getKey());
             writeCode(entry.getKey() + Names.packageNameSuffixSchema(), Names.schemaInfoClassName(),
                     schemaInfoGenerator.generate(entry.getValue()));
+        }
+        // M13: clean up stale files that were generated in a previous call but not in the current one
+        // (e.g., entity renamed from Foo to Bar). Without this, old .java files remain on classpath.
+        for (Path old : previousFiles) {
+            if (!written.containsKey(old)) {
+                try {
+                    Files.deleteIfExists(old);
+                    log.debug("Deleted stale file: {}", old);
+                } catch (IOException e) {
+                    // A stale file left on disk silently pollutes the classpath — surface it
+                    log.warn("Could not delete stale generated file: {}", old, e);
+                }
+            }
         }
     }
 
@@ -106,9 +127,38 @@ public class Generator {
 
     private final Map<Path, String> written = new HashMap<>();
 
+    static void validatePackage(String packageName) {
+        if (packageName == null || packageName.isEmpty()) return;
+        if (packageName.contains("/") || packageName.contains("\\") || packageName.contains(":")) {
+            throw new IllegalArgumentException("Invalid package name '" + packageName + "': must not contain '/', '\\', ':'");
+        }
+        if (packageName.startsWith(".") || packageName.endsWith(".")) {
+            throw new IllegalArgumentException("Invalid package name '" + packageName + "': must not start or end with '.'");
+        }
+        for (String part : packageName.split("\\.", -1)) {
+            if (part.isEmpty()) {
+                throw new IllegalArgumentException("Invalid package name '" + packageName + "': empty segment");
+            }
+            if (!Character.isJavaIdentifierStart(part.charAt(0))) {
+                throw new IllegalArgumentException("Invalid package name '" + packageName + "': segment '" + part + "' is not a valid Java identifier");
+            }
+            for (int i = 1; i < part.length(); i++) {
+                if (!Character.isJavaIdentifierPart(part.charAt(i))) {
+                    throw new IllegalArgumentException("Invalid package name '" + packageName + "': segment '" + part + "' contains illegal character '" + part.charAt(i) + "'");
+                }
+            }
+        }
+    }
+
     private void writeCode(String packageName, String className, String code) throws IOException {
+        validatePackage(packageName);
         String packageDir = packageName.replace('.', '/');
-        Path dir = outputDir.resolve(packageDir);
+        Path dir = outputDir.resolve(packageDir).normalize();
+        Path out = outputDir.toAbsolutePath().normalize();
+        Path target = dir.toAbsolutePath().normalize();
+        if (!target.startsWith(out)) {
+            throw new IllegalArgumentException("Package '" + packageName + "' escapes output directory");
+        }
         if (createdDirectories.add(dir)) {
             Files.createDirectories(dir);
         }

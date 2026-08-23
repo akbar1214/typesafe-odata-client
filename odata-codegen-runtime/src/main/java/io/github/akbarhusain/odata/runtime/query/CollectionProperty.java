@@ -32,17 +32,20 @@ public final class CollectionProperty<E, T, F> extends NavProperty<E, T> {
         return lambda("all", predicate);
     }
 
+    private static final ThreadLocal<Integer> LAMBDA_DEPTH = ThreadLocal.withInitial(() -> 0);
+
     private FilterExpression<E> lambda(String operator, Function<F, FilterExpression<T>> predicate) {
         if (filterableFactory == null) {
             throw new IllegalStateException("CollectionProperty '" + edmName
                     + "' has no filterable factory; construct it with the element type's Filterable::new "
                     + "(generated property constants provide one)");
         }
-        F element = filterableFactory.get();
-        FilterExpression<T> result = predicate.apply(element);
-        // The lambda alias must match the element's property prefix ("x/Name" needs alias x);
-        // generated Filterable classes use "x/", manual FilterableElement may customize it
-        String alias = element instanceof FilterableElement<?> fe ? fe.prefix() : "x";
+        int depth = LAMBDA_DEPTH.get();
+        // Need element to know its base alias (FilterableElement may have custom prefix like "d")
+        // Create element first to determine base alias, then compute unique alias for this depth
+        F probe = filterableFactory.get();
+        String baseAlias = probe instanceof FilterableElement<?> fe ? fe.prefix() : "x";
+        String alias = depth == 0 ? baseAlias : baseAlias + depth;
         if (alias.isEmpty() || !Character.isJavaIdentifierStart(alias.charAt(0))) {
             throw new IllegalArgumentException("Invalid lambda alias '" + alias + "': must be a simple identifier");
         }
@@ -51,8 +54,68 @@ public final class CollectionProperty<E, T, F> extends NavProperty<E, T> {
                 throw new IllegalArgumentException("Invalid lambda alias '" + alias + "': must be a simple identifier");
             }
         }
-        return new RawFilterExpression<>(edmName + "/" + operator + "(" + alias + ": "
-                + result.toODataExpression() + ")");
+        LAMBDA_DEPTH.set(depth + 1);
+        try {
+            // Reuse probe as element for predicate (already created)
+            FilterExpression<T> result = predicate.apply(probe);
+            String expr = result.toODataExpression();
+            // Rebind hard-coded prefix to the unique alias for nested lambdas
+            if (!baseAlias.equals(alias)) {
+                expr = rebindAlias(expr, baseAlias, alias);
+            }
+            return new RawFilterExpression<>(edmName + "/" + operator + "(" + alias + ": " + expr + ")");
+        } finally {
+            LAMBDA_DEPTH.set(depth);
+        }
+    }
+
+    /**
+     * Rewrites lambda variable references {@code baseAlias/} to {@code newAlias/} outside
+     * of quoted string literals. A reference is matched only when not preceded by an
+     * identifier character, so {@code 'x/y'} literals and longer paths like {@code Max/}
+     * are left untouched instead of being silently corrupted.
+     */
+    private static String rebindAlias(String expr, String baseAlias, String newAlias) {
+        String target = baseAlias + "/";
+        StringBuilder out = new StringBuilder(expr.length());
+        boolean inLiteral = false;
+        int i = 0;
+        while (i < expr.length()) {
+            char c = expr.charAt(i);
+            if (inLiteral) {
+                out.append(c);
+                if (c == '\'') {
+                    // '' inside a literal is an escaped quote, not the terminator
+                    if (i + 1 < expr.length() && expr.charAt(i + 1) == '\'') {
+                        out.append('\'');
+                        i++;
+                    } else {
+                        inLiteral = false;
+                    }
+                }
+                i++;
+                continue;
+            }
+            if (c == '\'') {
+                inLiteral = true;
+                out.append(c);
+                i++;
+                continue;
+            }
+            if (expr.startsWith(target, i)
+                    && (i == 0 || !isIdentifierPart(expr.charAt(i - 1)))) {
+                out.append(newAlias).append('/');
+                i += target.length();
+                continue;
+            }
+            out.append(c);
+            i++;
+        }
+        return out.toString();
+    }
+
+    private static boolean isIdentifierPart(char c) {
+        return Character.isJavaIdentifierPart(c);
     }
 
     public FilterExpression<E> contains(T value) {

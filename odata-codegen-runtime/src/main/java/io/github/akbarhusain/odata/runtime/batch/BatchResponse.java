@@ -30,7 +30,7 @@ public class BatchResponse implements Iterable<BatchResult<?>> {
      */
     public BatchResult<?> getByContentId(String contentId) {
         for (BatchResult<?> result : results) {
-            if (contentId.equals(result.contentId())) {
+            if (java.util.Objects.equals(contentId, result.contentId())) {
                 return result;
             }
         }

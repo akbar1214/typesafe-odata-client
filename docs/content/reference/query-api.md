@@ -21,6 +21,8 @@ Complete reference for type-safe query operations.
 | `indexOf(value)` | `indexof()` | Find position |
 | `substring(start, end)` | `substring()` | Substring |
 | `trim()` | `trim()` | Remove whitespace |
+| `toLower()` | `tolower()` | Lowercase (OData `tolower`) |
+| `toUpper()` | `toupper()` | Uppercase (OData `toupper`) |
 | `concat(value)` | `concat()` | Concatenate |
 
 ### NumberProperty\<T\>

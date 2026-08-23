@@ -29,24 +29,6 @@ Context ctx = Context.builder()
 - Async by default
 - HTTP/2 support
 
-### JdkHttpTransport
-
-```java
-import io.github.akbarhusain.odata.runtime.http.JdkHttpTransport;
-
-Context ctx = Context.builder()
-    .baseUrl("https://services.odata.org/V4/TripPinService")
-    .transport(new JdkHttpTransport())
-    .build();
-```
-
-**Features:**
-
-- Uses Apache HttpClient
-- Connection pooling
-- Configurable timeouts
-- Proxy support
-
 ## Custom Implementations
 
 ### Implement HttpTransport

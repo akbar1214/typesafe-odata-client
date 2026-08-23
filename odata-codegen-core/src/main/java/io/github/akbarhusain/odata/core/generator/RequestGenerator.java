@@ -57,7 +57,9 @@ public class RequestGenerator extends AbstractTypeGenerator {
         for (NavigationPropertyModel nav : resolvedNavs(entityType)) {
             if (isComplexTypeNav(nav, schema)) continue;
             boolean isCollection = Names.isCollectionType(nav.type());
-            String elementType = Names.unwrapCollectionType(nav.type());
+            // Resolve TypeDefinition chains: the typedef itself has no generated request
+            // class — references must use the underlying type's name
+            String elementType = resolveTypeDefinition(Names.unwrapCollectionType(nav.type()), schema);
             String elementClassName = Names.simpleNameFromFullName(elementType);
             if (isCollection) {
                 imports.add(basePackageForType(elementType, schema) + Names.packageNameSuffixCollectionRequest() + "." + Names.collectionRequestClassName(elementClassName));
@@ -594,7 +596,9 @@ public class RequestGenerator extends AbstractTypeGenerator {
 
     private String generateNavMethod(NavigationPropertyModel nav, SchemaModel schema) {
         boolean isCollection = Names.isCollectionType(nav.type());
-        String unwrapped = Names.unwrapCollectionType(nav.type());
+        // Resolve TypeDefinition chains so the emitted request class matches the
+        // underlying entity's generated class (a typedef has no request class of its own)
+        String unwrapped = resolveTypeDefinition(Names.unwrapCollectionType(nav.type()), schema);
         String elementClassName = Names.simpleNameFromFullName(unwrapped);
         String methodName = Names.toJavaFieldName(nav.name());
 
@@ -618,7 +622,9 @@ public class RequestGenerator extends AbstractTypeGenerator {
         // never matches the type-kind map, so collection navs to complex types would
         // fall through and emit references to CollectionRequest classes that are only
         // generated for entity types — uncompilable output.
+        // Also unwrap TypeDefinition chain: MyAddr -> NS.Shared.Address (complex) must be skipped
         String unwrapped = Names.unwrapCollectionType(nav.type());
-        return Names.resolveTypeKind(unwrapped, effectiveSchemas) == Names.TypeKind.COMPLEX;
+        String resolved = resolveTypeDefinition(unwrapped, schema);
+        return Names.resolveTypeKind(resolved, effectiveSchemas) == Names.TypeKind.COMPLEX;
     }
 }

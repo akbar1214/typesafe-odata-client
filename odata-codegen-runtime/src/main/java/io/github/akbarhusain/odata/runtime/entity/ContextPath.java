@@ -237,7 +237,6 @@ public record ContextPath(
                     case "2C" -> sb.append(',');
                     case "2F" -> sb.append('/');
                     case "3A" -> sb.append(':');
-                    case "3D" -> sb.append('=');
                     case "40" -> sb.append('@');
                     default -> { sb.append('%'); sb.append(h1); sb.append(h2); }
                 }
@@ -281,9 +280,11 @@ public record ContextPath(
             case "Edm.Duration" -> "duration'" + value + "'";
             case "Edm.Boolean", "Edm.Byte", "Edm.SByte", "Edm.Int16", "Edm.Int32", "Edm.Int64",
                  "Edm.Single", "Edm.Double", "Edm.Decimal" -> String.valueOf(value);
-            default -> value instanceof Enum<?> e
-                    ? edmType + "'" + e.name() + "'"  // qualified enum type
-                    : String.valueOf(value);
+            default -> {
+                if (value instanceof Enum<?> e) yield edmType + "'" + e.name() + "'";
+                if (value instanceof String s) yield "'" + encodeKeyValue(s) + "'";
+                yield String.valueOf(value);
+            }
         };
     }
 
@@ -298,6 +299,8 @@ public record ContextPath(
                 case '#'  -> sb.append("%23");
                 case '%'  -> sb.append("%25");
                 case ' '  -> sb.append("%20");
+                case '/'  -> sb.append("%2F");
+                case '+'  -> sb.append("%2B");
                 default   -> sb.append(c);
             }
         }

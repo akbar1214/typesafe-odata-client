@@ -121,7 +121,9 @@ public final class DateTimeProperty<E> implements PropertyExpression<E, String> 
     private static String formatTime(LocalTime value) {
         String formatted = value.format(TIME_FORMATTER);
         if (value.getNano() > 0) {
-            formatted += "." + value.getNano();
+            // Full 9-digit zero-padded fraction: 1 nano -> .000000001 (not ".1"),
+            // 1_000_000 -> .001000000 (not ".1000000")
+            formatted += "." + String.format("%09d", value.getNano());
         }
         return formatted;
     }

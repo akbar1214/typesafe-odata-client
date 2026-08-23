@@ -185,12 +185,16 @@ public class EntityOperations {
         checkResponse(response);
     }
 
+    private static boolean isAbsoluteHttpUrl(String url) {
+        return url != null && url.length() >= 4 && url.regionMatches(true, 0, "http", 0, 4);
+    }
+
     public static void addRef(Context context, ContextPath navigationPath, String targetEntityUrl) {
         ContextPath refPath = navigationPath.addSegment("$ref");
         // @odata.id must be an ABSOLUTE URI unless the payload carries @odata.context —
         // relative values are rejected by services (TripPin: 500 "relative URI value ...
         // odata.context annotation is missing"). Resolve like batch does (decision 12).
-        String absolute = targetEntityUrl != null && targetEntityUrl.startsWith("http")
+        String absolute = isAbsoluteHttpUrl(targetEntityUrl)
                 ? targetEntityUrl
                 : trimTrailingSlash(context.baseUrl()) + "/" + trimLeadingSlash(targetEntityUrl);
         byte[] body;
@@ -220,7 +224,7 @@ public class EntityOperations {
             // a '/' or a key predicate) are resolved against the service root; bare key
             // values are passed through as-is for services that accept them.
             String id = targetKey;
-            if (!targetKey.startsWith("http")
+            if (!isAbsoluteHttpUrl(targetKey)
                     && (targetKey.indexOf('/') >= 0 || targetKey.indexOf('(') >= 0)) {
                 id = trimTrailingSlash(context.baseUrl()) + "/" + trimLeadingSlash(targetKey);
             }
@@ -408,35 +412,37 @@ public class EntityOperations {
         if (context.interceptors().isEmpty()) {
             return real;
         }
-        HttpTransport cached = CHAIN_CACHE.get(context);
-        if (cached != null) {
-            return cached;
-        }
-        HttpTransport transport = real;
-        List<HttpInterceptor> interceptors = context.interceptors();
-        for (int i = interceptors.size() - 1; i >= 0; i--) {
-            HttpInterceptor next = interceptors.get(i);
-            HttpTransport delegate = transport;
-            transport = new HttpTransport() {
-                @Override
-                public CompletableFuture<HttpResponse> submit(HttpRequest request) {
-                    // Interceptor failures must complete the future exceptionally, not
-                    // escape synchronously — callers compose with exceptionally()/handle()
-                    try {
-                        return CompletableFuture.completedFuture(next.intercept(request, delegate));
-                    } catch (RuntimeException e) {
-                        return CompletableFuture.failedFuture(e);
+        synchronized (CHAIN_CACHE) {
+            HttpTransport cached = CHAIN_CACHE.get(context);
+            if (cached != null) {
+                return cached;
+            }
+            HttpTransport transport = real;
+            List<HttpInterceptor> interceptors = context.interceptors();
+            for (int i = interceptors.size() - 1; i >= 0; i--) {
+                HttpInterceptor next = interceptors.get(i);
+                HttpTransport delegate = transport;
+                transport = new HttpTransport() {
+                    @Override
+                    public CompletableFuture<HttpResponse> submit(HttpRequest request) {
+                        // Interceptor failures must complete the future exceptionally, not
+                        // escape synchronously — callers compose with exceptionally()/handle()
+                        try {
+                            return CompletableFuture.completedFuture(next.intercept(request, delegate));
+                        } catch (RuntimeException e) {
+                            return CompletableFuture.failedFuture(e);
+                        }
                     }
-                }
 
-                @Override
-                public CompletableFuture<InputStream> stream(HttpRequest request) {
-                    return next.stream(request, delegate);
-                }
-            };
+                    @Override
+                    public CompletableFuture<InputStream> stream(HttpRequest request) {
+                        return next.stream(request, delegate);
+                    }
+                };
+            }
+            CHAIN_CACHE.put(context, transport);
+            return transport;
         }
-        CHAIN_CACHE.put(context, transport);
-        return transport;
     }
 
     // Internal helpers

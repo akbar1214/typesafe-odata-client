@@ -38,8 +38,10 @@ public class ODataException extends RuntimeException {
 Invalid request syntax or semantics.
 
 ```java
+import io.github.akbarhusain.odata.runtime.query.FilterExpression;
+
 try {
-    client.people().filter("invalid filter").get();
+    client.people().filter(FilterExpression.of("invalid filter")).get();
 } catch (BadRequestException e) {
     System.out.println("Bad request: " + e.getMessage());
 }
@@ -88,7 +90,7 @@ Entity state conflict (e.g., duplicate key).
 
 ```java
 try {
-    client.people().post(existingPerson);
+    client.people().create(existingPerson);
 } catch (ConflictException e) {
     System.out.println("Person already exists");
 }

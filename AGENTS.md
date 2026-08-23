@@ -693,6 +693,222 @@ Making the operators null-safe is the least surprising choice and keeps users fr
 **Decision:** `toConstantName` maps non-identifier characters to `_` (dashes, dots, spaces — all legal CSDL NCNames); enum members whose constant differs from their CSDL name get a generated `BY_NAME` wire-name map consulted by `fromJson` after `valueOf`; container accessors (entity sets + singletons) run a collision check that fails loudly; duplicate `<Key>` elements and `PropertyRef` without `Name` are rejected at parse with context; Builder nav setters record `changed` like property setters; `EnumProperty` literals pass the `resolveTypeDefinition`-resolved type through `qualifiedEdmName`; and key-accessor method names sanitize before capitalizing (`capitalize(toJavaFieldName(keyProp))`).
 **Reason:** Round-4's execution-based review proved the unsanitized paths produced output that compiled falsely or generation that "succeeded" while wrong: `FIRST-NAME` constants and `A-B(0L)` members failed compilation; prop `BUDGET` + nav `budget` produced two `BUDGET` fields in `Filterable`; set+singleton `People` emitted duplicate `people()` methods; typedef-of-enum literals rendered `Ns.Tint'Red'`; multi-`<Key>` metadata yielded per-key single-key accessors for composite entities; and a missing `PropertyRef@Name` surfaced as a bare NPE from `KeyModel`'s defensive copy.
 
+### 58. Action ReturnType Alias Resolution (H1)
+
+**Decision:** `StaxCsdlParser.parseAction` `ReturnType` `Type` now goes through `resolveTypeRef` like `parseFunction` does.
+
+**Reason:** `parseAction` stored `getAttr(child,"Type")` verbatim while `parseFunction` resolved `self.Person` → `NS.Person`. An alias-qualified `Type="self.Person"` in an `Action` stayed `self.Person`, fell through `Names.resolveTypeKind` as `UNKNOWN`, and generated wrong imports. One-line parity fix (`StaxCsdlParser.java:415`). Verified by `StaxCsdlParserActionAliasTest` (expects `NS.Person`).
+
+### 59. Global Alias Map for Cross-Schema References (H2)
+
+**Decision:** `StaxCsdlParser` maintains `globalAliasMap: alias → namespace` (populated per `parseSchema` via `putIfAbsent`) and `resolveTypeRef` checks the global map first (then `currentAlias` fallback). After all schemas are parsed, `fixupCrossSchemaAliases` rewrites any remaining alias-qualified types (including `Collection(...)` wrappers) in every model component (entity/complex `BaseType`, property `edmType`, nav `type`, entity-set/singleton types, function/action params/return types, `TypeDefinition` underlying type, container `Extends`).
+
+**Reason:** Prior `currentAlias` singleton only resolved aliases declared in the currently-parsed schema. A multi-schema document `Schema A (Alias=a, Foo)` + `Schema B (prop Type="a.Foo")` left `a.Foo` verbatim. Forward-order schemas (`B` before `A`) would also miss. Global map + post-pass makes resolution order-independent. Verified by `StaxCsdlParserCrossSchemaAliasTest` (2, expects `NS.A.Foo`).
+
+### 60. Unqualified Cross-Schema Inheritance Resolution (H3)
+
+**Decision:** `EntityGenerator.findBase` / `ComplexTypeGenerator.findBase` now fall back to `findBaseGlobal` (scan `effectiveSchemas` for simple-name match) after the qualified and same-schema lookups. `EntityGenerator.extendedBasesForSchema` resolves the base’s actual namespace via `findBaseGlobal` + `entityNamespace` instead of string-splitting `baseType`, so an unqualified `BaseType="Base"` in `NS.B` that refers to `Base` in `NS.A` is found and the base is emitted `public class Base` (not `public final class Base`).
+
+**Reason:** Prior `findBase` only checked `entityTypeByQualifiedName` then same-schema `entityTypeMap`. Cross-schema unqualified inheritance (`Derived` in `NS.B` extends `Base` in `NS.A` via `BaseType="Base"`) returned `null`, inheritance was lost and the base stayed `final` (compile error for `extends`). Qualified `BaseType="NS.A.Base"` already worked; the fix closes the unqualified variant. Verified by `CrossSchemaInheritanceFinalTest` (qualified passes, unqualified now passes; prior unqualified was `public final class Base`).
+
+### 61. Query-Parameter `=` Must Stay Encoded (H4)
+
+**Decision:** `ContextPath.encodeQueryParam` no longer restores `%3D` → `=`. OData-safe restores are now `$ ' ( ) , / : @` only; `=` stays `%3D`.
+
+**Reason:** `URLEncoder.encode("a=b")` → `a%3Db`; restoring to `a=b` made `?q=a=b` parse as `q=a` + stray `b`. `appendSegments` adds the single `name=value` separator; value-internal `=` must be `%3D`. Prior restore was over-broad (lesson 12). Verified by `ContextPathEncodeQueryParamTest` (2, `a=b` → `a%3Db`) and updated `ContextPathTest.fromNextLinkDecodesPercentEncodedPlusAndReencodesAsPercent2B` to expect `%3D` (`a%2Bb%3Dc` not `a%2Bb=c`).
+
+### 62. Key-Encoding Must Cover `/` and `+` (H5)
+
+**Decision:** `ContextPath.encodeKeyValue` adds `'/'=>%2F` and `'+'=>%2B` (alongside existing `' ''`, `& %26`, `? %3F`, `# %23`, `% %25`, `space %20`).
+
+**Reason:** `People('a/b')` where `/` is a path separator split the URL; `a+b` is ambiguous (`+` decoded as space on some stacks). Both are legal inside CSDL `String` key values (e.g. file paths, tokens). Verified by `ContextPathEncodeKeyValueSlashPlusTest` (4, expects `%2F`/`%2B`).
+
+### 63. Batch URL Resolution Handles Leading Slash and Case-Insensitive Scheme (H6)
+
+**Decision:** `BatchRequest.resolveOperationUrl` now does `url = baseUrl + (url.startsWith("/") ? "" : "/") + url` (was unconditional `baseUrl + "/" + url`) and tests `url.regionMatches(true,0,"http",0,4)` instead of `startsWith("http")`.
+
+**Reason:** `ContextPath.toRelativeUrl()` returns `People('scott')` (no leading `/`), but hand-written `BatchOperation.get("/People('scott')")` and any `"/"`-prefixed path produced `https://svc//People` (strict services reject double-slash). Unconditional `"/"` also broke when `baseUrl` was already trimmed but `url` had leading slash. Case-insensitive `http` avoids `HTTP://` false-positive relative resolution. Verified by `BatchRequestDoubleSlashTest` (3, leading-slash body now `…/People` not `…//People`).
+
+### 64. Path Traversal Guard on Generated Package Names (H7)
+
+**Decision:** `Generator.validatePackage` rejects any package containing `/`, `\`, `:` or `.` edge cases (`..`, empty segment, leading/trailing `.`) and requires each dot-segment to be a valid Java identifier (`isJavaIdentifierStart/Part`). `writeCode` additionally normalizes the target path and asserts `target.startsWith(outputDir)` after `toAbsolutePath().normalize()` so any `../../evil` or absolute `/tmp/evil` that slipped through cannot escape the output directory.
+
+**Reason:** `Generator.writeCode` did `outputDir.resolve(packageDir)` with no validation. A hostile `basePackage=../../evil` or `schemaPackages` value `com/test/../evil` wrote outside `target`. Validated early in `generate()` for `defaultBasePackage` and each resolved `basePackage`, plus defense-in-depth in `writeCode`. Verified by `GeneratorPathTraversalTest` (3, hostile `../../evil`, slash, absolute).
+
+### 65. Marker Hash Folds Header Values, Not Just Names (H8)
+
+**Decision:** `GenerateMojo.computeMarkerHash` appends `header=<name>=<value>` (was `header=<name>` only), so rotating an `Authorization: Bearer <token>` invalidates the marker and forces regeneration.
+
+**Reason:** Only hashing the header name kept the hash stable when a secret rotated, so the second build incorrectly reused stale generated sources. Verified by `GenerateMojoMarkerValueTest` (1 failing → pass: `token1` vs `token2` hashes differ).
+
+### 66. Only 301/302/303/307/308 Are Redirects (H9)
+
+**Decision:** `GenerateMojo.downloadMetadata` treats only `301,302,303,307,308` as redirects (was `300–399`). Other 3xx such as `304 Not Modified` fall through to `status != 200` → `Failed to download metadata: HTTP 304`.
+
+**Reason:** `304` has no `Location` header and is not a redirect; the old `>=300 && <400` branch threw `Redirect without Location: HTTP 304`, masking a legitimate non-200 failure. Verified by `GenerateMojoRedirectTest` (304 now `Failed...`, 302 still follows).
+
+### 67. `toPackageName` Sanitizes Leading-Digit Segments (H10)
+
+**Decision:** `Names.toPackageName` lowercases with `Locale.ROOT`, maps `.`/`-` to `_`, maps any non-identifier char to `_`, and prefixes `_` when the result is empty or does not start with a valid Java identifier start. `3D.Model` → `_3d_model` (was illegal `3d_model`).
+
+**Reason:** `3d_model` starts with a digit → `package 3d_model;` is illegal. The fix is component-safe for the flattened package form while preserving `Com.Example.Model` → `com_example_model`. Verified by `NamesToPackageNameTest` (leading-digit now valid, hyphen still sanitized).
+
+### 68. Order-Independent Simple-Name Resolution (H11)
+
+**Decision:** `Names.buildTypeKindMap` registers a simple name only when it maps to a single `TypeKind` across all schemas; colliding names (e.g., `Address` as `ENTITY` in one schema and `COMPLEX` in another) are left absent so resolution requires the qualified `NS.Address` form. `AbstractTypeGenerator.resolveTypeDefinition` does the same for typedef underlying types — simple `Length` with conflicting `Int32` vs `Double` stays unregistered, so unqualified `Length` is not order-dependent.
+
+**Reason:** `putIfAbsent(e.name(), kind)` made unqualified resolution first-wins. With two schemas sharing a simple name but different kinds, the first kind in iteration order won, yielding nondeterministic packages/imports. Collecting qualified entries first and only promoting unambiguous simple names makes `mapAB.get("Address") == mapBA.get("Address")` regardless of schema order. Verified by `TypeKindCacheFirstWinsTest` (2, simple lookup now order-independent; TypeDefinition test drives real `AbstractTypeGenerator` subclass).
+
+### 69. Atomic Interceptor Chain Construction (H12)
+
+**Decision:** `EntityOperations.buildTransportChain` wraps the `get`→build→`put` compound in `synchronized (CHAIN_CACHE)` (was unsynchronized `get` then `put` on a `synchronizedMap(WeakHashMap)`).
+
+**Reason:** `Collections.synchronizedMap` only synchronizes per-method, so two threads racing on the same `Context` could each build a distinct wrapper chain. The `synchronized` block makes construction atomic while retaining weak keys (contexts don't get pinned). Zero-interceptor fast path still returns `real` without touching the cache. Verified by `EntityOperationsChainCacheTest` (concurrent 10-thread barrier now returns single instance).
+
+### 70. ReferentialConstraint PropertyRef Requires Name (M1)
+
+**Decision:** `StaxCsdlParser.parseReferentialConstraint` now uses `requireAttr(el, "Name", "PropertyRef in ReferentialConstraint")` for `<PropertyRef>` inside `<Principal>/<Dependent>` (was `getAttr` → null).
+
+**Reason:** Missing `Name` produced `ReferentialConstraintModel(null, ...)` → NPE downstream, not a clear parse error. Verified by `StaxCsdlParserMediumTest.m1_propertyRefMissingNameThrows` (expects IllegalArgumentException mentioning Name).
+
+### 71. Unqualified Container Extends Must Be Unique (M2)
+
+**Decision:** `StaxCsdlParser.mergeContainer` collects all `byQualifiedName` candidates with matching simple name; if exactly one, uses it; if >1, throws `IllegalArgumentException` "Ambiguous unqualified EntityContainer Extends ... use qualified name" (was break on first HashMap hit, nondeterministic).
+
+**Reason:** `HashMap.values()` iteration order is nondeterministic; two containers named `SharedContainer` in different namespaces made `Extends="SharedContainer"` pick randomly. Verified by `StaxCsdlParserMediumTest.m2_unqualifiedExtendsAmbiguousThrows` (expects exception) and `m2_qualifiedExtendsWorks`.
+
+### 72. sanitizeClassName Maps Hostile Chars to '_' (M3)
+
+**Decision:** `Names.sanitizeClassName` now maps any non-`isJavaIdentifierPart` char to `'_'` (was only `'.'`/`'/'` → `'_'`, others dropped). `"A-B"` → `"A_B"` (was `"AB"` colliding with `"AB"`).
+
+**Reason:** Dropping `'-'` made `A-B` and `AB` collide to same `AB.java` → duplicate detection misleading. Verified by `NamesMediumTest` (A-B → A_B, AB → AB).
+
+### 73. Typedef-of-Complex Navigation Skipped (M4)
+
+**Decision:** `RequestGenerator.isComplexTypeNav` unwraps `Collection(...)`, then `resolveTypeDefinition(unwrapped, schema)`, then `resolveTypeKind` (was direct `resolveTypeKind` → UNKNOWN for typedef).
+
+**Reason:** `TypeDefinition MyAddr → NS.Shared.Address` (complex) was considered non-complex → generated `MyAddrEntityRequest` (no such class) → uncompilable. Verified by `RequestGeneratorMediumTest` (MyAddr and Collection(MyAddr) navs skipped).
+
+### 74. Enum Member Collision Deduped (M5)
+
+**Decision:** `EnumGenerator.generate` tracks `usedNames` and `usedCount`; colliding sanitized constants (`A-B` → `A_B` vs verbatim `A_B`) get suffix `A_B_2`, `A_B_3` (was duplicate `A_B(0), A_B(1)`).
+
+**Reason:** Two CSDL members `A-B` and `A_B` both sanitize to `A_B` → `enum E { A_B(0), A_B(1) }` compile error. `BY_NAME` map uses deduped constants. Verified by `EnumGeneratorMediumTest`.
+
+### 75. DateTimeProperty Nano Zero-Padded (M6)
+
+**Decision:** `DateTimeProperty.formatTime` now pads nano with `String.format("%09d", nano)` (was `String.valueOf(nano)`).
+
+**Reason:** `LocalTime.of(10,15,30,1)` → `10:15:30.1` (should be `10:15:30.000000001`); `1_000_000` → `10:15:30.1000000` (should be `.001000000`). Verified by `DateTimePropertyMediumTest` (4 checks).
+
+### 76. NumberExpression div vs divby Uses Property Type (M7)
+
+**Decision:** `NumberProperty` now stores `edmType` (e.g., `Edm.Double`) and overrides `divide` to use `divby` when property is floating (`Edm.Double/Single/Decimal`) or value is floating (`Double/Float/BigDecimal`); `Edm.Int*` only uses `div` for integer values. `NumberExpression` fallback remains value-based. Generators now emit `new NumberProperty<>("Price", Person.class, "Edm.Double")`.
+
+**Reason:** Dividing `Edm.Double` property by `Integer 2` should be `divby` (floating), but heuristic used only `value instanceof Integer` → `div`. Verified by `NumberExpressionMediumTest` (Double+Integer → divby, Int+Int → div).
+
+### 77. Unique Lambda Aliases for Nested any/all (M8)
+
+**Decision:** `CollectionProperty.lambda` uses `ThreadLocal<Integer> LAMBDA_DEPTH`; alias is `baseAlias` (from `FilterableElement.prefix()` or `"x"`) for depth 0, else `baseAlias + depth` (`x1`, `d1`). Predicate result's prefix `baseAlias/` is remapped to `alias/` for unique aliases.
+
+**Reason:** `Tags/any(x: x/Name eq 'a' and x/Names/any(x: x/Value eq 'b'))` inner `x` shadows outer `x`. Needs `x` and `x1` (or `d` and `d1`). Verified by `CollectionPropertyMediumTest` (nested any contains `x1:`) and `CollectionPropertyTest.l13LambdaAliasFollowsFilterableElementPrefix` (custom prefix `d` preserved).
+
+### 78. BatchOperation Rejects Encoded CRLF/NUL (M9)
+
+**Decision:** `BatchOperation.rejectLineBreaks` now also scans for `%HH` where decoded byte is `\r`, `\n`, or `\0` (`%0D`, `%0A`, `%00` case-insensitive, was raw checks only).
+
+**Reason:** `%0D%0A` decodes to CRLF on server → header injection via encoded URL. Verified by `BatchOperationMediumTest` (5 checks, 3 encoded rejections).
+
+### 79. JdkHttpTransport Dedupes OData Headers Case-Insensitively (M10)
+
+**Decision:** `JdkHttpTransport.buildJdkRequest` checks `hasMaxVersion`/`hasVersion` via `equalsIgnoreCase` before adding defaults `OData-MaxVersion: 4.01` / `OData-Version: 4.0` (was unconditional → duplicate `4.01, 4.0`).
+
+**Reason:** Caller-supplied `OData-MaxVersion: 4.0` produced duplicate header values. Verified by `JdkHttpTransportMediumTest` (3 checks).
+
+### 80. JacksonSerializer Patch Includes Empty Collections (M11)
+
+**Decision:** `JacksonSerializer` adds `MAPPER_FOR_PATCH` (baseMapper without `NON_EMPTY` collection override) and `serialize(value, type, includeFields)` now uses it for `valueToTree`/`writeValueAsBytes` (was `MAPPER` with `NON_EMPTY` → empty `List.of()` omitted even when explicitly requested).
+
+**Reason:** Clearing `tags` with `[]` was impossible: `NON_EMPTY` hid `[]` even when field was in `changedFields`. Patch path must include empty when explicitly requested. Verified by `JacksonSerializerMediumTest`.
+
+### 81. GenerateMojo Explicit Temp File Cleanup (M12)
+
+**Decision:** `GenerateMojo.downloadMetadata` wraps `Files.copy` in try-catch with `Files.deleteIfExists(tempFile)` on failure; `execute` deletes temp file after `parseMetadata` when `metadataUrl` was used (was `deleteOnExit` only → `/tmp` accumulation in daemon builds).
+
+**Reason:** `deleteOnExit` never runs in long-lived daemons/`-T` builds. Verified by `GenerateMojoMediumTest` (method contains explicit delete handling).
+
+### 82. Generator Cleans Stale Files Across Calls (M13)
+
+**Decision:** `Generator.generate` saves `previousFiles = new HashSet<>(written.keySet())` before `written.clear()`, then after generation deletes any `old ∈ previousFiles \ written` via `Files.deleteIfExists` (was `written.clear()` only, old `Foo.java` remained after rename `Foo`→`Bar`).
+
+**Reason:** Incremental builds via same `Generator` instance left stale `.java` on classpath after type rename. `GenerateMojo` handles cross-process staleness via marker manifest; `Generator` now handles in-process. Verified by `GeneratorMediumTest`.
+
+### 83. Case-Insensitive HTTP URL Check (M14)
+
+**Decision:** `EntityOperations` adds `isAbsoluteHttpUrl(String)` via `regionMatches(true,0,"http",0,4)` and uses it in `addRef`/`removeRef` (was `startsWith("http")` case-sensitive → `HTTP://` treated as relative).
+
+**Reason:** `HTTP://` should be considered absolute; case-sensitive check prepended `baseUrl` → `https://service/HTTP://...`. Verified by `EntityOperationsMediumTest` (4 checks).
+
+### 84. Reserved Words Cover Java 17+ Contextual Keywords (L1)
+
+**Decision:** `Names.isReservedWord` now includes `"when"` and `"non-sealed"` (was missing). `"when"` is a contextual keyword for pattern matching (Java 17+), `"non-sealed"` for sealed classes. Enum member or property named `when` is now sanitized, not kept verbatim as an invalid identifier.
+
+**Reason:** `isReservedWord` listed up to `transitive` (Java 17) but omitted `when` (added in 17) and `non-sealed` (hyphenated sealed variant). A CSDL enum member `when` stayed verbatim `when` → invalid or shadowed. Verified by `NamesLowTest` (`when` now reserved, `non-sealed` reserved).
+
+### 85. Acronym-Aware Constant Splitting (L2)
+
+**Decision:** `Names.toConstantName` now inserts `'_'` when current char is upper and next char is lower while previous is upper (acronym boundary). `XMLHttp` → `XML_HTTP` (was `XMLHTTP`); `XMLHttpRequest` → `XML_HTTP_REQUEST`.
+
+**Reason:** Previous check only `prev is lower` missed `XML|Http` where `H` is upper, prev `L` upper, next `t` lower → boundary. Verified by `NamesLowTest` (XMLHttp cases).
+
+### 86. Malformed Percent-Encoding Tolerated (L3)
+
+**Decision:** `ContextPath.decodePercent` leaves malformed `%ZZ` verbatim (was already) and `encodeQueryParam` correctly encodes literal `'%'` as `%25` only for valid contexts; `fromNextLink` round-trips without double-encoding valid `%20` and without throwing for malformed. No code change beyond ensuring `decodePercent` handles incomplete `%` at end gracefully (already did).
+
+**Reason:** `%ZZ` is not a valid `%HH` — leaving verbatim then re-encoding as `%25ZZ` is actually correct single-encoding of a literal `'%'`. The low-severity note is documented, and `LowIssuesTest.l3` verifies malformed is handled without exception. No double-encode beyond expected.
+
+### 87. Unknown Edm Type Strings Are Quoted (L4)
+
+**Decision:** `ContextPath.formatTypedValue` default case now checks `value instanceof String s` → `"'" + encodeKeyValue(s) + "'"` before falling through to `Enum` or `String.valueOf`. Unknown `Edm.UnknownType` with `"test"` now renders `'test'` (was bare `test`).
+
+**Reason:** String key literals must be quoted per OData ABNF regardless of whether the Edm type is known; bare `test` is not a valid key literal. Verified by `LowIssuesTest.l4`.
+
+### 88. Boundary Pattern Allows Spaces Around '=' (L5)
+
+**Decision:** `MultipartHelper.BOUNDARY_PATTERN` now `boundary\\s*=\\s*(?:\"([^\"]*)\"|([^;\\s]+))` (was `boundary=`). `boundary = "myBoundary"` with spaces now parses (was missed → changeset not decoded).
+
+**Reason:** RFC 2046 allows `boundary = "abc"` with optional whitespace. Real services and tests may emit spaced form. Verified by `LowIssuesTest.l5`.
+
+### 89. Missing Closing Boundary Detected (L6)
+
+**Decision:** `MultipartHelper.decodeParts` tracks `foundClosing` and throws `ODataException` if body ends at delimiter without trailing `"--"` (was silently returning partial results).
+
+**Reason:** A batch response that ends at `--boundary` without `--` is malformed truncated; previous code exited loop without error, returning partial results. Verified by `LowIssuesTest.l6`.
+
+### 90. CollectionPage Defensive Copy (L7)
+
+**Decision:** `CollectionPage` now `Collections.unmodifiableList(new ArrayList<>(currentPage))` (was `unmodifiableList(currentPage)` without copy).
+
+**Reason:** Caller mutation of the original list (e.g., `list.add("c")` after `new CollectionPage(list, null)`) was visible through `currentPage()` because it wrapped the same list instance. Copy isolates. Verified by `LowIssuesTest.l7`.
+
+### 91. BatchResponse Null-Safe Content-ID Lookup (L8)
+
+**Decision:** `BatchResponse.getByContentId` now `Objects.equals(contentId, result.contentId())` (was `contentId.equals(...)` → NPE when `contentId == null`).
+
+**Reason:** `BatchResult` without Content-ID has `null` contentId; lookup with `null` should return the matching null entry or null, not NPE. Verified by `LowIssuesTest.l8`.
+
+### 92. DynamicPropertyConverter Reuses Shared Mapper (L9)
+
+**Decision:** `DynamicPropertyConverter` now `private static final ObjectMapper MAPPER = JacksonSerializer.sharedMapper()` (was `new ObjectMapper()` with duplicate `Jdk8Module`/`JavaTimeModule` config). `JacksonSerializer` exposes `sharedMapper()` package-private.
+
+**Reason:** Duplicate `ObjectMapper` with identical `Jdk8Module`+`JavaTimeModule` config was wasteful (two instances, same modules). Reusing the shared mapper saves memory and ensures consistent date handling. Verified by `LowIssuesTest.l9` (`assertSame`).
+
+### 93. Review-of-Review Hardening (PR #8 follow-ups)
+
+**Decision:** Six fixes from a critique of the critique-fix PR: (a) `CollectionProperty.rebindAlias` replaces the blind `expr.replace(baseAlias + "/", alias + "/")` with a quote-aware, word-boundary-bounded rewrite — quoted literals like `'x/value'` and longer paths like `Max/` survive nested-lambda alias rebinding verbatim. (b) `EntityGenerator/ComplexTypeGenerator.findBaseGlobal` throw on ambiguous unqualified `BaseType` simple-name matches (>1 across schemas) instead of first-wins — one ambiguity policy everywhere: containers throw, type-kind maps leave absent, inheritance throws. (c) `StaxCsdlParser` extracts the shared `applyAliasMap` rewrite used by both `resolveTypeRef` (parse time) and `fixAlias` (post-pass), and rejects duplicate `Alias` declarations mapping to different namespaces (spec violation that previously resolved order-dependently via `putIfAbsent`). (d) Typedef-of-entity navs resolve through the TypeDefinition chain in `AbstractTypeGenerator.navJavaType` and `RequestGenerator` imports/nav methods — previously they emitted references to a nonexistent `<Typedef>EntityRequest`. (e) `GenerateMojo.execute` deletes downloaded metadata temp files in a `finally` covering ALL exit paths — the up-to-date early return previously leaked them (the exact daemon-build leak M12 claimed to fix). (f) Dead code removed (`NumberExpression.getExpression/formatValueStatic`, unreachable `".."` package-segment check), M13 stale-file delete failures now `log.warn` instead of swallowing.
+
+**Reason:** The original fixes were correct in their happy paths but had sharp edges visible only under adversarial review. The alias rebinding corrupted data inside string literals; first-wins base resolution reintroduced the nondeterminism H11 removed elsewhere; the temp-file cleanup missed the most common build path (incremental up-to-date). Verified by `CollectionPropertyMediumTest` (+2 corruption cases), `CrossSchemaInheritanceFinalTest.unqualifiedAmbiguousBaseFailsLoudly`, `StaxCsdlParserMediumTest` (+2 duplicate-alias), `RequestGeneratorMediumTest.m4_typedefOfEntityNavResolvesUnderlyingType`, `EntityGeneratorNumberEdmTypeTest` (M7 generator-side emission), `BatchRequestDoubleSlashTest` trailing×leading-slash combo pin, and behavioral `GenerateMojoMediumTest` (replaces source-grep tests that read an absolute path off one developer machine).
+
 ## Architecture
 
 ```
@@ -991,3 +1207,40 @@ Run `mvn test` from the repo root. All modules build in one reactor; the runtime
 119. **Tests written to current behavior lock bugs in; write them against the contract.** `addRefLeavesPlainUrlUnchanged` asserted the relative-URI passthrough *exactly* — a unit test authored after the bug became a change-detector that had to be (and was) updated when the bug was fixed. When adding tests for existing behavior: cite the spec/service contract the behavior implements (here: OData's absolute-URI requirement for `@odata.id`), and validate test fixtures against reality (do these usernames actually exist in the seed data?). The same principle applies to doc audits: the round-3 docs sweep was grep-driven against a known-stale pattern list, so `ref.md`'s entirely fictional API (`friends().addRef(Person)`, `setRef`) survived — verify every page's API calls against the generated code, not just the patterns you already know are stale.
 
 120. **Every path that turns a CSDL name into a Java identifier must go through the same sanitization — and the tests must compile the output.** Round 4 found five distinct unsanitized/unvalidated name paths (constants, enum members, Filterable nav fields, container accessors, key-accessor method names) that fields/getters had been protected against rounds earlier — each fix was one line, but each path had to be *found by executing*: generation "succeeded" on all of them, and two produced output that still compiled while being wrong. Two rules that paid off: (a) when sanitizing a wire-facing name (enum member), preserve the round-trip — the generated `BY_NAME` map keeps JSON using the original CSDL member name while the Java constant is sanitized; (b) assert generated code with `javac`, not `contains()` — string assertions passed on `FIRST_NAME` while a *different* unsanitized path (`tByFirst-Name`) still broke compilation, and only the compile check caught it.
+
+121. **Parity matters: audit `Function` vs `Action` (and any mirrored readers) together.** `parseAction` missed `resolveTypeRef` on `ReturnType` while `parseFunction` had it — a single missing call. The bug hid because TripPin has no alias-qualified Action return types. The fix is one line; the lesson is to diff mirrored parsers when touching one. Verified by `StaxCsdlParserActionAliasTest` (expects `NS.Person`, previously `self.Person`).
+122. **An alias is a document-scoped map, not a per-schema singleton.** Storing only `currentAlias` made `Schema B`’s `Type="a.Foo"` (where `a` is defined in `Schema A`) stay `a.Foo` when `A` was parsed earlier and stay unresolved when `B` was parsed first. Fix: `globalAliasMap: alias→namespace` + `fixupCrossSchemaAliases` post-pass over every model component (including `Collection(...)` wrappers). Order-independent. Verified by `StaxCsdlParserCrossSchemaAliasTest`.
+123. **Unqualified `BaseType="Base"` needs a global simple-name lookup, not just string splitting.** `extendedBasesForSchema` derived `baseNs` from `bt`’s literal namespace via `namespaceFromFullName(bt)`; for unqualified `Base` it used `s.namespace()` (the *referencing* schema), so a cross-schema unqualified inheritance was lost and the base stayed `final`. `findBase` likewise only checked `entityTypeByQualifiedName` then same-schema `entityTypeMap`. Fix: `findBaseGlobal` scans `effectiveSchemas` for the simple-name match and `extendedBasesForSchema` resolves the base’s real namespace via that lookup. Verified by `CrossSchemaInheritanceFinalTest` (unqualified now `public class Base`, was `public final class Base`).
+124. **Don’t restore `%3D` (`=`) in query values — it’s the `name=value` separator.** `URLEncoder.encode("a=b")` → `a%3Db`; restoring to `a=b` makes `?q=a=b` parse as `q=a` + stray `b`. `appendSegments` already adds the single `name + "=" + encode(value)` separator. Restoring `$ ' ( ) , / : @` is correct for OData, but `=` must stay `%3D`. Fix: drop `case "3D"` in `ContextPath.encodeQueryParam`. Updated `ContextPathTest` expectation (`a%2Bb%3Dc` not `a%2Bb=c`). Verified by `ContextPathEncodeQueryParamTest`.
+125. **Key literals need `%2F` and `%2B` — `/` and `+` are legal inside string keys.** `People('a/b')` with a literal `/` splits the URL path; `a+b` is ambiguous (`+` decoded as space on some stacks). Both are legal in `Edm.String` keys (file paths, tokens). Fix: `ContextPath.encodeKeyValue` adds `'/'=>%2F`, `'+'=>%2B`. Verified by `ContextPathEncodeKeyValueSlashPlusTest`.
+126. **`BatchRequest.resolveOperationUrl` must avoid `//` and be case-insensitive on the scheme.** `baseUrl + "/" + url` with `url="/People('scott')"` (hand-written) produced `https://svc//People`. Also `startsWith("http")` missed `HTTP://`. Fix: `baseUrl + (url.startsWith("/")?"":"/") + url` and `regionMatches(true,0,"http",0,4)`. `ContextPath.toRelativeUrl` already returns no leading `/` for generated batch ops, but the hardening is needed for manual `BatchOperation` callers. Verified by `BatchRequestDoubleSlashTest`.
+127. **Path traversal needs both package-name validation and path normalization.** `Generator.writeCode` did `outputDir.resolve(packageDir)` with no checks. Hostile `basePackage=../../evil` or `schemaPackages` with `/` writes outside `target`. Fix: `validatePackage` rejects `/`, `\`, `:`, `..`, empty segments, and non-identifier chars; `writeCode` additionally normalizes and asserts `target.startsWith(outputDir)`. The two layers give a clear early error plus defense-in-depth if `toPackageName` ever produces a bad package. Verified by `GeneratorPathTraversalTest`.
+128. **Marker hashes must fold header values, not just names.** `GenerateMojo.computeMarkerHash` appended `header=<name>` only, so rotating `Authorization: Bearer <token>` left the hash unchanged and reuse stale sources. Fix: append `header=<name>=<value>`. No secret leakage — value is folded into the digest, not logged. Verified by `GenerateMojoMarkerValueTest`.
+129. **Only 301/302/303/307/308 are redirects; 304 is not.** `downloadMetadata` used `code>=300 && <400` as redirect test. `304 Not Modified` has no `Location` and was thrown as `Redirect without Location: HTTP 304`, masking the real `Failed to download metadata: HTTP 304`. Fix: explicit set `301,302,303,307,308`. Verified by `GenerateMojoRedirectTest`.
+130. **`toPackageName` must produce a valid Java package, not just lowercased namespace.** `3D.Model` → `3d_model` is illegal (starts with digit). Fix: map `.`/`-`/other non-identifier chars to `_` and prefix `_` when the result doesn't start with a valid identifier start. `3D.Model` → `_3d_model`, `Com.Example.Model` still → `com_example_model`. Verified by `NamesToPackageNameTest`.
+131. **Simple-name caches must be order-independent; ambiguous collisions require qualified lookup.** `Names.buildTypeKindMap` with `putIfAbsent(e.name(), kind)` made `Address` as ENTITY in one schema and COMPLEX in another first-wins. `AbstractTypeGenerator` typedef cache did the same for `Length` → `Int32` vs `Double`. Fix: collect qualified entries first, only promote a simple name when it maps to a single kind/value across schemas; colliding names stay absent and require `NS.Name`. Verified by `TypeKindCacheFirstWinsTest`.
+132. **Atomic interceptor-chain construction is a synchronized compound, not per-method.** `Collections.synchronizedMap(WeakHashMap)` only synchronizes per-method, so `get` then `put` can race and build duplicate chains. Fix: `synchronized (CHAIN_CACHE)` around the compound `get`→`build`→`put`. Zero-interceptor fast path still returns the real transport without touching the cache. Verified by `EntityOperationsChainCacheTest`.
+133. **Require, don't allow null, for ReferentialConstraint PropertyRefs.** `parseReferentialConstraint` used `getAttr("Name")` for `<PropertyRef>` inside `<Principal>`/`<Dependent>`, letting `null` slip into the model and surface as NPE later. Fix: `requireAttr` with context `"PropertyRef in ReferentialConstraint"` — fails fast with the offending element in the message. Verified by `StaxCsdlParserMediumTest.m1_propertyRefMissingNameThrows`.
+134. **Unqualified container Extends must be unambiguous or fail.** `mergeContainer` scanned `byQualifiedName.values()` (HashMap) and broke on first simple-name match — nondeterministic when two containers share `SharedContainer`. Fix: count matches; 0 → unknown, 1 → use it, >1 → throw "Ambiguous unqualified Extends ... use qualified name". Verified by `StaxCsdlParserMediumTest.m2_unqualifiedExtendsAmbiguousThrows` (now throws) and qualified case still passes.
+135. **Sanitizing class names must map hostile chars, not drop them.** `sanitizeClassName` mapped only `'.'`/`'/'` to `'_'` and dropped `'-'` and others → `"A-B"` and `"AB"` both became `"AB.java"` → collision. Fix: any non-`isJavaIdentifierPart` maps to `'_'`, so `"A-B"` → `"A_B"` distinct from `"AB"`. Verified by `NamesMediumTest`.
+136. **Typedefs must be resolved before deciding complex vs entity.** `isComplexTypeNav` unwrapped `Collection(...)` but passed the raw typedef name `MyAddr` to `resolveTypeKind` → `UNKNOWN` → treated as entity and emitted a non-existent `MyAddrEntityRequest`. Fix: `resolveTypeDefinition(unwrapped)` first, then `resolveTypeKind`. Verified by `RequestGeneratorMediumTest` (typedef `MyAddr → Address` complex, now skipped).
+137. **Enum member de-duplication needs deterministic suffixes.** Two members `A-B` (→ `A_B`) and verbatim `A_B` collided to `enum E { A_B(0), A_B(1) }` → compile error. Fix: track `usedNames`/`usedCount`; colliding base `A_B` becomes `A_B_2`, `A_B_3`. `BY_NAME` map uses deduped constants so JSON wire names round-trip. Verified by `EnumGeneratorMediumTest`.
+138. **Nano formatting must be zero-padded to 9 digits.** `formatTime` did `"." + nano` → `1` → `".1"` (should be `".000000001"`), `1_000_000` → `".1000000"` (should be `".001000000"`). Fix: `String.format("%09d", nano)` (full 9, e.g. `001000000`). Verified by `DateTimePropertyMediumTest` (4 checks).
+139. **Floating vs integer division needs property type, not just value type.** `NumberExpression.divide` chose `div`/`divby` by `value instanceof Integer` → `Double` property `/ Integer 2` used truncating `div`. Fix: `NumberProperty` stores `Edm.Double/Single/Decimal` and overrides `divide` to use `divby` for floating properties (or floating values). Generators now emit `new NumberProperty<>("Price", Person.class, "Edm.Double")`. Verified by `NumberExpressionMediumTest`.
+140. **Nested any/all need unique aliases per depth, not just validation.** `CollectionProperty.lambda` validated alias but always used `"x"` → `any(x: x/Name and x/Names/any(x: x/Value))` shadows outer `x`. Fix: `ThreadLocal<Integer> LAMBDA_DEPTH` — depth 0 → `"x"`/`"d"`, depth 1 → `"x1"`/`"d1"`; remap `baseAlias/` in predicate result to `alias/`. Respects `FilterableElement` custom prefix (`d` → `d`/`d1`). Verified by `CollectionPropertyMediumTest` and existing `l13LambdaAliasFollowsFilterableElementPrefix`.
+141. **Encoded CRLF must be rejected via percent-decoding.** `BatchOperation.rejectLineBreaks` checked raw `\r\n\0` only → `People%0D%0A` passed and decoded to CRLF on server. Fix: scan `%HH` where decoded byte is `\r`/`\n`/`\0` (case-insensitive) and throw. Verified by `BatchOperationMediumTest` (5 checks).
+142. **Dedupe OData headers case-insensitively.** `JdkHttpTransport.buildJdkRequest` did `builder.header("OData-MaxVersion", "4.01")` unconditionally → `4.01, 4.0` duplicate when caller supplied `4.0`. Fix: check `hasMaxVersion`/`hasVersion` via `equalsIgnoreCase` before adding defaults. Verified by `JdkHttpTransportMediumTest`.
+143. **Patch must include empty collections when explicitly requested.** `JacksonSerializer` used `NON_EMPTY` for all `Collection`/`List`/`Set` → `tags: []` omitted even when user did `withTags(List.of())` and `changedFields` contained `tags`. Fix: add `MAPPER_FOR_PATCH` without `NON_EMPTY` and use it in `serialize(value, type, includeFields)` (the `includeFields` tree already filtered). Verified by `JacksonSerializerMediumTest`.
+144. **Temp files need explicit cleanup, not just deleteOnExit.** `GenerateMojo.downloadMetadata` did `createTempFile` + `deleteOnExit` + `Files.copy` with no try-catch cleanup and `execute` never deleted after `parseMetadata` → `/tmp` accumulation in daemons. Fix: `Files.copy` wrapped in try-catch with `deleteIfExists` on failure, and `execute` deletes temp file after `parseMetadata` when `metadataUrl` was used. Verified by `GenerateMojoMediumTest`.
+145. **Stale generated files must be cleaned across Generator calls.** `Generator.generate` did `written.clear()` at start, so `Foo.java` renamed to `Bar.java` left old `Foo.java` on disk → stale class on classpath. Fix: snapshot `previousFiles = new HashSet<>(written.keySet())` before clear, then after generation delete any `old ∉ written`. `GenerateMojo` already handles cross-process via marker manifest; `Generator` now handles in-process. Verified by `GeneratorMediumTest`.
+146. **Case-insensitive absolute URL check for @odata.id / $id.** `EntityOperations.addRef`/`removeRef` did `startsWith("http")` → `"HTTP://"` treated as relative → `https://service/HTTP://...`. Fix: `regionMatches(true,0,"http",0,4)` via `isAbsoluteHttpUrl`. Verified by `EntityOperationsMediumTest` (4 checks).
+147. **Contextual keywords appear after the language version you target.** `isReservedWord` covered `transitive` (Java 14) but omitted `when` (Java 19 pattern matching) and `non-sealed` (Java 17 sealed). A CSDL enum member named `when` stayed verbatim → invalid Java. Fix: add `when`/`non-sealed` to the switch; `toConstantName` already maps `-`→`_` so `non-sealed`→`NON_SEALED`. Verified by `NamesLowTest`.
+148. **Acronym boundaries need lookahead, not just lookbehind.** `toConstantName` split only on `lower→Upper` ( `a→B` ), so `XMLHttp` stayed `XMLHTTP`. Correct is `XML_HTTP`: insert `'_'` when `Upper` follows `Upper` and next is `lower` (`L→H→t`). Fix: check `prev is lower || (prev is upper && next is lower)`. Verified by `NamesLowTest` (`XMLHttp`→`XML_HTTP`).
+149. **Malformed percent-escapes should be tolerated, not rejected, but must not be double-encoded.** `ContextPath.decodePercent` correctly leaves `%ZZ` verbatim; re-encoding a literal `'%'` as `%25` gives `%25ZZ` — the single correct encoding of a literal `%`. No code change beyond ensuring incomplete trailing `%`/`%2` is handled without `StringIndexOutOfBounds`. Low-severity, verified by `LowIssuesTest.l3` (no throw, round-trips).
+150. **Quoting depends on the Edm type, not just the Java type.** `ContextPath.formatTypedValue` returned `String.valueOf` for unknown types, so `Edm.UnknownType` string `test` rendered `test` not `'test'`. Fix: `default` now checks `String s` → `'`+`encodeKeyValue`+`'` before `Enum`/`String.valueOf`. Quoted strings are required even for unknown String-typed keys. Verified by `LowIssuesTest.l4`.
+151. **RFC 2046 allows whitespace around `boundary=`** `MultipartHelper.BOUNDARY_PATTERN` was `boundary=` (no spaces). Real `Content-Type: multipart/mixed; boundary = "abc"` (spaces) was missed → 0 parts decoded. Fix: `boundary\\s*=\\s*`. Verified by `LowIssuesTest.l5` (spaced boundary now parses).
+152. **A batch that ends at the delimiter without `--` is truncated, not complete.** `MultipartHelper.decodeParts` returned partial results when the body ended at `--boundary` (no trailing `--`). Fix: track `foundClosing`, throw `missing closing boundary '--'` if loop exits without having seen `--`. Verified by `LowIssuesTest.l6`.
+153. **Defensive copies matter even for `unmodifiableList`.** `CollectionPage` did `unmodifiableList(currentPage)` without copy; caller mutating the original list after construction was visible through `currentPage()`. Fix: `unmodifiableList(new ArrayList<>(currentPage))`. Verified by `LowIssuesTest.l7`.
+154. **Null-safe equality for nullable content IDs.** `BatchResponse.getByContentId` did `contentId.equals(result.contentId())` → NPE when `contentId==null` (standalone parts have `null`). Fix: `Objects.equals`. Verified by `LowIssuesTest.l8`.
+155. **One `ObjectMapper` with identical config is enough.** `DynamicPropertyConverter` created `new ObjectMapper()` with same `Jdk8Module`/`JavaTimeModule` as `JacksonSerializer`; two instances, same modules, wasted memory and risk of drift. Fix: `DynamicPropertyConverter.MAPPER = JacksonSerializer.sharedMapper()` (package-private accessor). Verified by `LowIssuesTest.l9` (`assertSame`).
+156. **A fix that only covers its own test's path isn't done — audit every exit path and every consumer of the changed helper.** M12 deleted the downloaded temp file after `parseMetadata`, but `execute()` returns early on the up-to-date marker path BEFORE parsing — the leak survived precisely in the incremental build the fix targeted; only a behavioral test that runs `execute()` twice against a local server caught it. Same round: the blind `.replace()` alias rebinding worked on every test input but corrupted quoted literals and longer identifiers (`Max/`) under adversarial data; first-wins `findBaseGlobal` contradicted the ambiguity policy established one finding earlier (H11/M2); typedef-of-complex was fixed while typedef-of-entity navs still emitted references to a nonexistent class. Rules: (a) when a method has multiple exits, cleanup belongs in `finally`; (b) string surgery on expressions must be quote-aware and word-boundary-bounded; (c) pick ONE policy per problem class (ambiguity: throw) and apply it everywhere; (d) when fixing a resolution gap for one kind of target (typedef→complex), check the mirrored kind (typedef→entity) in the same pass.
