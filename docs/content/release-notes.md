@@ -49,6 +49,16 @@
   `person.trips().tripByID(2)` → `person.trips(2)`. Key literals stay type-driven
   (decision 52); composite and inherited keys surface as multi-parameter overloads
 
+### Bound Operations (decision 96)
+
+- Operations bound to an entity type (or an ancestor) generate
+  `<Entity><Op>FunctionRequest` / `<Entity><Op>ActionRequest` classes with typed
+  accessors on the entity request: `client.people("x").shareTrip("friend", 1).execute()`
+- Ancestor-bound ops emit a type-cast segment (`.../Flight('x')/NS.PlanItem/Op`);
+  binding parameters are excluded from invocation parameters; overloads by parameter
+  names; ambiguous or duplicate declarations fail at generation
+- Result handling identical to imports (Optional/List/typed results, polymorphic reads)
+
 ### Function/Action Imports (request-object style)
 - Unbound container imports generate final `<Name>FunctionRequest`/`<Name>ActionRequest` classes
   in `.operation`, with one typed container accessor per import; functions GET with typed URL

@@ -2,6 +2,7 @@ package io.github.akbarhusain.odata.core.generator;
 
 import io.github.akbarhusain.odata.core.model.CsdlModel.ActionImportModel;
 import io.github.akbarhusain.odata.core.model.CsdlModel.ActionModel;
+import io.github.akbarhusain.odata.core.model.CsdlModel.EntityTypeModel;
 import io.github.akbarhusain.odata.core.model.CsdlModel.ParameterModel;
 import io.github.akbarhusain.odata.core.model.CsdlModel.ReturnTypeModel;
 import io.github.akbarhusain.odata.core.model.CsdlModel.SchemaModel;
@@ -294,8 +295,50 @@ public class OperationGenerator extends AbstractTypeGenerator {
 
         String verb = op.isFunction() ? "GET" : "POST";
         String bodyArg = isAction && !op.parameters().isEmpty() ? "body" : "null";
+        String methods = emitExecuteMethods(op, kind, verb, bodyArg, imports);
         boolean nullableResult = resultNullable(op);
 
+        StringBuilder sb = new StringBuilder(4096);
+        sb.append("package ").append(outputPackage(op)).append(";\n\n");
+        for (String imp : imports) {
+            sb.append("import ").append(imp).append(";\n");
+        }
+        sb.append("\n/** Invokes ")
+          .append(isAction ? "action" : "function")
+          .append(" import \"").append(importName).append("\".");
+        if (!overloadSuffix.isEmpty()) {
+            sb.append(" Overload of the same-name function, selected by its parameter names (")
+              .append(op.parameters().stream().map(ParameterModel::name)
+                      .collect(java.util.stream.Collectors.joining(", ")))
+              .append(").");
+        }
+        sb.append("\n */\n");
+        sb.append("public final class ").append(className).append(" {\n\n");
+        sb.append("    private final Context context;\n\n");
+        sb.append("    private final ContextPath contextPath;\n\n");
+        if (isAction) {
+            sb.append("    private final byte[] body;\n\n");
+        }
+        sb.append("    public ").append(className).append("(Context context")
+          .append(constructorParams(op)).append(") {\n");
+        sb.append("        this.context = context;\n");
+        sb.append(constructorBody("context.basePath()", null, importName, op, isAction));
+        if (isAction) {
+            sb.append("        this.body = ").append(bodyArg.equals("body") ? "__body" : "null").append(";\n");
+        }
+        sb.append("    }\n\n");
+        sb.append(methods);
+        sb.append("}\n");
+        return sb.toString();
+    }
+
+    /**
+     * Execute-method block shared by import and bound-operation rendering: fills
+     * {@code imports} as a side effect and returns the method source text.
+     */
+    private String emitExecuteMethods(ResolvedOp op, Kind kind, String verb, String bodyArg,
+                                      Set<String> imports) {
+        boolean nullableResult = resultNullable(op);
         StringBuilder methods = new StringBuilder(2048);
         switch (kind) {
             case VOID -> methods.append(voidExecute(verb, bodyArg));
@@ -335,39 +378,7 @@ public class OperationGenerator extends AbstractTypeGenerator {
             imports.add(basePackageOf(op.owner()) + Names.packageNameSuffixSchema()
                     + "." + Names.schemaInfoClassName());
         }
-
-        StringBuilder sb = new StringBuilder(4096);
-        sb.append("package ").append(outputPackage(op)).append(";\n\n");
-        for (String imp : imports) {
-            sb.append("import ").append(imp).append(";\n");
-        }
-        sb.append("\n/** Invokes ")
-          .append(isAction ? "action" : "function")
-          .append(" import \"").append(importName).append("\".");
-        if (!overloadSuffix.isEmpty()) {
-            sb.append(" Overload of the same-name function, selected by its parameter names (")
-              .append(op.parameters().stream().map(ParameterModel::name)
-                      .collect(java.util.stream.Collectors.joining(", ")))
-              .append(").");
-        }
-        sb.append("\n */\n");
-        sb.append("public final class ").append(className).append(" {\n\n");
-        sb.append("    private final Context context;\n\n");
-        sb.append("    private final ContextPath contextPath;\n\n");
-        if (isAction) {
-            sb.append("    private final byte[] body;\n\n");
-        }
-        sb.append("    public ").append(className).append("(Context context")
-          .append(constructorParams(op)).append(") {\n");
-        sb.append("        this.context = context;\n");
-        sb.append(constructorBody(importName, op, isAction));
-        if (isAction) {
-            sb.append("        this.body = ").append(bodyArg.equals("body") ? "__body" : "null").append(";\n");
-        }
-        sb.append("    }\n\n");
-        sb.append(methods);
-        sb.append("}\n");
-        return sb.toString();
+        return methods.toString();
     }
 
     /**
@@ -404,6 +415,313 @@ public class OperationGenerator extends AbstractTypeGenerator {
     }
 
     // ------------------------------------------------------------------
+    // Bound operations (decision 96): ops bound to the entity type or an ancestor
+    // ------------------------------------------------------------------
+
+    /** A bound operation surfaced for one entity request type. */
+    public record BoundOp(String opName, boolean isFunction, List<ParameterModel> parameters,
+                          ReturnTypeModel returnType, SchemaModel owner, String castSegment,
+                          String className, String accessorName, String overloadSuffix) {}
+
+    /** Candidate collected before overload grouping. */
+    private record BoundCand(String opName, boolean isFunction, List<ParameterModel> invocationParams,
+                             ReturnTypeModel returnType, SchemaModel owner,
+                             String bindingQualified, String bindingName) {}
+
+    /**
+     * All bound operations whose BINDING parameter (first Parameter) resolves to the given
+     * entity type or one of its ANCESTORS. Ancestor-bound ops carry a qualified cast
+     * segment ({@code .../Derived('x')/N.NS.Base/Op}); ops bound to a SUBTYPE are not
+     * visible on ancestor requests. Same-name bound functions form overload sets selected
+     * by parameter names; identical parameter-name lists and duplicate same-name actions
+     * fail loudly (imports parity). The binding parameter is excluded from
+     * {@link BoundOp#parameters()}.
+     */
+    public List<BoundOp> boundOperationsFor(EntityTypeModel entityType, SchemaModel schema) {
+        initEffectiveSchemas(schema);
+        String selfQualified = schema.namespace() + "." + entityType.name();
+        List<String> ancestors = ancestorCache.computeIfAbsent(selfQualified,
+                k -> ancestorQualifiedNames(entityType, schema));
+        ensureBoundIndex();
+        if (!invalidBindings.isEmpty()) {
+            throw new IllegalStateException("Bound operation '" + invalidBindings.get(0)
+                    + "': the binding parameter must be an entity type — primitive/complex "
+                    + "binding parameters cannot be invoked on an entity request");
+        }
+
+        // candidates for self + ancestors (ancestor-bound ops carry the cast segment)
+        List<BoundCand> candidates = new ArrayList<>(boundCandidatesFor(selfQualified));
+        for (String ancestor : ancestors) {
+            candidates.addAll(boundCandidatesFor(ancestor));
+        }
+
+        // group by name+kind; discover order is deterministic (schema list order)
+        java.util.LinkedHashMap<String, List<BoundCand>> groups = new java.util.LinkedHashMap<>();
+        for (BoundCand c : candidates) {
+            groups.computeIfAbsent(c.opName() + "|" + c.isFunction(), k -> new ArrayList<>()).add(c);
+        }
+
+        List<BoundOp> out = new ArrayList<>();
+        for (List<BoundCand> group : groups.values()) {
+            if (!group.get(0).isFunction()) {
+                if (group.size() > 1) {
+                    throw new IllegalStateException("Bound action '" + group.get(0).opName()
+                            + "' is declared more than once — actions cannot be overloaded "
+                            + "by parameter names");
+                }
+                out.add(toBoundOp(group.get(0), "", selfQualified, entityType));
+                continue;
+            }
+            // overloads identified by the FULL parameter-name list (binding included)
+            java.util.Set<String> identities = new java.util.HashSet<>();
+            for (BoundCand c : group) {
+                String identity = c.bindingName() + ":" + c.invocationParams().stream()
+                        .map(ParameterModel::name).collect(java.util.stream.Collectors.joining(":"));
+                if (!identities.add(identity)) {
+                    throw new IllegalStateException("Bound function '" + c.opName()
+                            + "' has overloads with identical parameter names — they are "
+                            + "indistinguishable in an invocation URL");
+                }
+            }
+            List<String> suffixes = allocateBoundSuffixes(group);
+            for (int i = 0; i < group.size(); i++) {
+                out.add(toBoundOp(group.get(i), suffixes.get(i), selfQualified, entityType));
+            }
+        }
+        return out;
+    }
+
+    // Per-instance caches: bound resolution runs once per entity type on large
+    // metadata — without them ancestor walking is O(entities × chain × allTypes)
+    private final Map<String, List<String>> ancestorCache = new java.util.HashMap<>();
+    private final Map<String, EntityTypeModel> entityTypeByQualifiedNameCache = new java.util.HashMap<>();
+    private Map<String, List<BoundCand>> boundIndex;
+    private List<String> invalidBindings = List.of();
+
+    private List<BoundCand> boundCandidatesFor(String bindingQualified) {
+        return boundIndex.getOrDefault(bindingQualified, List.of());
+    }
+
+    private void ensureBoundIndex() {
+        if (boundIndex != null) {
+            return;
+        }
+        Map<String, List<BoundCand>> index = new java.util.HashMap<>();
+        List<String> invalid = new ArrayList<>();
+        for (SchemaModel s : effectiveSchemas) {
+            for (FunctionModel f : s.functions()) {
+                indexBound(f.isBound(), f.parameters(), f.returnType(), true, f.name(), s, index, invalid);
+            }
+            for (ActionModel a : s.actions()) {
+                indexBound(a.isBound(), a.parameters(), a.returnType(), false, a.name(), s, index, invalid);
+            }
+        }
+        this.boundIndex = index;
+        this.invalidBindings = invalid;
+    }
+
+    private void indexBound(boolean isBound, List<ParameterModel> parameters,
+                            ReturnTypeModel returnType, boolean isFunction, String opName,
+                            SchemaModel owner, Map<String, List<BoundCand>> index, List<String> invalid) {
+        if (!isBound || parameters.isEmpty()) {
+            return;
+        }
+        ParameterModel binding = parameters.get(0);
+        String bindingQualified = qualifiedEntityName(binding.type(), owner);
+        if (bindingQualified == null) {
+            invalid.add(opName);
+            return;
+        }
+        index.computeIfAbsent(bindingQualified, k -> new ArrayList<>())
+             .add(new BoundCand(opName, isFunction, parameters.subList(1, parameters.size()),
+                     returnType, owner, bindingQualified, binding.name()));
+    }
+
+    /** Resolves a type reference to its qualified ENTITY name; null when not an entity. */
+    private String qualifiedEntityName(String typeRef, SchemaModel owner) {
+        String resolved = resolveTypeDefinition(typeRef, owner);
+        if (Names.isPrimitiveType(resolved)) {
+            return null;
+        }
+        String qualified = resolved.contains(".") ? resolved
+                : owner.namespace() + "." + resolved;
+        return Names.resolveTypeKind(qualified, effectiveSchemas) == Names.TypeKind.ENTITY
+                ? qualified : null;
+    }
+
+    /** Qualified names of the base-type chain (nearest first), unresolvable links ignored. */
+    private List<String> ancestorQualifiedNames(EntityTypeModel type, SchemaModel schema) {
+        List<String> out = new ArrayList<>();
+        String baseRef = type.baseType();
+        while (baseRef != null) {
+            String qualified = baseRef.contains(".") ? baseRef
+                    : schema.namespace() + "." + baseRef;
+            EntityTypeModel model = findEntityType(qualified, baseRef);
+            if (model == null) {
+                break;
+            }
+            out.add(qualified);
+            baseRef = model.baseType();
+        }
+        return out;
+    }
+
+    /** Finds an entity type by qualified name; unqualified refs fall back to a unique simple-name match. */
+    private EntityTypeModel findEntityType(String qualified, String originalRef) {
+        EntityTypeModel cached = entityTypeByQualifiedNameCache.get(qualified);
+        if (cached != null) {
+            return cached;
+        }
+        EntityTypeModel found = scanEntityType(qualified, originalRef);
+        if (found != null) {
+            entityTypeByQualifiedNameCache.put(qualified, found);
+        }
+        return found;
+    }
+
+    private EntityTypeModel scanEntityType(String qualified, String originalRef) {
+        for (SchemaModel s : effectiveSchemas) {
+            for (EntityTypeModel e : s.entityTypes()) {
+                if ((s.namespace() + "." + e.name()).equals(qualified)) {
+                    return e;
+                }
+            }
+        }
+        if (!originalRef.contains(".")) {
+            List<EntityTypeModel> hits = new ArrayList<>();
+            for (SchemaModel s : effectiveSchemas) {
+                for (EntityTypeModel e : s.entityTypes()) {
+                    if (e.name().equals(originalRef)) {
+                        hits.add(e);
+                    }
+                }
+            }
+            if (hits.size() > 1) {
+                throw new IllegalStateException("Ambiguous unqualified base type '" + originalRef
+                        + "' — use the namespace-qualified form");
+            }
+            return hits.isEmpty() ? null : hits.get(0);
+        }
+        return null;
+    }
+
+    /** Suffixes derive from the NON-binding parameters; hostile folds get _2/_3 (decision 54). */
+    private static List<String> allocateBoundSuffixes(List<BoundCand> group) {
+        if (group.size() == 1) {
+            return List.of("");
+        }
+        List<String> out = new ArrayList<>(group.size());
+        Set<String> used = new java.util.HashSet<>();
+        for (BoundCand c : group) {
+            String suffix = overloadSuffix(c.invocationParams());
+            String unique = suffix;
+            int n = 2;
+            while (!used.add(unique)) {
+                unique = suffix + "_" + n++;
+            }
+            out.add(unique);
+        }
+        return out;
+    }
+
+    private BoundOp toBoundOp(BoundCand c, String suffix, String selfQualified, EntityTypeModel requestType) {
+        String className = Names.entityClassName(requestType.name()) + Names.capitalize(c.opName())
+                + (c.isFunction() ? "FunctionRequest" : "ActionRequest") + suffix;
+        String accessorName = Names.toJavaFieldName(c.opName()) + suffix;
+        String cast = c.bindingQualified().equals(selfQualified) ? null : c.bindingQualified();
+        return new BoundOp(c.opName(), c.isFunction(), c.invocationParams(), c.returnType(),
+                c.owner(), cast, className, accessorName, suffix);
+    }
+
+    /** Full file content for a bound-operation request class. */
+    public String generateBoundOperationRequest(BoundOp bound, EntityTypeModel requestType,
+                                                SchemaModel containerSchema) {
+        initEffectiveSchemas(containerSchema);
+        if (!bound.isFunction()) {
+            validateBoundAction(bound);
+        } else {
+            validateFunctionParameters(bound.parameters(), bound.opName(), bound.owner());
+        }
+        ResolvedOp op = new ResolvedOp(bound.opName(), bound.parameters(), bound.returnType(),
+                bound.isFunction(), bound.owner());
+        Kind kind = resultKind(op);
+        boolean isAction = !bound.isFunction();
+
+        Set<String> imports = new TreeSet<>();
+        imports.add("io.github.akbarhusain.odata.runtime.client.EntityOperations");
+        imports.add("io.github.akbarhusain.odata.runtime.entity.Context");
+        imports.add("io.github.akbarhusain.odata.runtime.entity.ContextPath");
+        imports.add("io.github.akbarhusain.odata.runtime.entity.OperationPath");
+        imports.add("io.github.akbarhusain.odata.runtime.http.HttpMethod");
+        collectParameterImports(op.parameters(), op.owner(), imports);
+
+        String verb = bound.isFunction() ? "GET" : "POST";
+        String bodyArg = isAction && !op.parameters().isEmpty() ? "body" : "null";
+        String methods = emitExecuteMethods(op, kind, verb, bodyArg, imports);
+
+        StringBuilder sb = new StringBuilder(4096);
+        sb.append("package ").append(boundFilePackage(bound)).append(";\n\n");
+        for (String imp : imports) {
+            sb.append("import ").append(imp).append(";\n");
+        }
+        sb.append("\n/** Invokes the bound ").append(isAction ? "action" : "function")
+          .append(" \"").append(bound.opName()).append("\" on ")
+          .append(Names.entityClassName(requestType.name()))
+          .append(" requests (keyed path).");
+        if (!bound.overloadSuffix().isEmpty()) {
+            sb.append(" Overload selected by parameter names.");
+        }
+        sb.append("\n */\n");
+        sb.append("public final class ").append(bound.className()).append(" {\n\n");
+        sb.append("    private final Context context;\n\n");
+        sb.append("    private final ContextPath contextPath;\n\n");
+        if (isAction) {
+            sb.append("    private final byte[] body;\n\n");
+        }
+        sb.append("    public ").append(bound.className()).append("(Context context, ContextPath basePath")
+          .append(constructorParams(op)).append(") {\n");
+        sb.append("        this.context = context;\n");
+        sb.append(constructorBody("basePath", bound.castSegment(), bound.opName(), op, isAction));
+        if (isAction) {
+            sb.append("        this.body = ").append(bodyArg.equals("body") ? "__body" : "null").append(";\n");
+        }
+        sb.append("    }\n\n");
+        sb.append(methods);
+        sb.append("}\n");
+        return sb.toString();
+    }
+
+    /** A void bound action still serializes its parameters — validation mirrors imports (M3 parity). */
+    private void validateBoundAction(BoundOp bound) {
+        // actions accept any parameter type; nothing extra to enforce today
+    }
+
+    public String boundFilePackage(BoundOp bound) {
+        return basePackageOf(bound.owner()) + Names.packageNameSuffixOperation();
+    }
+
+    public String boundClassImportLine(BoundOp bound) {
+        return boundFilePackage(bound) + "." + bound.className();
+    }
+
+    /** Accessor-method source for embedding on the entity request class. */
+    public String boundAccessorMethod(BoundOp bound) {
+        StringBuilder sig = new StringBuilder();
+        StringBuilder args = new StringBuilder("context, contextPath");
+        for (ParameterModel p : bound.parameters()) {
+            if (sig.length() > 0) {
+                sig.append(", ");
+            }
+            String field = Names.toJavaFieldName(p.name());
+            sig.append(parameterJavaType(p, bound.owner())).append(' ').append(field);
+            args.append(", ").append(field);
+        }
+        return "    public " + bound.className() + " " + bound.accessorName() + "(" + sig + ") {\n"
+             + "        return new " + bound.className() + "(" + args + ");\n"
+             + "    }\n\n";
+    }
+
+    // ------------------------------------------------------------------
     // Constructors: typed URL literals (functions) / JSON body (actions)
     // ------------------------------------------------------------------
 
@@ -416,7 +734,17 @@ public class OperationGenerator extends AbstractTypeGenerator {
         return sb.toString();
     }
 
-    private String constructorBody(String importName, ResolvedOp op, boolean isAction) {
+    /**
+     * Builds the constructor body. {@code pathBaseExpr} is the expression yielding the
+     * starting {@link ContextPath} ({@code context.basePath()} for imports, the
+     * {@code basePath} constructor parameter for bound operations); {@code castSegment}
+     * is the qualified type-cast segment for ancestor-bound operations (null when the op
+     * is bound to the request's own type); {@code opSegmentName} is the import/operation
+     * name rendered as the final invocation segment.
+     */
+    private String constructorBody(String pathBaseExpr, String castSegment, String opSegmentName,
+                                   ResolvedOp op, boolean isAction) {
+        String base = pathBaseExpr + (castSegment == null ? "" : ".addSegment(\"" + castSegment + "\")");
         StringBuilder b = new StringBuilder();
         if (!isAction) {
             // Collection parameters ride parameter aliases: the segment pair references
@@ -458,12 +786,12 @@ public class OperationGenerator extends AbstractTypeGenerator {
                 }
             }
             if (aliases.isEmpty()) {
-                b.append("        this.contextPath = context.basePath().addSegment(OperationPath.segment(\"")
-                  .append(importName).append("\", __pairs.toArray(new String[0])));\n");
+                b.append("        this.contextPath = " + base + ".addSegment(OperationPath.segment(\"")
+                  .append(opSegmentName).append("\", __pairs.toArray(new String[0])));\n");
                 return b.toString();
             }
-            b.append("        ContextPath __path = context.basePath().addSegment(OperationPath.segment(\"")
-              .append(importName).append("\", __pairs.toArray(new String[0])));\n");
+            b.append("        ContextPath __path = " + base + ".addSegment(OperationPath.segment(\"")
+              .append(opSegmentName).append("\", __pairs.toArray(new String[0])));\n");
             for (AliasEmission a : aliases) {
                 String add = "__path = __path.addQuery(\"" + a.alias()
                         + "\", OperationPath.collectionParameter(" + a.field() + ", \""
@@ -483,8 +811,8 @@ public class OperationGenerator extends AbstractTypeGenerator {
         for (ParameterModel p : op.parameters()) {
             appendRequiredGuard(b, p, Names.toJavaFieldName(p.name()), op);
         }
-        b.append("        this.contextPath = context.basePath().addSegment(\"")
-          .append(importName).append("\");\n");
+        b.append("        this.contextPath = " + base + ".addSegment(\"")
+          .append(opSegmentName).append("\");\n");
         b.append("        java.util.Map<String, Object> __params = new java.util.LinkedHashMap<>();\n");
         for (ParameterModel p : op.parameters()) {
             String field = Names.toJavaFieldName(p.name());

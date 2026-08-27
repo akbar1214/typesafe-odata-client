@@ -6,6 +6,7 @@ import io.github.akbarhusain.odata.core.model.CsdlModel.NavigationPropertyModel;
 import io.github.akbarhusain.odata.core.model.CsdlModel.PropertyModel;
 import io.github.akbarhusain.odata.core.model.CsdlModel.SchemaModel;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -68,6 +69,18 @@ public class RequestGenerator extends AbstractTypeGenerator {
             }
         }
 
+        // Bound operations (decision 96): accessors embed on the entity request; the op
+        // request classes live in the owning schema's .operation package
+        OperationGenerator boundGen = new OperationGenerator(basePackage, schemaPackages,
+                defaultBasePackage, allSchemas == null || allSchemas.isEmpty()
+                        ? List.of(schema) : allSchemas);
+        List<OperationGenerator.BoundOp> boundOps = boundGen.boundOperationsFor(entityType, schema);
+        List<String> boundAccessors = new ArrayList<>();
+        for (OperationGenerator.BoundOp b : boundOps) {
+            boundAccessors.add(boundGen.boundAccessorMethod(b));
+            imports.add(boundGen.boundClassImportLine(b));
+        }
+
         for (String imp : imports) {
             sb.append("import ").append(imp).append(";\n");
         }
@@ -87,6 +100,11 @@ public class RequestGenerator extends AbstractTypeGenerator {
         for (NavigationPropertyModel nav : resolvedNavs(entityType)) {
             if (isComplexTypeNav(nav, schema)) continue;
             sb.append(generateNavMethod(nav, schema));
+        }
+
+        // Bound operation accessors (decision 96)
+        for (String accessor : boundAccessors) {
+            sb.append(accessor);
         }
 
         // $ref methods for collection navigation properties — only for entity nav targets

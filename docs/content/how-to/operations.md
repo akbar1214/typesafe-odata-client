@@ -5,6 +5,31 @@ generated as typed request classes in the `.operation` package. The container ex
 one accessor per import; call `execute()` (or `executeAsync()`) on the returned request
 to invoke the operation.
 
+## Bound Operations
+
+Operations whose **binding parameter** (the first `Parameter`) is an entity type
+surface as accessors on that entity's request — with the entity's keyed path as the
+invocation context. They compose with the keyed accessor API (decision 95):
+
+```java
+// Bound action on Person — POST People('russellwhyte')/ShareTrip
+client.people("russellwhyte").shareTrip("friend", 1).execute();
+
+// Bound function on Trip — GET Trips(1)/GetInvolvedPeople
+client.people("russellwhyte").trips(1).getInvolvedPeople().execute();
+
+// Result handling matches imports: Optional<T> for nullable returns,
+// List<T> for collections, typed entities/complexes otherwise
+List<Trip> trips = client.people("russellwhyte").getFriendsTrips("russellwhyte").execute();
+```
+
+Ops declared on a **base type** also surface on subtype requests, with a type-cast
+segment in the URL (`.../Flight('x')/NS.PlanItem/Op` when the op is bound to
+`PlanItem`). Same-name bound functions overload by parameter names (per-overload
+accessors like `getByName(...)`); identical parameter-name lists and duplicate
+same-name actions fail at generation. Collection-bound operations
+(`Collection(NS.Document)` binding) are not yet supported.
+
 ## Function Imports
 
 TripPin models `GetNearestAirport` as a composable function import taking `lat`/`lon`
