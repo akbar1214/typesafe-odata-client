@@ -55,6 +55,14 @@ public final class Names {
         return sanitizeClassName(containerName);
     }
 
+    public static String functionRequestClassName(String importName) {
+        return sanitizeClassName(importName) + "FunctionRequest";
+    }
+
+    public static String actionRequestClassName(String importName) {
+        return sanitizeClassName(importName) + "ActionRequest";
+    }
+
     public static String schemaInfoClassName() {
         return "ServiceSchemaInfo";
     }
@@ -81,6 +89,10 @@ public final class Names {
 
     public static String packageNameSuffixContainer() {
         return ".container";
+    }
+
+    public static String packageNameSuffixOperation() {
+        return ".operation";
     }
 
     public static String packageNameSuffixSchema() {

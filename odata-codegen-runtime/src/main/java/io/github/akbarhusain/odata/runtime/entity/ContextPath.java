@@ -314,7 +314,7 @@ public record ContextPath(
         return String.valueOf(value);
     }
 
-    private static String formatTypedValue(Object value, String edmType) {
+    static String formatTypedValue(Object value, String edmType) {
         return switch (edmType) {
             case "Edm.String" -> "'" + encodeKeyValue(String.valueOf(value)) + "'";
             case "Edm.Guid" -> String.valueOf(value);
