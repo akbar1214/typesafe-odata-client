@@ -64,6 +64,13 @@ public class RequestGenerator extends AbstractTypeGenerator {
             String elementClassName = Names.simpleNameFromFullName(elementType);
             if (isCollection) {
                 imports.add(basePackageForType(elementType, schema) + Names.packageNameSuffixCollectionRequest() + "." + Names.collectionRequestClassName(elementClassName));
+                // Keyed nav overload (decision 95) constructs the target's ENTITY request
+                // too — for cross-schema targets that class lives in another package and
+                // needs its own import (same-package targets resolve without one)
+                EntityTypeModel navTarget = resolveEntityType(elementType, schema);
+                if (navTarget != null && !keyParamSpecs(navTarget, schema).isEmpty()) {
+                    imports.add(basePackageForType(elementType, schema) + Names.packageNameSuffixEntityRequest() + "." + Names.entityRequestClassName(elementClassName));
+                }
             } else {
                 imports.add(basePackageForType(elementType, schema) + Names.packageNameSuffixEntityRequest() + "." + Names.entityRequestClassName(elementClassName));
             }
@@ -79,6 +86,9 @@ public class RequestGenerator extends AbstractTypeGenerator {
         for (OperationGenerator.BoundOp b : boundOps) {
             boundAccessors.add(boundGen.boundAccessorMethod(b));
             imports.add(boundGen.boundClassImportLine(b));
+            // Accessor signatures carry the op's parameter types — structured/enum
+            // classes and List for collections need their own imports on the request
+            boundGen.collectParameterImports(b.parameters(), b.owner(), imports);
         }
 
         for (String imp : imports) {

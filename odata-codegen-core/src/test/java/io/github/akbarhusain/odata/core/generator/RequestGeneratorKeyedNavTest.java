@@ -130,6 +130,39 @@ class RequestGeneratorKeyedNavTest {
                 "the plain collection accessor is still emitted exactly once");
     }
 
+    @Test
+    void crossSchemaKeyedNavImportsTargetEntityRequest() {
+        // The keyed overload constructs the target's ENTITY request; for cross-schema
+        // targets (distinct output packages) that class lives in another package and
+        // needs its own import — the nav import loop previously added only the
+        // CollectionRequest class, so the keyed overload referenced TagEntityRequest
+        // unimported (same-package targets masked this)
+        CsdlModel.SchemaModel a = new CsdlModel.SchemaModel("A.NS", null,
+                List.of(new CsdlModel.EntityTypeModel("Item", null, false, false, false,
+                        List.of(new CsdlModel.KeyModel(List.of("ItemId"))),
+                        List.of(new CsdlModel.PropertyModel("ItemId", "Edm.Int32", false, null, List.of())),
+                        List.of(new CsdlModel.NavigationPropertyModel("Tags",
+                                "Collection(B.NS.Tag)", null, false, false, List.of(), List.of())))),
+                List.of(), List.of(), List.of(), List.of(), List.of(), List.of());
+        CsdlModel.SchemaModel b = new CsdlModel.SchemaModel("B.NS", null,
+                List.of(new CsdlModel.EntityTypeModel("Tag", null, false, false, false,
+                        List.of(new CsdlModel.KeyModel(List.of("TagId"))),
+                        List.of(new CsdlModel.PropertyModel("TagId", "Edm.Int32", false, null, List.of())),
+                        List.of())),
+                List.of(), List.of(), List.of(), List.of(), List.of(), List.of());
+        CsdlModel m = new CsdlModel(List.of(a, b), List.of());
+
+        String code = new RequestGenerator("app",
+                java.util.Map.of("A.NS", "app", "B.NS", "other"), "app", m.schemas())
+                .generateEntityRequest(a.entityTypes().get(0), a);
+
+        assertTrue(code.contains("import other.entity.request.TagEntityRequest;"),
+                "keyed overload references TagEntityRequest cross-schema: " + code);
+        assertTrue(code.contains("import other.collection.request.TagCollectionRequest;"));
+        assertTrue(code.contains("public TagEntityRequest tags(Integer tagId)"),
+                "the keyed overload is emitted for the cross-schema keyed target");
+    }
+
     private static CsdlModel load(String path) {
         try (InputStream is = RequestGeneratorKeyedNavTest.class.getResourceAsStream(path)) {
             return new StaxCsdlParser().parse(is);

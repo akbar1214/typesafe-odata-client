@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -36,6 +37,46 @@ class RequestGeneratorBoundOpsTest {
                 "import com.example.trippin.operation.PersonShareTripActionRequest;"));
         // bound functions too
         assertTrue(code.contains("public PersonGetFriendsTripsFunctionRequest getFriendsTrips(String userName)"));
+    }
+
+    @Test
+    void boundAccessorImportsParameterTypes() {
+        // The accessor signature uses parameterJavaType — structured/enum/collection
+        // parameter types need their own imports on the entity request, which only
+        // imported the op-request class itself
+        CsdlModel.SchemaModel s = new CsdlModel.SchemaModel("NS", null,
+                List.of(new CsdlModel.EntityTypeModel("Doc", null, false, false, false,
+                        List.of(new CsdlModel.KeyModel(List.of("Id"))),
+                        List.of(new CsdlModel.PropertyModel("Id", "Edm.Int32", false, null, List.of())),
+                        List.of())),
+                List.of(new CsdlModel.ComplexTypeModel("Address", null, false, false,
+                        List.of(new CsdlModel.PropertyModel("Street", "Edm.String", false, null, List.of())),
+                        List.of())),
+                List.of(new CsdlModel.EnumTypeModel("Color", "Edm.Int32", false,
+                        List.of(new CsdlModel.EnumMemberModel("Red", 0L)))),
+                List.of(),
+                List.of(
+                        new CsdlModel.FunctionModel("Rate", true, false, null,
+                                List.of(new CsdlModel.ParameterModel("doc", "NS.Doc", false),
+                                        new CsdlModel.ParameterModel("color", "NS.Color", false)),
+                                new CsdlModel.ReturnTypeModel("Edm.Double", false)),
+                        new CsdlModel.FunctionModel("RateAll", true, false, null,
+                                List.of(new CsdlModel.ParameterModel("doc", "NS.Doc", false),
+                                        new CsdlModel.ParameterModel("addrs", "Collection(NS.Address)", false)),
+                                new CsdlModel.ReturnTypeModel("Edm.Int32", false))),
+                List.of(), List.of());
+
+        String code = new RequestGenerator("app", Map.of(), "app", List.of(s))
+                .generateEntityRequest(s.entityTypes().get(0), s);
+
+        assertTrue(code.contains("import app.enums.Color;"),
+                "enum parameter type needs its import on the entity request: " + code);
+        assertTrue(code.contains("import app.complex.Address;"),
+                "structured parameter type needs its import on the entity request");
+        assertTrue(code.contains("import java.util.List;"),
+                "collection parameter needs List for the accessor signature");
+        assertTrue(code.contains("public DocRateFunctionRequest rate(Color color)"));
+        assertTrue(code.contains("public DocRateAllFunctionRequest rateAll(List<Address> addrs)"));
     }
 
     @Test

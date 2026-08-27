@@ -396,7 +396,7 @@ public class OperationGenerator extends AbstractTypeGenerator {
      * is collection-typed. Edm primitives need nothing: temporal/decimal types map to
      * fully-qualified {@code java.*} names.
      */
-    private void collectParameterImports(List<ParameterModel> parameters, SchemaModel owner,
+    public void collectParameterImports(List<ParameterModel> parameters, SchemaModel owner,
                                          Set<String> imports) {
         boolean anyCollection = false;
         for (ParameterModel p : parameters) {
