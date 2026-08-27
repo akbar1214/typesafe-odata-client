@@ -88,6 +88,11 @@
   "has overloads with identical parameter names"); a derived-type request sees ancestor-bound
   overloads via the cast segment; bound actions overload by binding parameter (one per binding type);
   only overloads identical in names AND types still fail generation
+- **Typed `select()`/`expand()` on entity requests** (keyed accessors): `client.people("x").expand(...)`
+  / `.select(...)` now exist — $select/$expand are the query options valid on a single-entity GET
+  (the docs promised this when keyed accessors shipped; the generator never emitted it); nested
+  `NavQuery` expands render `Containers(id)?$expand=Folders($expand=Files)`; filter/top/skip/orderby
+  stay collection-only
 
 
 **Core Features:**
