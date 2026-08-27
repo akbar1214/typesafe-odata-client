@@ -98,19 +98,17 @@ class OperationImportValidationTest {
     }
 
     @Test
-    void collectionOfStructuredElementsStillFailsNamingImportAndParameter() {
-        // Collection parameters of PRIMITIVES/ENUMS now pass via parameter aliases
-        // (OperationImportCollectionParamTest); structured elements cannot be rendered
-        // as alias literals either, and must fail generation naming import+parameter
-        CsdlModel.ComplexTypeModel address = new CsdlModel.ComplexTypeModel("Address", null,
-                false, false, List.of(), List.of());
-        CsdlModel.FunctionModel coll = new CsdlModel.FunctionModel("ByAddr", false, false, null,
-                List.of(new CsdlModel.ParameterModel("addrs", "Collection(NS.Address)", false)),
+    void unresolvableFunctionParameterTypeStillFailsNamingImportAndParameter() {
+        // Structured parameters now ride JSON parameter aliases (URL Conventions §5.1.1,
+        // see OperationImportCollectionParamTest); only types that do not resolve to a
+        // known kind (primitive, enum, complex, entity) still fail generation
+        CsdlModel.FunctionModel bad = new CsdlModel.FunctionModel("ByWho", false, false, null,
+                List.of(new CsdlModel.ParameterModel("who", "Ns.Nonexistent", false)),
                 new CsdlModel.ReturnTypeModel("Edm.Int32", false));
         CsdlModel.SchemaModel ns = new CsdlModel.SchemaModel("NS", null, List.of(),
-                List.of(address), List.of(), List.of(), List.of(coll), List.of(),
+                List.of(), List.of(), List.of(), List.of(bad), List.of(),
                 List.of(new CsdlModel.ContainerModel("C", List.of(), List.of(),
-                        List.of(new CsdlModel.FunctionImportModel("byAddr", "NS.ByAddr", null, false)),
+                        List.of(new CsdlModel.FunctionImportModel("byWho", "NS.ByWho", null, false)),
                         List.of())));
         CsdlModel m = model(ns);
         IllegalStateException ex = assertThrows(IllegalStateException.class, () ->
@@ -118,9 +116,9 @@ class OperationImportValidationTest {
                         .generateFunctionImportRequest(
                                 m.schemas().get(0).containers().get(0).functionImports().get(0),
                                 m.schemas().get(0)));
-        assertTrue(ex.getMessage().contains("byAddr"), ex.getMessage());
-        assertTrue(ex.getMessage().contains("addrs"), "parameter must be named: " + ex.getMessage());
-        assertTrue(ex.getMessage().contains("Collection(NS.Address)"),
+        assertTrue(ex.getMessage().contains("byWho"), ex.getMessage());
+        assertTrue(ex.getMessage().contains("who"), "parameter must be named: " + ex.getMessage());
+        assertTrue(ex.getMessage().contains("Ns.Nonexistent"),
                 "the offending type must be named: " + ex.getMessage());
     }
 }

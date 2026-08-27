@@ -129,4 +129,82 @@ class OperationImportCollectionParamTest {
         assertTrue(code.contains("import java.util.List;"),
                 "the container needs List for the accessor signature");
     }
+
+    // ------------------------------------------------------------------
+    // Structured parameters (single complex/entity + Collection of them) — the
+    // alias value is the SERIALIZED JSON of the instance (URL Conventions §5.1.1:
+    // complex parameter values MUST use parameter aliases)
+    // ------------------------------------------------------------------
+
+    private static CsdlModel structuredModel(String fnName, List<CsdlModel.ParameterModel> params) {
+        CsdlModel.ComplexTypeModel address = new CsdlModel.ComplexTypeModel("Address", null,
+                false, false,
+                List.of(new CsdlModel.PropertyModel("Street", "Edm.String", false, null, List.of())),
+                List.of());
+        CsdlModel.FunctionModel f = new CsdlModel.FunctionModel(fnName, false, false, null, params,
+                new CsdlModel.ReturnTypeModel("Edm.Int32", false));
+        CsdlModel.ContainerModel container = new CsdlModel.ContainerModel("DefaultContainer",
+                List.of(), List.of(),
+                List.of(new CsdlModel.FunctionImportModel("byAddress", "NS." + fnName, null, false)),
+                List.of());
+        CsdlModel.SchemaModel ns = new CsdlModel.SchemaModel("NS", null, List.of(),
+                List.of(address), List.of(), List.of(), List.of(f), List.of(), List.of(container));
+        return new CsdlModel(List.of(ns), List.of());
+    }
+
+    @Test
+    void structuredParameterRidesJsonAlias() {
+        String code = generate(structuredModel("ByAddress",
+                List.of(new CsdlModel.ParameterModel("Address", "NS.Address", false))));
+        assertTrue(code.contains("public ByAddressFunctionRequest(Context context, Address address)"),
+                "structured parameter maps to the generated complex type: " + code);
+        assertTrue(code.contains("import app.complex.Address;"));
+        assertTrue(code.contains("__pairs.add(\"Address=@p0\");"),
+                "the SEGMENT pair references the alias with the CSDL parameter name");
+        assertTrue(code.contains("addQuery(\"@p0\", EntityOperations.jsonParameter(address))"),
+                "the alias value is the serialized JSON of the complex instance");
+    }
+
+    @Test
+    void collectionOfStructuredElementsRidesJsonArrayAlias() {
+        String code = generate(structuredModel("ByAddresses",
+                List.of(new CsdlModel.ParameterModel("addrs", "Collection(NS.Address)", false))));
+        assertTrue(code.contains("public ByAddressFunctionRequest(Context context, List<Address> addrs)"));
+        assertTrue(code.contains("__pairs.add(\"addrs=@p0\");"));
+        assertTrue(code.contains("addQuery(\"@p0\", EntityOperations.jsonParameter(addrs))"),
+                "a structured collection serializes as one JSON array literal");
+        assertFalse(code.contains("OperationPath.collectionParameter(addrs"),
+                "structured elements are not formatted as inline literals");
+    }
+
+    @Test
+    void nullableStructuredParameterOmitsPairAndAliasWhenNull() {
+        String code = generate(structuredModel("ByAddress",
+                List.of(new CsdlModel.ParameterModel("Address", "NS.Address", true))));
+        assertTrue(code.contains("if (address != null) {\n            __pairs.add(\"Address=@p0\");"),
+                "null omits the segment pair");
+        assertTrue(code.contains("if (address != null) {\n            __path = __path.addQuery(\"@p0\", "
+                + "EntityOperations.jsonParameter(address))"), "null omits the alias query option");
+    }
+
+    @Test
+    void requiredStructuredParameterKeepsNonNullGuard() {
+        String code = generate(structuredModel("ByAddress",
+                List.of(new CsdlModel.ParameterModel("Address", "NS.Address", false))));
+        assertTrue(code.contains(
+                "throw new IllegalArgumentException(\"Parameter 'Address' is non-nullable and must not be null\")"),
+                "a non-nullable structured parameter still guards against null like scalars do");
+    }
+
+    @Test
+    void scalarAndStructuredParamsMixPositionally() {
+        String code = generate(structuredModel("ByAddress",
+                List.of(new CsdlModel.ParameterModel("min", "Edm.Double", false),
+                        new CsdlModel.ParameterModel("Address", "NS.Address", false))));
+        assertTrue(code.contains("\"min=\" + OperationPath.parameter(min, \"Edm.Double\")"),
+                "scalars stay inline");
+        assertTrue(code.contains("__pairs.add(\"Address=@p0\");"));
+        assertTrue(code.contains("EntityOperations.jsonParameter(address))"));
+        assertFalse(code.contains("@p1"), "aliases are numbered per alias parameter only");
+    }
 }

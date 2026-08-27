@@ -218,20 +218,21 @@ public class OperationGenerator extends AbstractTypeGenerator {
                                             SchemaModel owner) {
         for (ParameterModel p : parameters) {
             // Collection parameters pass via parameter ALIASES (Name(param=@p)?@p=[...]);
-            // the ELEMENT must still be a primitive-or-enum literal — structured elements
-            // have no alias-literal form (lesson 170, amended for collections)
+            // the element must be a primitive-or-enum inline literal OR a structured type
+            // — structured singles and structured collections ride JSON parameter aliases
             String element = Names.isCollectionType(p.type())
                     ? Names.unwrapCollectionType(p.type()) : p.type();
             String resolved = resolveTypeDefinition(element, owner);
+            Names.TypeKind kind = Names.resolveTypeKind(resolved, effectiveSchemas);
             boolean primitive = Names.isPrimitiveType(resolved);
-            boolean enumType = !primitive
-                    && Names.resolveTypeKind(resolved, effectiveSchemas) == Names.TypeKind.ENUM;
-            if (!primitive && !enumType) {
+            boolean enumType = !primitive && kind == Names.TypeKind.ENUM;
+            boolean structured = kind == Names.TypeKind.COMPLEX || kind == Names.TypeKind.ENTITY;
+            if (!primitive && !enumType && !structured) {
                 throw new IllegalStateException("FunctionImport '" + importName
                         + "': parameter '" + p.name() + "' of type '" + p.type()
-                        + "' cannot be passed to a function (only Edm primitives and enums are "
-                        + "legal function-parameter literals, including as collection-alias "
-                        + "elements)");
+                        + "' cannot be passed to a function (parameter types must resolve "
+                        + "to an Edm primitive, enum, complex, or entity type; structured "
+                        + "values travel as JSON parameter aliases)");
             }
         }
     }
@@ -747,20 +748,31 @@ public class OperationGenerator extends AbstractTypeGenerator {
         String base = pathBaseExpr + (castSegment == null ? "" : ".addSegment(\"" + castSegment + "\")");
         StringBuilder b = new StringBuilder();
         if (!isAction) {
-            // Collection parameters ride parameter aliases: the segment pair references
+            // Non-inlineable parameters ride parameter aliases: the segment pair references
             // the alias, the value rides a query option appended after the segment
-            // (contextPath is a blank final — alias queries chain through a local)
-            record AliasEmission(String alias, String field, String elementEdmType, boolean nullable) {}
+            // (contextPath is a blank final — alias queries chain through a local).
+            // Collections of primitives/enums render as inline element literals inside
+            // brackets; structured singles/collections serialize to a JSON literal
+            // (URL Conventions §5.1.1: complex parameter values MUST use aliases)
+            record AliasEmission(String alias, String field, String valueExpr, boolean nullable) {}
             List<AliasEmission> aliases = new ArrayList<>();
             int aliasIndex = 0;
 
             b.append("        java.util.List<String> __pairs = new java.util.ArrayList<>();\n");
             for (ParameterModel p : op.parameters()) {
                 String field = Names.toJavaFieldName(p.name());
-                if (Names.isCollectionType(p.type())) {
-                    String elementEdmType = qualifiedEdmName(resolveTypeDefinition(
-                            Names.unwrapCollectionType(p.type()), op.owner()), op.owner());
+                boolean isCollection = Names.isCollectionType(p.type());
+                String element = isCollection ? Names.unwrapCollectionType(p.type()) : p.type();
+                String resolvedElement = resolveTypeDefinition(element, op.owner());
+                Names.TypeKind elementKind = Names.resolveTypeKind(resolvedElement, effectiveSchemas);
+                boolean structured = elementKind == Names.TypeKind.COMPLEX
+                        || elementKind == Names.TypeKind.ENTITY;
+                if (isCollection || structured) {
                     String alias = "@p" + aliasIndex++;
+                    String valueExpr = structured
+                            ? "EntityOperations.jsonParameter(" + field + ")"
+                            : "OperationPath.collectionParameter(" + field + ", \""
+                                    + qualifiedEdmName(resolvedElement, op.owner()) + "\")";
                     if (p.nullable()) {
                         b.append("        if (").append(field).append(" != null) {\n")
                          .append("            __pairs.add(\"").append(p.name()).append('=')
@@ -771,11 +783,10 @@ public class OperationGenerator extends AbstractTypeGenerator {
                         b.append("        __pairs.add(\"").append(p.name()).append('=')
                          .append(alias).append("\");\n");
                     }
-                    aliases.add(new AliasEmission(alias, field, elementEdmType, p.nullable()));
+                    aliases.add(new AliasEmission(alias, field, valueExpr, p.nullable()));
                     continue;
                 }
-                String literalEdmType = qualifiedEdmName(
-                        resolveTypeDefinition(p.type(), op.owner()), op.owner());
+                String literalEdmType = qualifiedEdmName(resolvedElement, op.owner());
                 if (p.nullable()) {
                     b.append("        if (").append(field).append(" != null) {\n");
                     appendPairAdd(b, p.name(), field, literalEdmType, "            ");
@@ -793,9 +804,8 @@ public class OperationGenerator extends AbstractTypeGenerator {
             b.append("        ContextPath __path = " + base + ".addSegment(OperationPath.segment(\"")
               .append(opSegmentName).append("\", __pairs.toArray(new String[0])));\n");
             for (AliasEmission a : aliases) {
-                String add = "__path = __path.addQuery(\"" + a.alias()
-                        + "\", OperationPath.collectionParameter(" + a.field() + ", \""
-                        + a.elementEdmType() + "\"));\n";
+                String add = "__path = __path.addQuery(\"" + a.alias() + "\", "
+                        + a.valueExpr() + ");\n";
                 if (a.nullable()) {
                     b.append("        if (").append(a.field()).append(" != null) {\n")
                      .append("            ").append(add)

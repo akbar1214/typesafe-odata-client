@@ -95,10 +95,26 @@ Integer hits = client.byTags(List.of("hiking", "surfing")).execute();
 ```
 
 Nullable collection parameters may be passed null (both the pair and the alias are
-omitted); required ones throw at construction when null. Structured parameters
-(complex types, entities), standalone or as collection elements, still fail
-generation with the import and parameter named — they have no URL literal form
-(use an action instead; actions accept any parameter type in their JSON body).
+omitted); required ones throw at construction when null.
+
+Structured parameters — complex types (and entities) as single values or collection
+elements — also ride **parameter aliases**, with the alias value being the serialized
+JSON of the instance (URL Conventions §5.1.1 requires complex parameter values to use
+aliases):
+
+```java
+// given <Function Name="Near"><Parameter Name="addr" Type="NS.Address"/>
+Address here = new Address().withStreet("1 Main St").withCity("Springfield");
+int hits = client.near(here).execute();
+// GET .../Near(addr=@p0)?@p0={"Street":"1 Main St","City":"Springfield"}
+
+// Collection(NS.Address) → List<Address>, one JSON array alias
+int visited = client.visitAll(List.of(a, b)).execute();
+// GET .../VisitAll(addrs=@p0)?@p0=[{...},{...}]
+```
+
+Nullable structured parameters may be passed null (pair and alias omitted);
+required ones throw at construction when null.
 
 ### Overloaded Functions
 

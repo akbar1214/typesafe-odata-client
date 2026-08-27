@@ -68,6 +68,15 @@ class OperationImportsHostileParamsCompilationTest {
                 <Parameter Name="scores" Type="Collection(Edm.Int32)" Nullable="true"/>
                 <ReturnType Type="Edm.Int32" Nullable="false"/>
               </Function>
+              <Function Name="NearAddresses">
+                <Parameter Name="addr" Type="NS.Address" Nullable="false"/>
+                <Parameter Name="alt" Type="NS.Address" Nullable="true"/>
+                <ReturnType Type="Edm.Int32" Nullable="false"/>
+              </Function>
+              <Function Name="VisitAll">
+                <Parameter Name="addrs" Type="Collection(NS.Address)" Nullable="false"/>
+                <ReturnType Type="Edm.Int32" Nullable="false"/>
+              </Function>
               <Action Name="ShipTo">
                 <Parameter Name="addr" Type="NS.Address" Nullable="false"/>
                 <ReturnType Type="Edm.Int32" Nullable="false"/>
@@ -86,6 +95,8 @@ class OperationImportsHostileParamsCompilationTest {
                 <FunctionImport Name="allPeople" Function="NS.AllPeople"/>
                 <FunctionImport Name="byTags" Function="NS.ByTags"/>
                 <FunctionImport Name="byScores" Function="NS.ByScores"/>
+                <FunctionImport Name="nearAddresses" Function="NS.NearAddresses"/>
+                <FunctionImport Name="visitAll" Function="NS.VisitAll"/>
                 <ActionImport Name="shipTo" Action="NS.ShipTo"/>
                 <ActionImport Name="addTags" Action="NS.AddTags"/>
                 <ActionImport Name="rename" Action="NS.Rename"/>
@@ -137,6 +148,24 @@ class OperationImportsHostileParamsCompilationTest {
         assertTrue(byScores.contains(
                 "if (scores != null) {\n            __path = __path.addQuery(\"@p0\", "
                         + "OperationPath.collectionParameter(scores, \"Edm.Int32\"))"));
+        // structured function parameters ride JSON parameter aliases (single + collection)
+        String nearAddresses = Files.readString(tempDir.resolve(
+                "com/example/ops/operation/NearAddressesFunctionRequest.java"));
+        assertTrue(nearAddresses.contains(
+                "public NearAddressesFunctionRequest(Context context, Address addr, Address alt)"),
+                "structured function parameters map to the complex type: " + nearAddresses);
+        assertTrue(nearAddresses.contains("__pairs.add(\"addr=@p0\");"));
+        assertTrue(nearAddresses.contains("EntityOperations.jsonParameter(addr)"),
+                "the alias value is the serialized JSON of the complex instance");
+        assertTrue(nearAddresses.contains(
+                "if (alt != null) {\n            __path = __path.addQuery(\"@p1\", EntityOperations.jsonParameter(alt))"),
+                "nullable structured parameters omit the pair and alias when null");
+        String visitAll = Files.readString(tempDir.resolve(
+                "com/example/ops/operation/VisitAllFunctionRequest.java"));
+        assertTrue(visitAll.contains(
+                "public VisitAllFunctionRequest(Context context, List<Address> addrs)"));
+        assertTrue(visitAll.contains("addQuery(\"@p0\", EntityOperations.jsonParameter(addrs))"),
+                "a structured collection serializes as one JSON array literal");
         String container = Files.readString(tempDir.resolve(
                 "com/example/ops/container/DefaultContainer.java"));
         assertTrue(container.contains("import com.example.ops.enums.Color;"),
@@ -144,6 +173,9 @@ class OperationImportsHostileParamsCompilationTest {
         assertTrue(container.contains("import com.example.ops.complex.Address;"));
         assertTrue(container.contains("public ByTagsFunctionRequest byTags(List<String> tags)"),
                 "container accessors carry collection parameters: " + container);
+        assertTrue(container.contains(
+                "public NearAddressesFunctionRequest nearAddresses(Address addr, Address alt)"),
+                "container accessors carry structured function parameters: " + container);
 
         // ... and the whole client — operations included — compiles against the runtime
         List<File> javaFiles = new ArrayList<>();

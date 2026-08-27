@@ -228,6 +228,38 @@ class OperationGeneratorBoundTest {
     }
 
     @Test
+    void boundFunctionWithStructuredParameterRidesJsonAlias() {
+        CsdlModel.SchemaModel s = syntheticStructuredParam();
+        OperationGenerator gen = new OperationGenerator("app", java.util.Map.of(), "app", List.of(s));
+        OperationGenerator.BoundOp op = gen.boundOperationsFor(s.entityTypes().get(0), s).get(0);
+        String code = gen.generateBoundOperationRequest(op, s.entityTypes().get(0), s);
+
+        assertTrue(code.contains("public PersonRateFunctionRequest(Context context, ContextPath basePath, Address address)"),
+                "structured invocation parameter rides the ctor after basePath: " + snippet(code, "public PersonRateFunctionRequest"));
+        assertTrue(code.contains("import app.complex.Address;"));
+        assertTrue(code.contains("__pairs.add(\"Address=@p0\");"),
+                "bound functions use the same alias mechanism as imports");
+        assertTrue(code.contains("addQuery(\"@p0\", EntityOperations.jsonParameter(address))"));
+    }
+
+    private static CsdlModel.SchemaModel syntheticStructuredParam() {
+        return new CsdlModel.SchemaModel("N.NS", null,
+                List.of(new CsdlModel.EntityTypeModel("Person", null, false, false, false,
+                        List.of(new CsdlModel.KeyModel(List.of("Id"))),
+                        List.of(new CsdlModel.PropertyModel("Id", "Edm.Int32", false, null, List.of())),
+                        List.of())),
+                List.of(new CsdlModel.ComplexTypeModel("Address", null, false, false,
+                        List.of(new CsdlModel.PropertyModel("Street", "Edm.String", false, null, List.of())),
+                        List.of())),
+                List.of(), List.of(),
+                List.of(new CsdlModel.FunctionModel("Rate", true, false, null,
+                        List.of(new CsdlModel.ParameterModel("target", "N.NS.Person", false),
+                                new CsdlModel.ParameterModel("Address", "N.NS.Address", false)),
+                        new CsdlModel.ReturnTypeModel("Edm.Double", false))),
+                List.of(), List.of());
+    }
+
+    @Test
     void nonEntityBindingParameterFailsLoudly() {
         CsdlModel.SchemaModel s = new CsdlModel.SchemaModel("N.NS", null,
                 List.of(new CsdlModel.EntityTypeModel("Doc", null, false, false, false,

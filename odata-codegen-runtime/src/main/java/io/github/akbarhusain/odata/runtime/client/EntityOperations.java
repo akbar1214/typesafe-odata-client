@@ -537,6 +537,27 @@ public class EntityOperations {
         }
     }
 
+    /**
+     * Serializes a structured (complex/entity) function parameter into the JSON literal
+     * for its parameter alias — complex values cannot be embedded inline in the
+     * invocation path, so URL Conventions §5.1.1 requires them to travel as alias query
+     * options. Uses the shared mapper directly, exactly like {@link #buildActionBody}:
+     * parameter values are plain JSON with no entity-specific serialization policy.
+     */
+    public static String jsonParameter(Object value) {
+        if (value == null) {
+            throw new IllegalArgumentException(
+                    "structured parameter value must not be null; nullable parameters must be "
+                            + "omitted from the invocation, not rendered as 'null'");
+        }
+        try {
+            return new String(COLLECTION_MAPPER.writeValueAsBytes(value),
+                    java.nio.charset.StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            throw new ODataException("Failed to serialize structured parameter: " + e.getMessage(), e);
+        }
+    }
+
     private static Map<String, String> contentTypeHeader(byte[] body) {
         return body == null ? null : Map.of("Content-Type", "application/json");
     }
