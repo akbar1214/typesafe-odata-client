@@ -95,10 +95,26 @@ Integer hits = client.byTags(List.of("hiking", "surfing")).execute();
 ```
 
 Nullable collection parameters may be passed null (both the pair and the alias are
-omitted); required ones throw at construction when null. Structured parameters
-(complex types, entities), standalone or as collection elements, still fail
-generation with the import and parameter named — they have no URL literal form
-(use an action instead; actions accept any parameter type in their JSON body).
+omitted); required ones throw at construction when null.
+
+Structured parameters — complex types (and entities) as single values or collection
+elements — also ride **parameter aliases**, with the alias value being the serialized
+JSON of the instance (URL Conventions §5.1.1 requires complex parameter values to use
+aliases):
+
+```java
+// given <Function Name="Near"><Parameter Name="addr" Type="NS.Address"/>
+Address here = new Address().withStreet("1 Main St").withCity("Springfield");
+int hits = client.near(here).execute();
+// GET .../Near(addr=@p0)?@p0={"Street":"1 Main St","City":"Springfield"}
+
+// Collection(NS.Address) → List<Address>, one JSON array alias
+int visited = client.visitAll(List.of(a, b)).execute();
+// GET .../VisitAll(addrs=@p0)?@p0=[{...},{...}]
+```
+
+Nullable structured parameters may be passed null (pair and alias omitted);
+required ones throw at construction when null.
 
 ### Overloaded Functions
 
@@ -112,9 +128,13 @@ Boolean byName = client.isSiteAdminByUsername("scottketchum").execute();
 Boolean byId   = client.isSiteAdminByUserId("u-123").execute();
 ```
 
-Overloads with identical parameter-name sets are invalid CSDL and fail generation;
-same-name unbound actions also fail generation (actions cannot be overloaded by
-parameter names).
+Overloads are identified by the **binding parameter type** plus the **ordered set of
+parameter types** (OData CSDL overload rules). Same-name overloads with different
+parameter types — or bound to different types in an inheritance hierarchy — are legal
+and generate distinct request classes/accessors; a derived-type request sees an
+ancestor-bound overload via its cast segment. Only overloads identical in parameter
+names AND types (invalid CSDL) fail generation; same-name unbound actions also fail
+generation (actions cannot be overloaded by parameter names).
 
 ## Return-Kind Matrix
 

@@ -101,6 +101,35 @@ class RequestGeneratorKeyedNavTest {
         assertTrue(code.contains("public LogEntryCollectionRequest entries()"));
     }
 
+    @Test
+    void keylessCollectionNavEmitsNoStrayBrace() {
+        // A collection nav whose target entity has NO key takes no keyed overload — the
+        // keyed path returns early, but the keyless path fell through to the shared
+        // method-close epilogue, emitting a stray '}' after the already-closed method
+        CsdlModel.SchemaModel schema = new CsdlModel.SchemaModel("N.NS", null,
+                List.of(
+                        new CsdlModel.EntityTypeModel("Item", null, false, false, false,
+                                List.of(new CsdlModel.KeyModel(List.of("ItemId"))),
+                                List.of(new CsdlModel.PropertyModel("ItemId", "Edm.Int32", false, null, List.of())),
+                                List.of(new CsdlModel.NavigationPropertyModel("Tags",
+                                        "Collection(N.NS.Tag)", null, false, false, List.of(), List.of()))),
+                        new CsdlModel.EntityTypeModel("Tag", null, false, false, false,
+                                List.of(),
+                                List.of(new CsdlModel.PropertyModel("Value", "Edm.String", true, null, List.of())),
+                                List.of())),
+                List.of(), List.of(), List.of(), List.of(), List.of(), List.of());
+
+        String code = new RequestGenerator("app", java.util.Map.of(), "app", List.of(schema))
+                .generateEntityRequest(schema.entityTypes().get(0), schema);
+
+        assertFalse(code.contains("    }\n\n    }\n\n"),
+                "no stray closing brace after the collection nav method: " + code);
+        assertEquals(0, countOccurrences(code, "public TagEntityRequest tags("),
+                "keyless targets get no keyed overload");
+        assertEquals(1, countOccurrences(code, "public TagCollectionRequest tags()"),
+                "the plain collection accessor is still emitted exactly once");
+    }
+
     private static CsdlModel load(String path) {
         try (InputStream is = RequestGeneratorKeyedNavTest.class.getResourceAsStream(path)) {
             return new StaxCsdlParser().parse(is);

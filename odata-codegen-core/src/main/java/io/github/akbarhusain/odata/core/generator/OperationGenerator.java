@@ -122,11 +122,14 @@ public class OperationGenerator extends AbstractTypeGenerator {
         if (unbound.size() > 1) {
             Set<String> seen = new java.util.HashSet<>();
             for (Owned<FunctionModel> o : unbound) {
-                String names = parameterNames(o.model());
-                if (!seen.add(names)) {
+                String identity = o.model().parameters().stream()
+                        .map(p -> p.name() + ":" + resolveTypeDefinition(p.type(), o.owner()))
+                        .collect(java.util.stream.Collectors.joining("|"));
+                if (!seen.add(identity)) {
                     throw new IllegalStateException("FunctionImport '" + importLabel + "': function '"
-                            + reference + "' has multiple overloads with identical parameter names "
-                            + names + " — OData requires unbound overloads to differ in parameter names");
+                            + reference + "' has multiple overloads with identical parameter names and types "
+                            + parameterNames(o.model()) + " — OData requires overloads to differ by the "
+                            + "ordered set of parameter types (ODATA-500)");
                 }
             }
         }
@@ -218,20 +221,21 @@ public class OperationGenerator extends AbstractTypeGenerator {
                                             SchemaModel owner) {
         for (ParameterModel p : parameters) {
             // Collection parameters pass via parameter ALIASES (Name(param=@p)?@p=[...]);
-            // the ELEMENT must still be a primitive-or-enum literal — structured elements
-            // have no alias-literal form (lesson 170, amended for collections)
+            // the element must be a primitive-or-enum inline literal OR a structured type
+            // — structured singles and structured collections ride JSON parameter aliases
             String element = Names.isCollectionType(p.type())
                     ? Names.unwrapCollectionType(p.type()) : p.type();
             String resolved = resolveTypeDefinition(element, owner);
+            Names.TypeKind kind = Names.resolveTypeKind(resolved, effectiveSchemas);
             boolean primitive = Names.isPrimitiveType(resolved);
-            boolean enumType = !primitive
-                    && Names.resolveTypeKind(resolved, effectiveSchemas) == Names.TypeKind.ENUM;
-            if (!primitive && !enumType) {
+            boolean enumType = !primitive && kind == Names.TypeKind.ENUM;
+            boolean structured = kind == Names.TypeKind.COMPLEX || kind == Names.TypeKind.ENTITY;
+            if (!primitive && !enumType && !structured) {
                 throw new IllegalStateException("FunctionImport '" + importName
                         + "': parameter '" + p.name() + "' of type '" + p.type()
-                        + "' cannot be passed to a function (only Edm primitives and enums are "
-                        + "legal function-parameter literals, including as collection-alias "
-                        + "elements)");
+                        + "' cannot be passed to a function (parameter types must resolve "
+                        + "to an Edm primitive, enum, complex, or entity type; structured "
+                        + "values travel as JSON parameter aliases)");
             }
         }
     }
@@ -265,6 +269,11 @@ public class OperationGenerator extends AbstractTypeGenerator {
     }
 
     private static String overloadSuffix(List<ParameterModel> parameters) {
+        if (parameters.isEmpty()) {
+            // overload sets differing only by binding type have no invocation params —
+            // suffix only the colliding second+ overloads (_2/_3), keep the first bare
+            return "";
+        }
         StringBuilder sb = new StringBuilder("By");
         for (int i = 0; i < parameters.size(); i++) {
             if (i > 0) {
@@ -465,21 +474,32 @@ public class OperationGenerator extends AbstractTypeGenerator {
         for (List<BoundCand> group : groups.values()) {
             if (!group.get(0).isFunction()) {
                 if (group.size() > 1) {
-                    throw new IllegalStateException("Bound action '" + group.get(0).opName()
-                            + "' is declared more than once — actions cannot be overloaded "
-                            + "by parameter names");
+                    long distinctBindings = group.stream().map(BoundCand::bindingQualified)
+                            .distinct().count();
+                    if (distinctBindings < group.size()) {
+                        throw new IllegalStateException("Bound action '" + group.get(0).opName()
+                                + "' is declared more than once with the same binding type — for "
+                                + "one binding parameter there can be only one bound action (ODATA-425)");
+                    }
                 }
-                out.add(toBoundOp(group.get(0), "", selfQualified, entityType));
+                List<String> actionSuffixes = allocateBoundSuffixes(group);
+                for (int i = 0; i < group.size(); i++) {
+                    out.add(toBoundOp(group.get(i), actionSuffixes.get(i), selfQualified, entityType));
+                }
                 continue;
             }
-            // overloads identified by the FULL parameter-name list (binding included)
+            // Overload identity = BINDING TYPE + ordered (name, resolved-type) pairs
+            // (ODATA-500/425): same names with different binding types (inherited/derived)
+            // or different parameter types are legal — cast segments and literal forms
+            // distinguish them in the URL. Only names+types together are indistinguishable
             java.util.Set<String> identities = new java.util.HashSet<>();
             for (BoundCand c : group) {
-                String identity = c.bindingName() + ":" + c.invocationParams().stream()
-                        .map(ParameterModel::name).collect(java.util.stream.Collectors.joining(":"));
+                String identity = c.bindingQualified() + "|" + c.invocationParams().stream()
+                        .map(p -> p.name() + ":" + resolveTypeDefinition(p.type(), c.owner()))
+                        .collect(java.util.stream.Collectors.joining("|"));
                 if (!identities.add(identity)) {
                     throw new IllegalStateException("Bound function '" + c.opName()
-                            + "' has overloads with identical parameter names — they are "
+                            + "' has overloads with identical parameter names and types — they are "
                             + "indistinguishable in an invocation URL");
                 }
             }
@@ -747,20 +767,31 @@ public class OperationGenerator extends AbstractTypeGenerator {
         String base = pathBaseExpr + (castSegment == null ? "" : ".addSegment(\"" + castSegment + "\")");
         StringBuilder b = new StringBuilder();
         if (!isAction) {
-            // Collection parameters ride parameter aliases: the segment pair references
+            // Non-inlineable parameters ride parameter aliases: the segment pair references
             // the alias, the value rides a query option appended after the segment
-            // (contextPath is a blank final — alias queries chain through a local)
-            record AliasEmission(String alias, String field, String elementEdmType, boolean nullable) {}
+            // (contextPath is a blank final — alias queries chain through a local).
+            // Collections of primitives/enums render as inline element literals inside
+            // brackets; structured singles/collections serialize to a JSON literal
+            // (URL Conventions §5.1.1: complex parameter values MUST use aliases)
+            record AliasEmission(String alias, String field, String valueExpr, boolean nullable) {}
             List<AliasEmission> aliases = new ArrayList<>();
             int aliasIndex = 0;
 
             b.append("        java.util.List<String> __pairs = new java.util.ArrayList<>();\n");
             for (ParameterModel p : op.parameters()) {
                 String field = Names.toJavaFieldName(p.name());
-                if (Names.isCollectionType(p.type())) {
-                    String elementEdmType = qualifiedEdmName(resolveTypeDefinition(
-                            Names.unwrapCollectionType(p.type()), op.owner()), op.owner());
+                boolean isCollection = Names.isCollectionType(p.type());
+                String element = isCollection ? Names.unwrapCollectionType(p.type()) : p.type();
+                String resolvedElement = resolveTypeDefinition(element, op.owner());
+                Names.TypeKind elementKind = Names.resolveTypeKind(resolvedElement, effectiveSchemas);
+                boolean structured = elementKind == Names.TypeKind.COMPLEX
+                        || elementKind == Names.TypeKind.ENTITY;
+                if (isCollection || structured) {
                     String alias = "@p" + aliasIndex++;
+                    String valueExpr = structured
+                            ? "EntityOperations.jsonParameter(" + field + ")"
+                            : "OperationPath.collectionParameter(" + field + ", \""
+                                    + qualifiedEdmName(resolvedElement, op.owner()) + "\")";
                     if (p.nullable()) {
                         b.append("        if (").append(field).append(" != null) {\n")
                          .append("            __pairs.add(\"").append(p.name()).append('=')
@@ -771,11 +802,10 @@ public class OperationGenerator extends AbstractTypeGenerator {
                         b.append("        __pairs.add(\"").append(p.name()).append('=')
                          .append(alias).append("\");\n");
                     }
-                    aliases.add(new AliasEmission(alias, field, elementEdmType, p.nullable()));
+                    aliases.add(new AliasEmission(alias, field, valueExpr, p.nullable()));
                     continue;
                 }
-                String literalEdmType = qualifiedEdmName(
-                        resolveTypeDefinition(p.type(), op.owner()), op.owner());
+                String literalEdmType = qualifiedEdmName(resolvedElement, op.owner());
                 if (p.nullable()) {
                     b.append("        if (").append(field).append(" != null) {\n");
                     appendPairAdd(b, p.name(), field, literalEdmType, "            ");
@@ -793,9 +823,8 @@ public class OperationGenerator extends AbstractTypeGenerator {
             b.append("        ContextPath __path = " + base + ".addSegment(OperationPath.segment(\"")
               .append(opSegmentName).append("\", __pairs.toArray(new String[0])));\n");
             for (AliasEmission a : aliases) {
-                String add = "__path = __path.addQuery(\"" + a.alias()
-                        + "\", OperationPath.collectionParameter(" + a.field() + ", \""
-                        + a.elementEdmType() + "\"));\n";
+                String add = "__path = __path.addQuery(\"" + a.alias() + "\", "
+                        + a.valueExpr() + ");\n";
                 if (a.nullable()) {
                     b.append("        if (").append(a.field()).append(" != null) {\n")
                      .append("            ").append(add)
