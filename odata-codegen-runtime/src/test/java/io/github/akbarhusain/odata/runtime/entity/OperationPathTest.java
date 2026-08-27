@@ -81,4 +81,31 @@ class OperationPathTest {
                 () -> OperationPath.parameter(null, "Edm.Double"));
         assertTrue(ex.getMessage().toLowerCase().contains("null"));
     }
+
+    // ---- Enum literals use the CSDL wire name, not the sanitized Java name (M5) ----
+
+    /** A generated-style enum whose sanitized Java name differs from its CSDL name. */
+    enum Renamed implements ODataEnumValue {
+        A_B("A-B");
+
+        private final String wire;
+        Renamed(String wire) { this.wire = wire; }
+
+        @Override
+        public String wireName() { return wire; }
+    }
+
+    enum Plain { Male }
+
+    @Test
+    void enumParameterLiteralUsesCsdLWireName() {
+        assertEquals("NS.E'A-B'", OperationPath.parameter(Renamed.A_B, "NS.E"),
+                "sanitized members must render their CSDL wire name");
+    }
+
+    @Test
+    void plainEnumLiteralStillUsesJavaName() {
+        // enums compiled before the interface (or hand-written) keep the name() fallback
+        assertEquals("NS.P'Male'", OperationPath.parameter(Plain.Male, "NS.P"));
+    }
 }

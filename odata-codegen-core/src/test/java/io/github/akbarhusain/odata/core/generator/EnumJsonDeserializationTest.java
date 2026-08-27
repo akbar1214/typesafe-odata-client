@@ -89,7 +89,7 @@ class EnumJsonDeserializationTest {
     @Test
     void sanitizedMemberNamesRoundTripWireNames(@TempDir Path tempDir) throws Exception {
         String code = generateEnum(HOSTILE_METADATA, "E", tempDir);
-        assertTrue(code.contains("A_B(1L)"), "sanitized constant. Got:\n" + code);
+        assertTrue(code.contains("A_B(1L, \"a-b\")"), "sanitized constant. Got:\n" + code);
         assertTrue(code.contains("BY_NAME"), "wire-name map generated for renamed members. Got:\n" + code);
 
         try (var loader = loaderFor(tempDir)) {
@@ -126,6 +126,12 @@ class EnumJsonDeserializationTest {
         JavaCompiler compiler = ToolProvider.getSystemJavaCompiler();
         assertNotNull(compiler, "Java compiler not available - run with a JDK");
         List<File> classpath = new ArrayList<>();
+        // current reactor runtime first — generated enums implement ODataEnumValue, which
+        // the ~/.m2 snapshot (from an older `mvn install`) may not contain yet
+        Path siblingRuntime = Path.of("..", "odata-codegen-runtime", "target", "classes");
+        if (Files.isReadable(siblingRuntime)) {
+            classpath.add(siblingRuntime.toFile());
+        }
         Path m2 = Path.of(System.getProperty("user.home"), ".m2", "repository");
         try (Stream<Path> jars = Files.walk(m2)) {
             jars.filter(p -> p.toString().endsWith(".jar"))
@@ -158,8 +164,19 @@ class EnumJsonDeserializationTest {
     /** Tiny alias so test bodies read clearly. */
     private static final class URLClassLoaderCompat extends java.net.URLClassLoader {
         URLClassLoaderCompat(Path classesDir) throws Exception {
-            super(new java.net.URL[]{classesDir.toUri().toURL()},
-                    EnumJsonDeserializationTest.class.getClassLoader());
+            super(classpathUrls(classesDir), EnumJsonDeserializationTest.class.getClassLoader());
+        }
+
+        /** Generated enums implement the runtime ODataEnumValue interface — include the
+         *  current reactor runtime so loading works even with a stale ~/.m2 snapshot. */
+        private static java.net.URL[] classpathUrls(Path classesDir) throws Exception {
+            java.util.List<java.net.URL> urls = new ArrayList<>();
+            urls.add(classesDir.toUri().toURL());
+            Path siblingRuntime = Path.of("..", "odata-codegen-runtime", "target", "classes");
+            if (Files.isReadable(siblingRuntime)) {
+                urls.add(siblingRuntime.toUri().toURL());
+            }
+            return urls.toArray(new java.net.URL[0]);
         }
     }
 }

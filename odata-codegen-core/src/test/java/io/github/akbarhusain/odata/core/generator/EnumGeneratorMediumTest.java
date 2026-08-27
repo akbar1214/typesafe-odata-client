@@ -25,14 +25,14 @@ class EnumGeneratorMediumTest {
         // M5: currently generates duplicate A_B(0), A_B(1) -> duplicate constant compile error
         // Expected: A_B, A_B_2, AB (or similar deduped)
         // Check no duplicate constant names
-        assertTrue(code.contains("A_B(0L)"), "should contain A_B(0L): " + code);
+        assertTrue(code.contains("A_B(0L, \"A-B\")"), "should contain A_B with its wire name: " + code);
         // The second A_B should be deduped to A_B_2 or similar, not duplicate A_B(1L)
         long countAB = code.lines().filter(l -> l.trim().startsWith("A_B(")).count();
         assertEquals(1, countAB, "M5: should not have duplicate A_B constants, generated:\n" + code);
         assertTrue(code.contains("A_B_2") || code.contains("A_B2") || code.contains("A_B_3"),
                 "M5: collided member should be deduped with suffix, got:\n" + code);
         // Also AB should still be present as distinct
-        assertTrue(code.contains("AB(2L)"), "AB should remain: " + code);
+        assertTrue(code.contains("AB(2L, \"AB\")"), "AB should remain: " + code);
     }
 
     @Test
@@ -43,7 +43,7 @@ class EnumGeneratorMediumTest {
         ));
         EnumGenerator gen = new EnumGenerator("com.test");
         String code = gen.generate(enumType);
-        assertTrue(code.contains("A_B(0L)"), "A-B -> A_B: " + code);
-        assertFalse(code.contains("AB(0L)"), "should not be AB: " + code);
+        assertTrue(code.contains("A_B(0L, \"A-B\")"), "A-B -> A_B with wire name: " + code);
+        assertFalse(code.contains("AB(0L"), "should not be AB: " + code);
     }
 }

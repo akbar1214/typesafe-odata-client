@@ -20,7 +20,10 @@ public class EnumGenerator {
         StringBuilder sb = new StringBuilder();
         sb.append("package ").append(pkg).append(";\n\n");
 
-        sb.append("public enum ").append(className).append(" {\n\n");
+        // ODataEnumValue exposes each member's CSDL wire name to the runtime literal
+        // formatters — sanitized Java identifiers must never reach a URL
+        sb.append("public enum ").append(className)
+          .append(" implements io.github.akbarhusain.odata.runtime.entity.ODataEnumValue {\n\n");
 
         // members whose CSDL name differs from the sanitized Java constant need a
         // wire-name map so JSON round-trips keep using the original member names
@@ -49,7 +52,9 @@ public class EnumGenerator {
         for (int i = 0; i < enumType.members().size(); i++) {
             var member = enumType.members().get(i);
             String constant = constants.get(i);
-            sb.append("    ").append(constant).append("(").append(member.value()).append("L)");
+            // each constant records its CSDL member name — the wire name for URL literals
+            sb.append("    ").append(constant).append("(").append(member.value()).append("L, \"")
+              .append(escapeJava(member.name())).append("\")");
             if (i < enumType.members().size() - 1) sb.append(",");
             sb.append("\n");
         }
@@ -69,13 +74,20 @@ public class EnumGenerator {
         }
 
         sb.append("    private final long value;\n\n");
+        sb.append("    private final String wireName;\n\n");
 
-        sb.append("    ").append(className).append("(long value) {\n");
+        sb.append("    ").append(className).append("(long value, String wireName) {\n");
         sb.append("        this.value = value;\n");
+        sb.append("        this.wireName = wireName;\n");
         sb.append("    }\n\n");
 
         sb.append("    public long getValue() {\n");
         sb.append("        return value;\n");
+        sb.append("    }\n\n");
+
+        sb.append("    @Override\n");
+        sb.append("    public String wireName() {\n");
+        sb.append("        return wireName;\n");
         sb.append("    }\n\n");
 
         sb.append("    public static ").append(className).append(" fromValue(long value) {\n");
@@ -147,5 +159,10 @@ public class EnumGenerator {
             }
         }
         return Names.toConstantName(memberName);
+    }
+
+    /** Escapes a CSDL name for a Java string literal (wire names go into generated source). */
+    private static String escapeJava(String s) {
+        return s.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 }

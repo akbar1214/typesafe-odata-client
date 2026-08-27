@@ -326,11 +326,22 @@ public record ContextPath(
             case "Edm.Boolean", "Edm.Byte", "Edm.SByte", "Edm.Int16", "Edm.Int32", "Edm.Int64",
                  "Edm.Single", "Edm.Double", "Edm.Decimal" -> String.valueOf(value);
             default -> {
-                if (value instanceof Enum<?> e) yield edmType + "'" + e.name() + "'";
+                if (value instanceof Enum<?> e) {
+                    yield edmType + "'" + enumWireName(e) + "'";
+                }
                 if (value instanceof String s) yield "'" + encodeKeyValue(s) + "'";
                 yield String.valueOf(value);
             }
         };
+    }
+
+    /**
+     * Enum literals must carry the CSDL member name; sanitized Java identifiers
+     * ({@code A-B} → {@code A_B}) would be rejected by services. Generated enums
+     * implement {@link ODataEnumValue}; plain enums keep the {@code name()} fallback.
+     */
+    public static String enumWireName(Enum<?> e) {
+        return e instanceof ODataEnumValue w ? w.wireName() : e.name();
     }
 
     private static String encodeKeyValue(String value) {

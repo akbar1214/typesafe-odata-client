@@ -101,7 +101,7 @@ class CrossNamespaceCompilationTest {
                 .orElseThrow();
         String bigFlagsCode = Files.readString(bigFlagsFile.toPath());
 
-        assertTrue(bigFlagsCode.contains("Huge(1099511627776L)"),
+        assertTrue(bigFlagsCode.contains("Huge(1099511627776L, \"Huge\")"),
                 "Int64 enum value 1099511627776 should use long literal. Got:\n" + bigFlagsCode);
 
         // P1: Verify cross-schema entity inheritance — Manager extends EmployeeBase from CrossNs.Shared

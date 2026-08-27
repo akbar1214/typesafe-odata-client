@@ -1,5 +1,6 @@
 package io.github.akbarhusain.odata.core.generator;
 
+import io.github.akbarhusain.odata.core.model.CsdlModel;
 import io.github.akbarhusain.odata.core.parser.StaxCsdlParser;
 import org.junit.jupiter.api.Test;
 
@@ -74,5 +75,38 @@ class ContainerGeneratorImportTest {
         IllegalStateException ex = assertThrows(IllegalStateException.class,
                 () -> new ContainerGenerator("com.example.trippin", java.util.Map.of(), "com.example.trippin").generate(collide, schema));
         assertTrue(ex.getMessage().contains("people"), ex.getMessage());
+    }
+
+    @Test
+    void containerImportsStructuredParameterTypes() throws Exception {
+        // H1: accessors reference parameter types from other packages (enums/complexes) —
+        // the container file must import them or it does not compile
+        CsdlModel.EnumTypeModel color = new CsdlModel.EnumTypeModel("Color", "Edm.Int32", false,
+                List.of(new CsdlModel.EnumMemberModel("Red", 0L)));
+        CsdlModel.ComplexTypeModel address = new CsdlModel.ComplexTypeModel("Address", null,
+                false, false, List.of(), List.of());
+        CsdlModel.FunctionModel pickColor = new CsdlModel.FunctionModel("PickColor", false, false, null,
+                List.of(new CsdlModel.ParameterModel("c", "NS.Color", false)),
+                new CsdlModel.ReturnTypeModel("Edm.String", false));
+        CsdlModel.ActionModel shipTo = new CsdlModel.ActionModel("ShipTo", false, null,
+                List.of(new CsdlModel.ParameterModel("addr", "NS.Address", false)),
+                new CsdlModel.ReturnTypeModel("Edm.Int32", false));
+        CsdlModel.ContainerModel container = new CsdlModel.ContainerModel("DefaultContainer",
+                List.of(), List.of(),
+                List.of(new CsdlModel.FunctionImportModel("pickColor", "NS.PickColor", null, false)),
+                List.of(new CsdlModel.ActionImportModel("shipTo", "NS.ShipTo", null)));
+        CsdlModel.SchemaModel ns = new CsdlModel.SchemaModel("NS", null, List.of(),
+                List.of(address), List.of(color), List.of(), List.of(pickColor), List.of(shipTo),
+                List.of(container));
+
+        String code = new ContainerGenerator("com.example.app", java.util.Map.of(),
+                "com.example.app", List.of(ns)).generate(container, ns);
+
+        assertTrue(code.contains("import com.example.app.enums.Color;"),
+                "enum parameter types need imports in the container: " + code);
+        assertTrue(code.contains("import com.example.app.complex.Address;"),
+                "complex parameter types need imports in the container: " + code);
+        assertTrue(code.contains("public PickColorFunctionRequest pickColor(Color c)"));
+        assertTrue(code.contains("public ShipToActionRequest shipTo(Address addr)"));
     }
 }

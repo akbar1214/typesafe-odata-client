@@ -101,7 +101,13 @@ public class OperationGenerator extends AbstractTypeGenerator {
                         reference, qualified, simple);
             }
         }
-        return pick(qualified, simple, importLabel, reference, "ActionImport");
+        Owned<ActionModel> chosen = pick(qualified, simple, importLabel, reference, "ActionImport");
+        if (chosen.model().isBound()) {
+            throw new IllegalStateException("ActionImport '" + importLabel
+                    + "' references bound action '" + reference
+                    + "' — action imports must reference UNBOUND operations");
+        }
+        return chosen;
     }
 
     private <T> void classify(Owned<T> candidate, String fullName, String simpleName,
@@ -140,9 +146,16 @@ public class OperationGenerator extends AbstractTypeGenerator {
     private void validateFunctionParameters(List<ParameterModel> parameters, String importName,
                                             SchemaModel owner) {
         for (ParameterModel p : parameters) {
-            String raw = Names.isCollectionType(p.type())
-                    ? Names.unwrapCollectionType(p.type()) : p.type();
-            String resolved = resolveTypeDefinition(raw, owner);
+            if (Names.isCollectionType(p.type())) {
+                // Reject the COLLECTION before any element check: validating only the
+                // unwrapped element let Collection(Edm.String) through while generation
+                // emitted a garbage parameter type — fail loudly instead (lesson 170)
+                throw new IllegalStateException("FunctionImport '" + importName
+                        + "': parameter '" + p.name() + "' has collection type '" + p.type()
+                        + "' — collection function parameters cannot be embedded in an "
+                        + "invocation URL by this generator");
+            }
+            String resolved = resolveTypeDefinition(p.type(), owner);
             boolean primitive = Names.isPrimitiveType(resolved);
             boolean enumType = !primitive
                     && Names.resolveTypeKind(resolved, effectiveSchemas) == Names.TypeKind.ENUM;
@@ -169,6 +182,9 @@ public class OperationGenerator extends AbstractTypeGenerator {
         imports.add("io.github.akbarhusain.odata.runtime.entity.ContextPath");
         imports.add("io.github.akbarhusain.odata.runtime.entity.OperationPath");
         imports.add("io.github.akbarhusain.odata.runtime.http.HttpMethod");
+        // Structured/enum parameter types live in other packages (.enums/.entity/.complex)
+        // — without these imports the generated class does not compile
+        collectParameterImports(op.parameters(), op.owner(), imports);
 
         String verb = op.isFunction() ? "GET" : "POST";
         String bodyArg = isAction && !op.parameters().isEmpty() ? "body" : "null";
@@ -188,12 +204,16 @@ public class OperationGenerator extends AbstractTypeGenerator {
             }
             case OBJECT_SINGLE -> {
                 ResultClass rc = objectResult(returnTypeOf(op), op, imports);
-                methods.append(objectSingleMethods(rc, nullableResult, verb, bodyArg));
+                // Complex/enum results arrive value-wrapped on the wire (unlike entities,
+                // which arrive at the JSON root) — route them to the wrapped variant
+                boolean wrapped = structuredResultKind(op) != Names.TypeKind.ENTITY;
+                methods.append(objectSingleMethods(rc, nullableResult, verb, bodyArg, wrapped));
             }
             case OBJECT_COLLECTION -> {
                 ResultClass rc = objectResult(collectionElementType(op), op, imports);
                 methods.append(objectCollectionMethods(rc));
                 imports.add("java.util.List");
+                imports.add("io.github.akbarhusain.odata.runtime.paging.CollectionPage");
             }
         }
         boolean hasReturn = kind != Kind.VOID;
@@ -202,6 +222,12 @@ public class OperationGenerator extends AbstractTypeGenerator {
         }
         if (nullableResult && hasReturn) {
             imports.add("java.util.Optional");
+        }
+        if (kind == Kind.OBJECT_SINGLE || kind == Kind.OBJECT_COLLECTION) {
+            // polymorphic @odata.type reads resolve subtypes through the registry
+            // (decision 46 parity for operation results)
+            imports.add(basePackageOf(op.owner()) + Names.packageNameSuffixSchema()
+                    + "." + Names.schemaInfoClassName());
         }
 
         StringBuilder sb = new StringBuilder(4096);
@@ -231,6 +257,32 @@ public class OperationGenerator extends AbstractTypeGenerator {
         return sb.toString();
     }
 
+    /**
+     * Adds imports for structured parameter types (enums/entities/complexes — always in
+     * a different package than .operation) and {@code java.util.List} when any parameter
+     * is collection-typed. Edm primitives need nothing: temporal/decimal types map to
+     * fully-qualified {@code java.*} names.
+     */
+    private void collectParameterImports(List<ParameterModel> parameters, SchemaModel owner,
+                                         Set<String> imports) {
+        boolean anyCollection = false;
+        for (ParameterModel p : parameters) {
+            if (Names.isCollectionType(p.type())) {
+                anyCollection = true;
+            }
+            String element = Names.isCollectionType(p.type())
+                    ? Names.unwrapCollectionType(p.type()) : p.type();
+            String resolved = resolveTypeDefinition(element, owner);
+            if (!Names.isPrimitiveType(resolved)) {
+                imports.add(basePackageForType(resolved, owner) + Names.resolvedSuffix(resolved, effectiveSchemas)
+                        + "." + Names.resolvedClassName(resolved, effectiveSchemas));
+            }
+        }
+        if (anyCollection) {
+            imports.add("java.util.List");
+        }
+    }
+
     private String outputPackage(ResolvedOp op) {
         String ns = op.owner().namespace();
         String base = schemaPackages.getOrDefault(ns,
@@ -245,7 +297,7 @@ public class OperationGenerator extends AbstractTypeGenerator {
     private String constructorParams(ResolvedOp op) {
         StringBuilder sb = new StringBuilder();
         for (ParameterModel p : op.parameters()) {
-            sb.append(", ").append(parameterJavaType(p, op))
+            sb.append(", ").append(parameterJavaType(p, op.owner()))
               .append(' ').append(Names.toJavaFieldName(p.name()));
         }
         return sb.toString();
@@ -261,11 +313,11 @@ public class OperationGenerator extends AbstractTypeGenerator {
                         resolveTypeDefinition(p.type(), op.owner()), op.owner());
                 if (p.nullable()) {
                     b.append("        if (").append(field).append(" != null) {\n");
-                    appendPairAdd(b, field, literalEdmType, "            ");
+                    appendPairAdd(b, p.name(), field, literalEdmType, "            ");
                     b.append("        }\n");
                 } else {
                     appendRequiredGuard(b, p, field, op);
-                    appendPairAdd(b, field, literalEdmType, "        ");
+                    appendPairAdd(b, p.name(), field, literalEdmType, "        ");
                 }
             }
             b.append("        this.contextPath = context.basePath().addSegment(OperationPath.segment(\"")
@@ -297,15 +349,16 @@ public class OperationGenerator extends AbstractTypeGenerator {
         return b.toString();
     }
 
-    private static void appendPairAdd(StringBuilder b, String field, String literalEdmType,
-                                      String indent) {
-        b.append(indent).append("__pairs.add(\"").append(field)
+    /** The pair's wire name is the CSDL parameter name; the Java identifier stays local. */
+    private static void appendPairAdd(StringBuilder b, String csdlName, String field,
+                                      String literalEdmType, String indent) {
+        b.append(indent).append("__pairs.add(\"").append(csdlName)
           .append("=\" + OperationPath.parameter(").append(field)
           .append(", \"").append(literalEdmType).append("\"));\n");
     }
 
     private void appendRequiredGuard(StringBuilder b, ParameterModel p, String field, ResolvedOp op) {
-        String javaType = parameterJavaType(p, op);
+        String javaType = parameterJavaType(p, op.owner());
         if (!p.nullable() && !isJavaPrimitive(javaType)) {
             b.append("        if (").append(field)
              .append(" == null) {\n")
@@ -362,11 +415,14 @@ public class OperationGenerator extends AbstractTypeGenerator {
              + "    }\n\n";
     }
 
-    private String objectSingleMethods(ResultClass rc, boolean nullable, String verb, String bodyArg) {
-        String call = "EntityOperations.invokeSync(context, contextPath, HttpMethod."
-                + verb + ", " + bodyArg + ", " + rc.classRef() + ")";
-        String asyncCall = "EntityOperations.invokeAsync(context, contextPath, HttpMethod."
-                + verb + ", " + bodyArg + ", " + rc.classRef() + ")";
+    private String objectSingleMethods(ResultClass rc, boolean nullable, String verb,
+                                       String bodyArg, boolean wrapped) {
+        String variant = wrapped ? "invokeComplexSync" : "invokeSync";
+        String asyncVariant = wrapped ? "invokeComplexAsync" : "invokeAsync";
+        String call = "EntityOperations." + variant + "(context, contextPath, HttpMethod."
+                + verb + ", " + bodyArg + ", " + rc.classRef() + ", ServiceSchemaInfo.INSTANCE)";
+        String asyncCall = "EntityOperations." + asyncVariant + "(context, contextPath, HttpMethod."
+                + verb + ", " + bodyArg + ", " + rc.classRef() + ", ServiceSchemaInfo.INSTANCE)";
         if (nullable) {
             return "    public Optional<" + rc.simpleName() + "> execute() {\n"
                  + "        return Optional.ofNullable(" + call + ");\n"
@@ -386,7 +442,7 @@ public class OperationGenerator extends AbstractTypeGenerator {
     private static String objectCollectionMethods(ResultClass rc) {
         return "    public List<" + rc.simpleName() + "> execute() {\n"
              + "        CollectionPage<" + rc.simpleName() + "> page = EntityOperations.executeAndGetCollection(\n"
-             + "                context, contextPath, " + rc.classRef() + ");\n"
+             + "                context, contextPath, " + rc.classRef() + ", ServiceSchemaInfo.INSTANCE);\n"
              + "        return page.currentPage();\n"
              + "    }\n\n";
     }
@@ -407,6 +463,13 @@ public class OperationGenerator extends AbstractTypeGenerator {
         }
         String resolved = resolveTypeDefinition(rt.type(), op.owner());
         return Names.isPrimitiveType(resolved) ? Kind.PRIMITIVE_SINGLE : Kind.OBJECT_SINGLE;
+    }
+
+    /** Structured (non-primitive) result kind: ENTITY reads the JSON root, COMPLEX/ENUM are value-wrapped. */
+    private Names.TypeKind structuredResultKind(ResolvedOp op) {
+        String element = Names.isCollectionType(op.returnType().type())
+                ? Names.unwrapCollectionType(op.returnType().type()) : op.returnType().type();
+        return Names.resolveTypeKind(resolveTypeDefinition(element, op.owner()), effectiveSchemas);
     }
 
     private static boolean resultNullable(ResolvedOp op) {
@@ -432,10 +495,14 @@ public class OperationGenerator extends AbstractTypeGenerator {
                 resolveTypeDefinition(collectionElementType(op), op.owner()), op.owner(), true);
     }
 
-    /** Java constructor-parameter type: primitives stay unboxed unless the param is nullable. */
-    private String parameterJavaType(ParameterModel p, ResolvedOp op) {
-        String resolved = resolveTypeDefinition(p.type(), op.owner());
-        return resolveSingleJavaType(resolved, op.owner(), p.nullable());
+    /** Java constructor-parameter type: primitives stay unboxed unless nullable; collections map to List<boxed element>. */
+    private String parameterJavaType(ParameterModel p, SchemaModel owner) {
+        if (Names.isCollectionType(p.type())) {
+            return "List<" + resolveSingleJavaType(
+                    resolveTypeDefinition(Names.unwrapCollectionType(p.type()), owner),
+                    owner, true) + ">";
+        }
+        return resolveSingleJavaType(resolveTypeDefinition(p.type(), owner), owner, p.nullable());
     }
 
     /**
@@ -515,6 +582,23 @@ public class OperationGenerator extends AbstractTypeGenerator {
                 Names.toJavaFieldName(ai.name()), owned.model().parameters(), owned.owner());
     }
 
+    /** Imports the CONTAINER needs for this import's parameter types (H1: accessors live in .container). */
+    public java.util.Set<String> functionImportParameterImports(FunctionImportModel fi, SchemaModel containerSchema) {
+        initEffectiveSchemas(containerSchema);
+        Owned<FunctionModel> owned = resolveFunction(fi.function(), fi.name());
+        java.util.Set<String> imports = new java.util.TreeSet<>();
+        collectParameterImports(owned.model().parameters(), owned.owner(), imports);
+        return imports;
+    }
+
+    public java.util.Set<String> actionImportParameterImports(ActionImportModel ai, SchemaModel containerSchema) {
+        initEffectiveSchemas(containerSchema);
+        Owned<ActionModel> owned = resolveAction(ai.action(), ai.name());
+        java.util.Set<String> imports = new java.util.TreeSet<>();
+        collectParameterImports(owned.model().parameters(), owned.owner(), imports);
+        return imports;
+    }
+
     private <T> String accessorMethodSource(String className, String methodName,
                                             List<ParameterModel> parameters, SchemaModel owner) {
         StringBuilder sig = new StringBuilder();
@@ -524,8 +608,7 @@ public class OperationGenerator extends AbstractTypeGenerator {
                 sig.append(", ");
             }
             String field = Names.toJavaFieldName(p.name());
-            sig.append(resolveSingleJavaType(resolveTypeDefinition(p.type(), owner),
-                    owner, p.nullable())).append(' ').append(field);
+            sig.append(parameterJavaType(p, owner)).append(' ').append(field);
             if (args.length() > 0) {
                 args.append(", ");
             }

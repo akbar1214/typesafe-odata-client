@@ -100,10 +100,13 @@ public class ContainerGenerator {
             // resolveValidationThrowsUnknownOrBound — resolution happens here so failures surface at generation
             importAccessorMethods.add(ops.functionImportAccessorMethod(fi, schema));
             imports.add(ops.functionImportClassImportLine(fi, schema));
+            // accessors reference structured/enum parameter types from other packages
+            imports.addAll(ops.functionImportParameterImports(fi, schema));
         }
         for (ActionImportModel ai : container.actionImports()) {
             importAccessorMethods.add(ops.actionImportAccessorMethod(ai, schema));
             imports.add(ops.actionImportClassImportLine(ai, schema));
+            imports.addAll(ops.actionImportParameterImports(ai, schema));
         }
 
         for (String imp : imports) {

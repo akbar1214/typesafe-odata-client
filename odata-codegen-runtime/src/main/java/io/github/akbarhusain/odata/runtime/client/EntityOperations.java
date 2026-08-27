@@ -405,12 +405,80 @@ public class EntityOperations {
                 });
     }
 
+    public static <T> T invokeSync(Context context, ContextPath path, HttpMethod method,
+                                   byte[] body, Class<T> responseType, SchemaInfo schemaInfo) {
+        HttpResponse response = executeSync(context, method, path, body, contentTypeHeader(body));
+        checkResponse(response);
+        T entity = readEntity(response, context, responseType, schemaInfo);
+        applyEtagHeader(entity, response);
+        return entity;
+    }
+
+    public static <T> CompletableFuture<T> invokeAsync(Context context, ContextPath path, HttpMethod method,
+                                                       byte[] body, Class<T> responseType, SchemaInfo schemaInfo) {
+        return executeAsync(context, method, path, body, contentTypeHeader(body))
+                .thenApply(response -> {
+                    checkResponse(response);
+                    T entity = readEntity(response, context, responseType, schemaInfo);
+                    applyEtagHeader(entity, response);
+                    return entity;
+                });
+    }
+
+    /** Entity-shaped read with optional polymorphic {@code @odata.type} resolution. */
+    private static <T> T readEntity(HttpResponse response, Context context, Class<T> type,
+                                    SchemaInfo schemaInfo) {
+        if (schemaInfo != null && response.body() != null && response.body().length > 0) {
+            T polymorphic = deserializePolymorphic(response.body(), context, type, schemaInfo);
+            if (polymorphic != null) return polymorphic;
+        }
+        return deserializeOrNull(response, context, type);
+    }
+
     /**
-     * Invokes an operation whose result is a single primitive value. Services vary on the
-     * wire shape — {@code {"value": <literal>}} wrapper or the bare JSON literal at root —
-     * so both are accepted deterministically: a single-property object named "value" is
-     * unwrapped, anything else is taken as-is. Element bytes always route through the
-     * configured {@link io.github.akbarhusain.odata.runtime.serialization.Serializer} so
+     * Invokes an operation whose result is a single complex-type or enum value. Per the
+     * OData v4 JSON format these arrive value-wrapped — {@code {"@odata.context":...,
+     * "value":{...}}} — unlike entities, which arrive at the JSON root. The envelope is
+     * unwrapped (a {@code "value"} that is the sole non-control property), tolerating
+     * services that inline the value at the root; {@code schemaInfo} additionally
+     * resolves {@code @odata.type} to subtypes, mirroring entity reads.
+     */
+    public static <T> T invokeComplexSync(Context context, ContextPath path, HttpMethod method,
+                                          byte[] body, Class<T> complexType) {
+        return invokeComplexSync(context, path, method, body, complexType, null);
+    }
+
+    public static <T> T invokeComplexSync(Context context, ContextPath path, HttpMethod method,
+                                          byte[] body, Class<T> complexType, SchemaInfo schemaInfo) {
+        try {
+            return invokeComplexAsync(context, path, method, body, complexType, schemaInfo).join();
+        } catch (CompletionException e) {
+            rethrowCause(e, "Operation failed");
+            throw new ODataException("Operation failed: " + e.getCause().getMessage(), e.getCause());
+        }
+    }
+
+    public static <T> CompletableFuture<T> invokeComplexAsync(Context context, ContextPath path, HttpMethod method,
+                                                              byte[] body, Class<T> complexType) {
+        return invokeComplexAsync(context, path, method, body, complexType, null);
+    }
+
+    public static <T> CompletableFuture<T> invokeComplexAsync(Context context, ContextPath path, HttpMethod method,
+                                                              byte[] body, Class<T> complexType,
+                                                              SchemaInfo schemaInfo) {
+        return executeAsync(context, method, path, body, contentTypeHeader(body))
+                .thenApply(response -> {
+                    checkResponse(response);
+                    return deserializeWrapped(response.body(), context, complexType, schemaInfo);
+                });
+    }
+
+    /**
+     * Invokes an operation whose result is a single primitive value. Spec-conformant
+     * services wrap it — {@code {"@odata.context":"...","value":<literal>}} — so the
+     * envelope is unwrapped whenever {@code "value"} is the only non-control property;
+     * bare JSON literals at the root are taken as-is. Element bytes always route through
+     * the configured {@link io.github.akbarhusain.odata.runtime.serialization.Serializer} so
      * custom serializers apply (parity with collection reads, lesson 50).
      */
     public static <T> T invokePrimitiveSync(Context context, ContextPath path, HttpMethod method,
@@ -479,11 +547,57 @@ public class EntityOperations {
             return null;
         }
         try {
-            var root = COLLECTION_MAPPER.readTree(bodyBytes);
-            if (root.isObject() && root.has("value") && root.size() == 1) {
-                root = root.get("value");
-            }
+            var root = unwrapValueEnvelope(COLLECTION_MAPPER.readTree(bodyBytes));
             return (T) context.serializer().deserialize(COLLECTION_MAPPER.writeValueAsBytes(root), type);
+        } catch (IOException e) {
+            throw new ODataException("Failed to parse operation result: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Spec-conformant operation responses carry control annotations alongside the
+     * result — {@code {"@odata.context":"...","value":42}} — so the envelope is
+     * recognized whenever {@code "value"} is the only non-{@code @}-prefixed property,
+     * not only when it is the only property at all.
+     */
+    static com.fasterxml.jackson.databind.JsonNode unwrapValueEnvelope(
+            com.fasterxml.jackson.databind.JsonNode root) {
+        if (!root.isObject() || !root.has("value")) {
+            return root;
+        }
+        for (var it = root.fieldNames(); it.hasNext(); ) {
+            String field = it.next();
+            if (!field.startsWith("@") && !field.equals("value")) {
+                return root;
+            }
+        }
+        return root.get("value");
+    }
+
+    /**
+     * Deserializes a value-wrapped (complex/enum) operation result: unwrap the envelope,
+     * optionally resolve {@code @odata.type} to a subtype, then deserialize through the
+     * configured {@link io.github.akbarhusain.odata.runtime.serialization.Serializer}.
+     */
+    @SuppressWarnings("unchecked")
+    static <T> T deserializeWrapped(byte[] bodyBytes, Context context, Class<T> type, SchemaInfo schemaInfo) {
+        if (bodyBytes == null || bodyBytes.length == 0) {
+            return null;
+        }
+        try {
+            var root = unwrapValueEnvelope(COLLECTION_MAPPER.readTree(bodyBytes));
+            Class<?> target = type;
+            if (schemaInfo != null && root.isObject()) {
+                var typeNode = root.get("@odata.type");
+                if (typeNode != null && typeNode.isTextual()) {
+                    Class<?> actual = schemaInfo.getClassFromTypeWithNamespace(
+                            stripTypeAnnotationPrefix(typeNode.asText()));
+                    if (actual != null && type.isAssignableFrom(actual)) {
+                        target = actual;
+                    }
+                }
+            }
+            return (T) context.serializer().deserialize(COLLECTION_MAPPER.writeValueAsBytes(root), target);
         } catch (IOException e) {
             throw new ODataException("Failed to parse operation result: " + e.getMessage(), e);
         }
