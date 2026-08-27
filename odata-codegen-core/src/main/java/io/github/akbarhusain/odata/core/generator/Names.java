@@ -56,7 +56,16 @@ public final class Names {
     }
 
     public static String functionRequestClassName(String importName) {
-        return sanitizeClassName(importName) + "FunctionRequest";
+        return functionRequestClassName(importName, "");
+    }
+
+    /**
+     * Overloaded function imports emit one request class per overload; the suffix
+     * (derived from the overload's parameter names, e.g. {@code ByUsername}) keeps
+     * the historical unsuffixed name when empty.
+     */
+    public static String functionRequestClassName(String importName, String overloadSuffix) {
+        return sanitizeClassName(importName) + overloadSuffix + "FunctionRequest";
     }
 
     public static String actionRequestClassName(String importName) {
