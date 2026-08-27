@@ -10,7 +10,7 @@
 
 - CSDL enum members without `Value` default to previous+1 per spec (were member-count → wrong wire values)
 - `@JsonProperty` setters on abstract base types — subtype deserialization no longer drops base fields
-- One aggregate `ServiceSchemaInfo` per output package (multi-schema registries no longer overwrite)
+- One aggregate `SchemaInfo` per output package (multi-schema registries no longer overwrite)
 - Polymorphic `@odata.type` deserialization via the `SchemaInfo` registry, per element for collections
 - Enums map JSON numerics by CSDL value (`@JsonCreator`), not ordinal; strings keep mapping by name
 - PATCH/GET tolerate 204/empty bodies; `nextLink` decoding no longer corrupts `+` in continuation tokens
@@ -36,8 +36,15 @@
 - Interceptor chain cached per `Context`; interceptor failures complete futures exceptionally;
   `Retry-After` HTTP-date parsing + `hasServerRetryAfter()`; `ODataError` maps `details[]`/`target`
 
-### Keyed Accessor API — BREAKING (decision 95, option A)
+### Generated `SchemaInfo` Registry — BREAKING (decision 6a amendment)
 
+- The per-package type registry class is now `<basePackage>.schema.SchemaInfo`
+  (was `ServiceSchemaInfo`); `SchemaInfo.INSTANCE` unchanged in shape
+- Migrate any direct references: `import ...schema.ServiceSchemaInfo;` →
+  `import ...schema.SchemaInfo;` — generated request classes already pass the
+  instance internally, so most users touch nothing
+
+### Keyed Accessor API — BREAKING (decision 95, option A)
 - **Keyed container overloads**: every keyed entity set gains `client.people("russellwhyte")`,
   `client.orderDetails(orderId, productId)` returning the entity request directly. Keyless
   entity sets keep only the zero-arg collection accessor

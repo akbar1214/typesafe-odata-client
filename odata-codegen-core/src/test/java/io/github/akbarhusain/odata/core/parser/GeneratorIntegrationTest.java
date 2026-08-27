@@ -56,7 +56,7 @@ class GeneratorIntegrationTest {
         assertTrue(Files.exists(complexDir.resolve("Location.java")), "Location.java should exist");
 
         assertTrue(Files.exists(containerDir.resolve("DefaultContainer.java")), "DefaultContainer.java should exist");
-        assertTrue(Files.exists(schemaDir.resolve("ServiceSchemaInfo.java")), "ServiceSchemaInfo.java should exist");
+        assertTrue(Files.exists(schemaDir.resolve("SchemaInfo.java")), "SchemaInfo.java should exist");
 
         // Verify Person.java content
         String personCode = Files.readString(entityDir.resolve("Person.java"));
@@ -81,8 +81,8 @@ class GeneratorIntegrationTest {
         assertTrue(containerCode.contains("public PhotoCollectionRequest photos()"), "Should have photos() method");
         assertTrue(containerCode.contains("public PersonEntityRequest me()"), "Should have me() singleton");
 
-        // Verify ServiceSchemaInfo.java content
-        String schemaInfoCode = Files.readString(schemaDir.resolve("ServiceSchemaInfo.java"));
+        // Verify SchemaInfo.java content
+        String schemaInfoCode = Files.readString(schemaDir.resolve("SchemaInfo.java"));
         assertTrue(schemaInfoCode.contains("implements io.github.akbarhusain.odata.runtime.entity.SchemaInfo"), "Should implement SchemaInfo");
         assertTrue(schemaInfoCode.contains("Person.class"), "Should map Person");
         assertTrue(schemaInfoCode.contains("Trip.class"), "Should map Trip");

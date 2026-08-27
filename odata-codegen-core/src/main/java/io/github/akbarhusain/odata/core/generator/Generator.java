@@ -56,7 +56,7 @@ public class Generator {
         for (Map.Entry<String, String> e : schemaPackages.entrySet()) {
             validatePackage(e.getValue());
         }
-        // Schemas sharing an output package must share one aggregate ServiceSchemaInfo,
+        // Schemas sharing an output package must share one aggregate SchemaInfo,
         // so collect them per package while generating
         Map<String, List<SchemaModel>> schemasByPackage = new LinkedHashMap<>();
         for (SchemaModel schema : model.schemas()) {

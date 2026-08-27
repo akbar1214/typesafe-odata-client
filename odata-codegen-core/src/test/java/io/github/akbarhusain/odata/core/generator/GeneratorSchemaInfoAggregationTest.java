@@ -15,7 +15,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * H2: when several schemas share one output package (the normal case when the
- * Maven plugin passes a single basePackage), one aggregate ServiceSchemaInfo
+ * Maven plugin passes a single basePackage), one aggregate SchemaInfo
  * must be generated containing all schemas' types — not one per-schema file
  * overwriting the previous.
  */
@@ -58,16 +58,16 @@ class GeneratorSchemaInfoAggregationTest {
         generator.generate(parse());
 
         Path schemaDir = tempDir.resolve("com/example/shared/schema");
-        assertTrue(Files.exists(schemaDir.resolve("ServiceSchemaInfo.java")),
-                "ServiceSchemaInfo.java should exist");
+        assertTrue(Files.exists(schemaDir.resolve("SchemaInfo.java")),
+                "SchemaInfo.java should exist");
 
         try (Stream<Path> files = Files.walk(tempDir, 6)) {
             long count = files.filter(p -> p.getFileName() != null
-                    && p.getFileName().toString().equals("ServiceSchemaInfo.java")).count();
-            assertEquals(1, count, "exactly one ServiceSchemaInfo for the shared package");
+                    && p.getFileName().toString().equals("SchemaInfo.java")).count();
+            assertEquals(1, count, "exactly one SchemaInfo for the shared package");
         }
 
-        String code = Files.readString(schemaDir.resolve("ServiceSchemaInfo.java"));
+        String code = Files.readString(schemaDir.resolve("SchemaInfo.java"));
         assertTrue(code.contains("\"Ns.One.Thing\""), "aggregate must register Ns.One.Thing");
         assertTrue(code.contains("\"Ns.One.ThingInfo\""), "aggregate must register Ns.One.ThingInfo");
         assertTrue(code.contains("\"Ns.Two.Other\""), "aggregate must register Ns.Two.Other");
@@ -81,11 +81,11 @@ class GeneratorSchemaInfoAggregationTest {
                 "Ns.Two", "com.example.two"));
         generator.generate(parse());
 
-        String one = Files.readString(tempDir.resolve("com/example/one/schema/ServiceSchemaInfo.java"));
+        String one = Files.readString(tempDir.resolve("com/example/one/schema/SchemaInfo.java"));
         assertTrue(one.contains("\"Ns.One.Thing\""));
         assertFalse(one.contains("\"Ns.Two."), "Ns.One's registry must not contain Ns.Two types");
 
-        String two = Files.readString(tempDir.resolve("com/example/two/schema/ServiceSchemaInfo.java"));
+        String two = Files.readString(tempDir.resolve("com/example/two/schema/SchemaInfo.java"));
         assertTrue(two.contains("\"Ns.Two.Other\""));
         assertFalse(two.contains("\"Ns.One."), "Ns.Two's registry must not contain Ns.One types");
     }

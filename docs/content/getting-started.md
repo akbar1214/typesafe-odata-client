@@ -74,7 +74,7 @@ com/example/trippin/
 ├── container/
 │   └── DefaultContainer.java
 └── schema/
-    └── ServiceSchemaInfo.java
+    └── SchemaInfo.java
 ```
 
 ## 4. Use the Client

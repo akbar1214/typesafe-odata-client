@@ -30,7 +30,7 @@ com/example/trippin/
 ├── container/
 │   └── DefaultContainer.java
 └── schema/
-    └── ServiceSchemaInfo.java
+    └── SchemaInfo.java
 ```
 
 ## Entity Classes
@@ -352,7 +352,7 @@ public enum PersonGender {
 ## Schema Info
 
 ```java
-public class ServiceSchemaInfo implements SchemaInfo {
+public class SchemaInfo implements SchemaInfo {
     @Override
     public Class<?> getClassFromTypeWithNamespace(String name) {
         return switch (name) {

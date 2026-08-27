@@ -127,7 +127,7 @@ public class RequestGenerator extends AbstractTypeGenerator {
 
         // CRUD operations
         sb.append("    public ").append(entityClassName).append(" get() {\n");
-        sb.append("        return EntityOperations.executeAndGetEntity(context, contextPath, ").append(entityClassName).append(".class, ServiceSchemaInfo.INSTANCE);\n");
+        sb.append("        return EntityOperations.executeAndGetEntity(context, contextPath, ").append(entityClassName).append(".class, " + Names.schemaInfoClassName() + ".INSTANCE);\n");
         sb.append("    }\n\n");
 
         sb.append("    public ").append(entityClassName).append(" patch(").append(entityClassName).append(" entity) {\n");
@@ -393,7 +393,7 @@ public class RequestGenerator extends AbstractTypeGenerator {
         sb.append("    }\n\n");
 
         sb.append("    public CollectionPage<").append(entityClassName).append("> get() {\n");
-        sb.append("        return EntityOperations.executeAndGetCollection(context, buildContext(), ").append(entityClassName).append(".class, ServiceSchemaInfo.INSTANCE);\n");
+        sb.append("        return EntityOperations.executeAndGetCollection(context, buildContext(), ").append(entityClassName).append(".class, " + Names.schemaInfoClassName() + ".INSTANCE);\n");
         sb.append("    }\n\n");
 
         sb.append("    public Stream<").append(entityClassName).append("> stream() {\n");
