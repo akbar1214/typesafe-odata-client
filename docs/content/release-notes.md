@@ -82,6 +82,12 @@
   `Near(addr=@p0)?@p0={"Street":"..."}` / `VisitAll(addrs=@p0)?@p0=[{...},{...}]` — previously any
   structured function parameter failed generation; nullable structured parameters omit the pair and
   alias when null
+- **Overload identity corrected to the spec** (ODATA-500/ODATA-425): overloads are identified by the
+  binding parameter type plus the ordered set of parameter types — same-name overloads with different
+  parameter types, or bound to different types in an inheritance hierarchy, now generate (previously
+  "has overloads with identical parameter names"); a derived-type request sees ancestor-bound
+  overloads via the cast segment; bound actions overload by binding parameter (one per binding type);
+  only overloads identical in names AND types still fail generation
 
 
 **Core Features:**

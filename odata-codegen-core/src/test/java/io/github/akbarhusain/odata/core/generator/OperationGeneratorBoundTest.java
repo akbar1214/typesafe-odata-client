@@ -128,7 +128,9 @@ class OperationGeneratorBoundTest {
     }
 
     @Test
-    void identicalParameterNameOverloadsFailLoudly() {
+    void sameNameDifferentTypeOverloadsGenerate() {
+        // ODATA-500: overloads are identified by the ORDERED SET of parameter types —
+        // same names with different types are legal CSDL, distinguishable by literal form
         CsdlModel.SchemaModel s = new CsdlModel.SchemaModel("N.NS", null,
                 List.of(new CsdlModel.EntityTypeModel("Doc", null, false, false, false,
                         List.of(new CsdlModel.KeyModel(List.of("Id"))),
@@ -146,12 +148,115 @@ class OperationGeneratorBoundTest {
                                 new CsdlModel.ReturnTypeModel("Edm.String", false))),
                 List.of(), List.of());
 
-        // Overloads are identified by PARAMETER NAMES — identical name lists are
-        // indistinguishable in an invocation URL and fail loudly (imports parity)
+        List<OperationGenerator.BoundOp> ops = new OperationGenerator("app", java.util.Map.of(), "app", List.of(s))
+                .boundOperationsFor(s.entityTypes().get(0), s);
+        assertEquals(2, ops.size(), "same names with different types are legal overloads");
+        assertTrue(ops.stream().anyMatch(o -> o.accessorName().equals("getByX")));
+        assertTrue(ops.stream().anyMatch(o -> o.accessorName().equals("getByX_2")),
+                "type-only overloads dedupe deterministically: "
+                        + ops.stream().map(OperationGenerator.BoundOp::accessorName).toList());
+    }
+
+    @Test
+    void sameBindingDifferentTypesInheritedOverloadsGenerate() {
+        // The BINDING ENTITY TYPE participates in overload identity (ODATA-425): Get
+        // bound to Base and Get bound to Derived are distinct overloads — a derived-type
+        // request sees both, with a cast segment for the ancestor-bound one
+        CsdlModel.SchemaModel s = new CsdlModel.SchemaModel("N.NS", null,
+                List.of(
+                        new CsdlModel.EntityTypeModel("Base", null, false, false, false,
+                                List.of(new CsdlModel.KeyModel(List.of("Id"))),
+                                List.of(new CsdlModel.PropertyModel("Id", "Edm.Int32", false, null, List.of())),
+                                List.of()),
+                        new CsdlModel.EntityTypeModel("Derived", "N.NS.Base", false, false, false,
+                                List.of(), List.of(), List.of())),
+                List.of(), List.of(), List.of(),
+                List.of(
+                        new CsdlModel.FunctionModel("Get", true, false, null,
+                                List.of(new CsdlModel.ParameterModel("target", "N.NS.Base", false),
+                                        new CsdlModel.ParameterModel("x", "Edm.String", false)),
+                                new CsdlModel.ReturnTypeModel("Edm.String", false)),
+                        new CsdlModel.FunctionModel("Get", true, false, null,
+                                List.of(new CsdlModel.ParameterModel("target", "N.NS.Derived", false),
+                                        new CsdlModel.ParameterModel("x", "Edm.String", false)),
+                                new CsdlModel.ReturnTypeModel("Edm.String", false))),
+                List.of(), List.of());
+
+        OperationGenerator gen = new OperationGenerator("app", java.util.Map.of(), "app", List.of(s));
+        List<OperationGenerator.BoundOp> onDerived = gen.boundOperationsFor(s.entityTypes().get(1), s);
+        assertEquals(2, onDerived.size(), "ancestor-bound + own-bound both surface on Derived");
+        assertTrue(onDerived.stream().anyMatch(o -> o.accessorName().equals("getByX")));
+        assertTrue(onDerived.stream().anyMatch(o -> o.accessorName().equals("getByX_2")),
+                "identical invocation params dedupe deterministically: "
+                        + onDerived.stream().map(OperationGenerator.BoundOp::accessorName).toList());
+        assertTrue(onDerived.stream().anyMatch(o -> o.castSegment() == null),
+                "the Derived-bound overload needs no cast");
+        assertTrue(onDerived.stream().anyMatch(o -> "N.NS.Base".equals(o.castSegment())),
+                "the Base-bound overload carries the cast segment");
+        List<OperationGenerator.BoundOp> onBase = gen.boundOperationsFor(s.entityTypes().get(0), s);
+        assertEquals(1, onBase.size(), "the subtype-bound overload is invisible on Base");
+        assertEquals("get", onBase.get(0).accessorName(), "lone overload keeps the bare op name");
+    }
+
+    @Test
+    void trulyIdenticalOverloadsStillFailLoudly() {
+        // Same binding type + same parameter names AND types — the overloads are
+        // indistinguishable in an invocation URL (invalid CSDL: differs only by return type)
+        CsdlModel.SchemaModel s = new CsdlModel.SchemaModel("N.NS", null,
+                List.of(new CsdlModel.EntityTypeModel("Doc", null, false, false, false,
+                        List.of(new CsdlModel.KeyModel(List.of("Id"))),
+                        List.of(new CsdlModel.PropertyModel("Id", "Edm.Int32", false, null, List.of())),
+                        List.of())),
+                List.of(), List.of(), List.of(),
+                List.of(
+                        new CsdlModel.FunctionModel("Get", true, false, null,
+                                List.of(new CsdlModel.ParameterModel("doc", "N.NS.Doc", false),
+                                        new CsdlModel.ParameterModel("x", "Edm.String", false)),
+                                new CsdlModel.ReturnTypeModel("Edm.String", false)),
+                        new CsdlModel.FunctionModel("Get", true, false, null,
+                                List.of(new CsdlModel.ParameterModel("doc", "N.NS.Doc", false),
+                                        new CsdlModel.ParameterModel("x", "Edm.String", false)),
+                                new CsdlModel.ReturnTypeModel("Edm.Int32", false))),
+                List.of(), List.of());
+
         IllegalStateException ex = assertThrows(IllegalStateException.class,
                 () -> new OperationGenerator("app", java.util.Map.of(), "app", List.of(s))
                         .boundOperationsFor(s.entityTypes().get(0), s));
         assertTrue(ex.getMessage().contains("Get"), ex.getMessage());
+    }
+
+    @Test
+    void sameNameBoundActionsOnDifferentBindingTypesGenerate() {
+        // ODATA-425: bound actions overload by BINDING PARAMETER — one per binding type;
+        // a derived-type request sees both, distinguished by the cast segment
+        CsdlModel.SchemaModel s = new CsdlModel.SchemaModel("N.NS", null,
+                List.of(
+                        new CsdlModel.EntityTypeModel("Base", null, false, false, false,
+                                List.of(new CsdlModel.KeyModel(List.of("Id"))),
+                                List.of(new CsdlModel.PropertyModel("Id", "Edm.Int32", false, null, List.of())),
+                                List.of()),
+                        new CsdlModel.EntityTypeModel("Derived", "N.NS.Base", false, false, false,
+                                List.of(), List.of(), List.of())),
+                List.of(), List.of(), List.of(), List.of(),
+                List.of(
+                        new CsdlModel.ActionModel("Touch", true, null,
+                                List.of(new CsdlModel.ParameterModel("target", "N.NS.Base", false)), null),
+                        new CsdlModel.ActionModel("Touch", true, null,
+                                List.of(new CsdlModel.ParameterModel("target", "N.NS.Derived", false)), null)),
+                List.of());
+
+        OperationGenerator gen = new OperationGenerator("app", java.util.Map.of(), "app", List.of(s));
+        List<OperationGenerator.BoundOp> onDerived = gen.boundOperationsFor(s.entityTypes().get(1), s);
+        assertEquals(2, onDerived.size(), "bound actions on different binding types are legal overloads");
+        assertTrue(onDerived.stream().anyMatch(o -> o.castSegment() == null));
+        assertTrue(onDerived.stream().anyMatch(o -> "N.NS.Base".equals(o.castSegment())));
+        assertTrue(onDerived.stream().anyMatch(o -> o.accessorName().equals("touch")));
+        assertTrue(onDerived.stream().anyMatch(o -> o.accessorName().equals("touch_2")),
+                "accessors dedupe deterministically: "
+                        + onDerived.stream().map(OperationGenerator.BoundOp::accessorName).toList());
+        List<OperationGenerator.BoundOp> onBase = gen.boundOperationsFor(s.entityTypes().get(0), s);
+        assertEquals(1, onBase.size());
+        assertEquals("touch", onBase.get(0).accessorName());
     }
 
     @Test

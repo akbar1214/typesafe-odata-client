@@ -124,12 +124,28 @@ class OperationImportOverloadTest {
     }
 
     @Test
-    void overloadsIdenticalInParameterNamesFailLoudly() {
-        // Same parameter NAMES (different types) cannot be distinguished in a URL —
-        // invalid CSDL, must fail at generation naming the import
+    void overloadsIdenticalInParameterNamesButNotTypesGenerate() {
+        // ODATA-500: overloads are identified by the ORDERED SET of parameter types —
+        // same names with different types are legal CSDL, distinguishable by literal form
         CsdlModel m = model(
                 fn("IsSiteAdmin", List.of(param("x", "Edm.String"))),
                 fn("IsSiteAdmin", List.of(param("x", "Edm.Int32"))));
+        List<OperationGenerator.GeneratedOperationRequest> reqs =
+                generator(m).generateFunctionImportRequests(fi(m), schema(m));
+        assertEquals(2, reqs.size());
+        assertTrue(reqs.stream().anyMatch(r -> r.className().equals("IsSiteAdminByXFunctionRequest")));
+        assertTrue(reqs.stream().anyMatch(r -> r.className().equals("IsSiteAdminByX_2FunctionRequest")),
+                "type-only overloads dedupe deterministically: "
+                        + reqs.stream().map(OperationGenerator.GeneratedOperationRequest::className).toList());
+    }
+
+    @Test
+    void overloadsIdenticalInNamesAndTypesStillFailLoudly() {
+        // Same parameter names AND types — indistinguishable in a URL (invalid CSDL:
+        // differs only by return type), must fail at generation naming the import
+        CsdlModel m = model(
+                fn("IsSiteAdmin", List.of(param("x", "Edm.String"))),
+                fn("IsSiteAdmin", List.of(param("x", "Edm.String"))));
         IllegalStateException ex = assertThrows(IllegalStateException.class, () ->
                 generator(m).generateFunctionImportRequests(fi(m), schema(m)));
         assertTrue(ex.getMessage().contains("IsSiteAdmin"), ex.getMessage());

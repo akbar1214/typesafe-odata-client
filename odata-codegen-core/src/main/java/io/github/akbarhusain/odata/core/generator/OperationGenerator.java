@@ -122,11 +122,14 @@ public class OperationGenerator extends AbstractTypeGenerator {
         if (unbound.size() > 1) {
             Set<String> seen = new java.util.HashSet<>();
             for (Owned<FunctionModel> o : unbound) {
-                String names = parameterNames(o.model());
-                if (!seen.add(names)) {
+                String identity = o.model().parameters().stream()
+                        .map(p -> p.name() + ":" + resolveTypeDefinition(p.type(), o.owner()))
+                        .collect(java.util.stream.Collectors.joining("|"));
+                if (!seen.add(identity)) {
                     throw new IllegalStateException("FunctionImport '" + importLabel + "': function '"
-                            + reference + "' has multiple overloads with identical parameter names "
-                            + names + " — OData requires unbound overloads to differ in parameter names");
+                            + reference + "' has multiple overloads with identical parameter names and types "
+                            + parameterNames(o.model()) + " — OData requires overloads to differ by the "
+                            + "ordered set of parameter types (ODATA-500)");
                 }
             }
         }
@@ -266,6 +269,11 @@ public class OperationGenerator extends AbstractTypeGenerator {
     }
 
     private static String overloadSuffix(List<ParameterModel> parameters) {
+        if (parameters.isEmpty()) {
+            // overload sets differing only by binding type have no invocation params —
+            // suffix only the colliding second+ overloads (_2/_3), keep the first bare
+            return "";
+        }
         StringBuilder sb = new StringBuilder("By");
         for (int i = 0; i < parameters.size(); i++) {
             if (i > 0) {
@@ -466,21 +474,32 @@ public class OperationGenerator extends AbstractTypeGenerator {
         for (List<BoundCand> group : groups.values()) {
             if (!group.get(0).isFunction()) {
                 if (group.size() > 1) {
-                    throw new IllegalStateException("Bound action '" + group.get(0).opName()
-                            + "' is declared more than once — actions cannot be overloaded "
-                            + "by parameter names");
+                    long distinctBindings = group.stream().map(BoundCand::bindingQualified)
+                            .distinct().count();
+                    if (distinctBindings < group.size()) {
+                        throw new IllegalStateException("Bound action '" + group.get(0).opName()
+                                + "' is declared more than once with the same binding type — for "
+                                + "one binding parameter there can be only one bound action (ODATA-425)");
+                    }
                 }
-                out.add(toBoundOp(group.get(0), "", selfQualified, entityType));
+                List<String> actionSuffixes = allocateBoundSuffixes(group);
+                for (int i = 0; i < group.size(); i++) {
+                    out.add(toBoundOp(group.get(i), actionSuffixes.get(i), selfQualified, entityType));
+                }
                 continue;
             }
-            // overloads identified by the FULL parameter-name list (binding included)
+            // Overload identity = BINDING TYPE + ordered (name, resolved-type) pairs
+            // (ODATA-500/425): same names with different binding types (inherited/derived)
+            // or different parameter types are legal — cast segments and literal forms
+            // distinguish them in the URL. Only names+types together are indistinguishable
             java.util.Set<String> identities = new java.util.HashSet<>();
             for (BoundCand c : group) {
-                String identity = c.bindingName() + ":" + c.invocationParams().stream()
-                        .map(ParameterModel::name).collect(java.util.stream.Collectors.joining(":"));
+                String identity = c.bindingQualified() + "|" + c.invocationParams().stream()
+                        .map(p -> p.name() + ":" + resolveTypeDefinition(p.type(), c.owner()))
+                        .collect(java.util.stream.Collectors.joining("|"));
                 if (!identities.add(identity)) {
                     throw new IllegalStateException("Bound function '" + c.opName()
-                            + "' has overloads with identical parameter names — they are "
+                            + "' has overloads with identical parameter names and types — they are "
                             + "indistinguishable in an invocation URL");
                 }
             }

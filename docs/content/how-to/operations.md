@@ -128,9 +128,13 @@ Boolean byName = client.isSiteAdminByUsername("scottketchum").execute();
 Boolean byId   = client.isSiteAdminByUserId("u-123").execute();
 ```
 
-Overloads with identical parameter-name sets are invalid CSDL and fail generation;
-same-name unbound actions also fail generation (actions cannot be overloaded by
-parameter names).
+Overloads are identified by the **binding parameter type** plus the **ordered set of
+parameter types** (OData CSDL overload rules). Same-name overloads with different
+parameter types — or bound to different types in an inheritance hierarchy — are legal
+and generate distinct request classes/accessors; a derived-type request sees an
+ancestor-bound overload via its cast segment. Only overloads identical in parameter
+names AND types (invalid CSDL) fail generation; same-name unbound actions also fail
+generation (actions cannot be overloaded by parameter names).
 
 ## Return-Kind Matrix
 
