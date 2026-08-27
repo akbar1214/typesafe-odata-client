@@ -903,9 +903,9 @@ public class OperationGenerator extends AbstractTypeGenerator {
         String variant = wrapped ? "invokeComplexSync" : "invokeSync";
         String asyncVariant = wrapped ? "invokeComplexAsync" : "invokeAsync";
         String call = "EntityOperations." + variant + "(context, contextPath, HttpMethod."
-                + verb + ", " + bodyArg + ", " + rc.classRef() + ", ServiceSchemaInfo.INSTANCE)";
+                + verb + ", " + bodyArg + ", " + rc.classRef() + ", " + Names.schemaInfoClassName() + ".INSTANCE)";
         String asyncCall = "EntityOperations." + asyncVariant + "(context, contextPath, HttpMethod."
-                + verb + ", " + bodyArg + ", " + rc.classRef() + ", ServiceSchemaInfo.INSTANCE)";
+                + verb + ", " + bodyArg + ", " + rc.classRef() + ", " + Names.schemaInfoClassName() + ".INSTANCE)";
         if (nullable) {
             return "    public Optional<" + rc.simpleName() + "> execute() {\n"
                  + "        return Optional.ofNullable(" + call + ");\n"
@@ -925,7 +925,7 @@ public class OperationGenerator extends AbstractTypeGenerator {
     private static String objectCollectionMethods(ResultClass rc) {
         return "    public List<" + rc.simpleName() + "> execute() {\n"
              + "        CollectionPage<" + rc.simpleName() + "> page = EntityOperations.executeAndGetCollection(\n"
-             + "                context, contextPath, " + rc.classRef() + ", ServiceSchemaInfo.INSTANCE);\n"
+             + "                context, contextPath, " + rc.classRef() + ", " + Names.schemaInfoClassName() + ".INSTANCE);\n"
              + "        return page.currentPage();\n"
              + "    }\n\n";
     }

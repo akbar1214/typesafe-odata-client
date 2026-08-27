@@ -22,7 +22,7 @@ public class SchemaInfoGenerator {
      * Generates one aggregate registry covering every schema mapped to this
      * generator's package. Schemas sharing an output package (the normal case
      * when the Maven plugin passes a single basePackage) must all appear in the
-     * same ServiceSchemaInfo, or each schema's file silently overwrites the
+     * same SchemaInfo, or each schema's file silently overwrites the
      * previous one and the registry loses all but the last schema's types.
      */
     public String generate(List<SchemaModel> schemas) {

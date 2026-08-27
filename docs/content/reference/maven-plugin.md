@@ -129,7 +129,7 @@ target/generated-sources/odata/
     ├── container/
     │   └── DefaultContainer.java
     └── schema/
-        └── ServiceSchemaInfo.java
+        └── SchemaInfo.java
 ```
 
 ## Adding Generated Sources

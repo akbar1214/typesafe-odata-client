@@ -13,7 +13,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * M21: entity request classes don't extend each other, so inherited navigation
  * properties, named streams, and HasStream must be re-emitted on the subtype's request.
  * M22: countValue() must not send $select/$expand/$orderby to /$count. M23: generated
- * requests pass ServiceSchemaInfo.INSTANCE for polymorphic @odata.type deserialization.
+ * requests pass SchemaInfo.INSTANCE for polymorphic @odata.type deserialization.
  */
 class RequestGeneratorInheritedMembersTest {
 
@@ -76,7 +76,7 @@ class RequestGeneratorInheritedMembersTest {
     @Test
     void m23GeneratedRequestsPassSchemaInfoForPolymorphicReads() {
         String entityRequest = generateVideoEntityRequest();
-        assertTrue(entityRequest.contains("ServiceSchemaInfo.INSTANCE"),
+        assertTrue(entityRequest.contains("SchemaInfo.INSTANCE"),
                 "entity get() must pass the schema registry for @odata.type deserialization");
 
         var tripPin = loadTripPin();
@@ -84,7 +84,7 @@ class RequestGeneratorInheritedMembersTest {
                 .filter(e -> e.name().equals("Trip")).findFirst().orElseThrow();
         String collectionRequest = new RequestGenerator("com.example.trippin")
                 .generateCollectionRequest(trip, tripPin);
-        assertTrue(collectionRequest.contains("executeAndGetCollection(context, buildContext(), Trip.class, ServiceSchemaInfo.INSTANCE)"),
+        assertTrue(collectionRequest.contains("executeAndGetCollection(context, buildContext(), Trip.class, SchemaInfo.INSTANCE)"),
                 "collection get() must pass the schema registry");
     }
 

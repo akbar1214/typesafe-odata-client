@@ -87,7 +87,7 @@ Code generated from CSDL metadata.
 - `enums/` — Java enums (with `fromValue` / `fromJson` / `fromFlags`)
 - `request/` — Collection and entity request classes (type-safe query, CRUD, `$ref`, media)
 - `container/` — Client entry points (e.g., `DefaultContainer`)
-- `schema/` — SchemaInfo implementations (`ServiceSchemaInfo`)
+- `schema/` — SchemaInfo implementations (`SchemaInfo`)
 
 ### Dependencies
 

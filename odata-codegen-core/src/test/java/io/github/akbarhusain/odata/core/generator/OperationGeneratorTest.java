@@ -75,7 +75,7 @@ class OperationGeneratorTest {
         String code = generator().generateFunctionImportRequest(fi("GetNearestAirport"), schema);
         assertEquals(1, count(code, "public Airport execute()"), "single sync execute()");
         assertTrue(code.contains("EntityOperations.invokeSync(context, contextPath, HttpMethod.GET, null, "
-                + "Airport.class, ServiceSchemaInfo.INSTANCE)"),
+                + "Airport.class, SchemaInfo.INSTANCE)"),
                 "entity results pass the registry for polymorphic @odata.type reads (decision 46 parity)");
         assertTrue(code.contains("public CompletableFuture<Airport> executeAsync()"),
                 "async parity required");
@@ -305,13 +305,13 @@ class OperationGeneratorTest {
         String code = functionCode(fn, "homeAddress");
 
         assertTrue(code.contains("EntityOperations.invokeComplexSync(context, contextPath, "
-                        + "HttpMethod.GET, null, Address.class, ServiceSchemaInfo.INSTANCE)"),
+                        + "HttpMethod.GET, null, Address.class, SchemaInfo.INSTANCE)"),
                 "complex results are value-wrapped on the wire — routed to the wrapped variant: " + code);
         assertTrue(code.contains("EntityOperations.invokeComplexAsync(context, contextPath, HttpMethod.GET, "
-                + "null, Address.class, ServiceSchemaInfo.INSTANCE)"),
+                + "null, Address.class, SchemaInfo.INSTANCE)"),
                 "async parity uses the wrapped variant too");
         assertTrue(code.contains("import com.example.app.complex.Address;"));
-        assertTrue(code.contains("import com.example.app.schema.ServiceSchemaInfo;"),
+        assertTrue(code.contains("import com.example.app.schema.SchemaInfo;"),
                 "polymorphic @odata.type reads need the registry import");
     }
 
@@ -323,9 +323,9 @@ class OperationGeneratorTest {
         String code = functionCode(fn, "allPeople");
 
         assertTrue(code.contains("EntityOperations.executeAndGetCollection(\n"
-                + "                context, contextPath, Person.class, ServiceSchemaInfo.INSTANCE)"),
+                + "                context, contextPath, Person.class, SchemaInfo.INSTANCE)"),
                 "collection reads pass the registry for polymorphic elements: " + code);
-        assertTrue(code.contains("import com.example.app.schema.ServiceSchemaInfo;"));
+        assertTrue(code.contains("import com.example.app.schema.SchemaInfo;"));
         assertTrue(code.contains("import io.github.akbarhusain.odata.runtime.paging.CollectionPage;"),
                 "object-collection results reference CollectionPage — the import is required: " + code);
     }

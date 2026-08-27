@@ -73,7 +73,10 @@ public final class Names {
     }
 
     public static String schemaInfoClassName() {
-        return "ServiceSchemaInfo";
+        // Generated registry class: <basePackage>.schema.SchemaInfo. The runtime
+        // interface it implements (io...entity.SchemaInfo) is always referenced by its
+        // fully-qualified name inside the generated file, so the shared simple name is safe
+        return "SchemaInfo";
     }
 
     public static String packageNameSuffixEntity() {
