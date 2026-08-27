@@ -41,7 +41,7 @@ class ODataDemoMediaTest {
         if (page.currentPage().isEmpty()) return; // service has no advertisements
         Advertisement ad = page.currentPage().get(0);
 
-        try (InputStream is = client.advertisements().advertisementByID(ad.getID()).streamMedia()) {
+        try (InputStream is = client.advertisements(ad.getID()).streamMedia()) {
             assertNotNull(is, "streamMedia() should return a stream");
             byte[] bytes = is.readAllBytes();
             assertTrue(bytes.length > 0, "media stream should contain bytes");
@@ -54,7 +54,7 @@ class ODataDemoMediaTest {
         if (page.currentPage().isEmpty()) return; // service has no person details
         PersonDetail pd = page.currentPage().get(0);
 
-        try (InputStream is = client.personDetails().personDetailByPersonID(pd.getPersonID()).streamPhoto()) {
+        try (InputStream is = client.personDetails(pd.getPersonID()).streamPhoto()) {
             assertNotNull(is, "streamPhoto() should return a stream");
             byte[] bytes = is.readAllBytes();
             assertTrue(bytes.length > 0, "photo stream should contain bytes");

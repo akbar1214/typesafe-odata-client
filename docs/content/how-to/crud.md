@@ -7,14 +7,14 @@ Create, read, update, and delete entities.
 ### Get a Single Entity
 
 ```java
-PersonEntityRequest request = client.people().personByUserName("scottketchum");
+PersonEntityRequest request = client.people("scottketchum");
 Person person = request.get();
 ```
 
 ### Get with Select
 
 ```java
-Person person = client.people().personByUserName("scottketchum")
+Person person = client.people("scottketchum")
     .select(Person.FIRST_NAME, Person.LAST_NAME)
     .get();
 ```
@@ -22,7 +22,7 @@ Person person = client.people().personByUserName("scottketchum")
 ### Get with Expand
 
 ```java
-Person person = client.people().personByUserName("scottketchum")
+Person person = client.people("scottketchum")
     .expand(Person.TRIPS)
     .get();
 ```
@@ -50,7 +50,7 @@ System.out.println(created.getUserName()); // "mike"
 ### Update an Entity
 
 ```java
-PersonEntityRequest request = client.people().personByUserName("mike");
+PersonEntityRequest request = client.people("mike");
 
 Person updated = Person.builder()
     .firstName("Michael")
@@ -92,7 +92,7 @@ See [Handle ETags and Concurrency](etag.md).
 ### Delete an Entity
 
 ```java
-client.people().personByUserName("mike")
+client.people("mike")
     .delete();
 ```
 
@@ -107,7 +107,7 @@ Trip newTrip = Trip.builder()
     .budget(1500.0f)
     .build();
 
-Trip createdTrip = client.people().personByUserName("scottketchum")
+Trip createdTrip = client.people("scottketchum")
     .trips()
     .create(newTrip);
 ```
@@ -115,7 +115,7 @@ Trip createdTrip = client.people().personByUserName("scottketchum")
 ### Delete a Trip
 
 ```java
-client.people().personByUserName("scottketchum")
+client.people("scottketchum")
     .tripByTripId(1001)
     .delete();
 ```

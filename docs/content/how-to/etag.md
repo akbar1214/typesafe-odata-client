@@ -9,7 +9,7 @@ An ETag is a version identifier returned with each entity. When you update an en
 ## Get an Entity with ETag
 
 ```java
-PersonEntityRequest request = client.people().personByUserName("scottketchum");
+PersonEntityRequest request = client.people("scottketchum");
 Person person = request.get();
 
 // The ETag is available on the entity (Optional: absent on services that send none)
@@ -26,7 +26,7 @@ without dropping to raw HTTP. A body annotation always wins over the header.
 ### Use patchWithETag
 
 ```java
-PersonEntityRequest request = client.people().personByUserName("scottketchum");
+PersonEntityRequest request = client.people("scottketchum");
 Person person = request.get();
 
 // Make your changes

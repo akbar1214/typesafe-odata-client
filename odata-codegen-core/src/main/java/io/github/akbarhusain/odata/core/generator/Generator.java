@@ -117,6 +117,13 @@ public class Generator {
             String collectionRequestCode = requestGenerator.generateCollectionRequest(entityType, schema);
             writeCode(basePackage + Names.packageNameSuffixCollectionRequest(), Names.collectionRequestClassName(entityType.name()), collectionRequestCode);
 
+            // Bound-operation request classes (decision 96): packaged by the operation's
+            // OWNING schema, mirroring import resolution
+            for (OperationGenerator.BoundOp b : operationGenerator.boundOperationsFor(entityType, schema)) {
+                writeCode(operationGenerator.boundFilePackage(b), b.className(),
+                        operationGenerator.generateBoundOperationRequest(b, entityType, schema));
+            }
+
             entityNames.add(entityType.name());
         }
 

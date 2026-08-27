@@ -42,7 +42,7 @@ CollectionPage<Person> people = client.people()
     .get();
 
 // 4. Navigate (with nested $expand options)
-PersonEntityRequest req = client.people().personByUserName("scottketchum");
+PersonEntityRequest req = client.people("scottketchum");
 Person scott = req.get();
 CollectionPage<Trip> trips = req.trips()
     .filter(Trip.BUDGET.greaterThan(500.0f))

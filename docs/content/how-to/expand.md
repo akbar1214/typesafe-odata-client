@@ -93,7 +93,7 @@ client.people()
 
 ```java
 // Expand when getting a single entity
-Person scott = client.people().personByUserName("scottketchum")
+Person scott = client.people("scottketchum")
     .expand(Person.TRIPS)
     .get();
 ```
@@ -137,7 +137,7 @@ When you `$expand` a navigation property, the expanded data is automatically
 deserialized into the entity's typed getter. No manual parsing needed:
 
 ```java
-Person scott = client.people().personByUserName("scottketchum")
+Person scott = client.people("scottketchum")
     .expand(Person.TRIPS.expand(Trip.PLAN_ITEMS))
     .get();
 

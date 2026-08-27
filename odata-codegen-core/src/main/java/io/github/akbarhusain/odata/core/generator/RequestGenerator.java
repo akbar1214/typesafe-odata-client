@@ -6,6 +6,7 @@ import io.github.akbarhusain.odata.core.model.CsdlModel.NavigationPropertyModel;
 import io.github.akbarhusain.odata.core.model.CsdlModel.PropertyModel;
 import io.github.akbarhusain.odata.core.model.CsdlModel.SchemaModel;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -68,6 +69,18 @@ public class RequestGenerator extends AbstractTypeGenerator {
             }
         }
 
+        // Bound operations (decision 96): accessors embed on the entity request; the op
+        // request classes live in the owning schema's .operation package
+        OperationGenerator boundGen = new OperationGenerator(basePackage, schemaPackages,
+                defaultBasePackage, allSchemas == null || allSchemas.isEmpty()
+                        ? List.of(schema) : allSchemas);
+        List<OperationGenerator.BoundOp> boundOps = boundGen.boundOperationsFor(entityType, schema);
+        List<String> boundAccessors = new ArrayList<>();
+        for (OperationGenerator.BoundOp b : boundOps) {
+            boundAccessors.add(boundGen.boundAccessorMethod(b));
+            imports.add(boundGen.boundClassImportLine(b));
+        }
+
         for (String imp : imports) {
             sb.append("import ").append(imp).append(";\n");
         }
@@ -87,6 +100,11 @@ public class RequestGenerator extends AbstractTypeGenerator {
         for (NavigationPropertyModel nav : resolvedNavs(entityType)) {
             if (isComplexTypeNav(nav, schema)) continue;
             sb.append(generateNavMethod(nav, schema));
+        }
+
+        // Bound operation accessors (decision 96)
+        for (String accessor : boundAccessors) {
+            sb.append(accessor);
         }
 
         // $ref methods for collection navigation properties — only for entity nav targets
@@ -417,49 +435,9 @@ public class RequestGenerator extends AbstractTypeGenerator {
         sb.append("        return EntityOperations.executeCount(context, tmp.buildContext());\n");
         sb.append("    }\n\n");
 
-        // Key-based entity accessor methods
-        java.util.List<KeyModel> resolvedKeys = resolvedKeys(entityType, schema);
-        if (!resolvedKeys.isEmpty()) {
-            for (var key : resolvedKeys) {
-                if (key.propertyRefs().size() == 1) {
-                    // Single key - generate entity accessor with key parameter
-                    String keyProp = key.propertyRefs().get(0);
-                    String paramName = Names.toJavaFieldName(keyProp);
-                    String paramType = resolveKeyType(entityType, keyProp, schema);
-                    String keyEdmType = keyEdmType(entityType, keyProp, schema);
-                    sb.append("    public ").append(Names.entityRequestClassName(entityType.name()))
-                      .append(" ").append(Names.toJavaFieldName(entityType.name()))
-                      .append("By").append(Names.capitalize(Names.toJavaFieldName(keyProp)))
-                      .append("(").append(paramType).append(" ").append(paramName).append(") {\n");
-                    sb.append("        return new ").append(Names.entityRequestClassName(entityType.name()))
-                      .append("(context, contextPath.addKey(\"").append(keyProp).append("\", ").append(paramName)
-                      .append(", \"").append(keyEdmType).append("\"));\n");
-                    sb.append("    }\n\n");
-                } else {
-                    // Composite key - generate single accessor with all key params
-                    StringBuilder params = new StringBuilder();
-                    StringBuilder args = new StringBuilder();
-                    for (int i = 0; i < key.propertyRefs().size(); i++) {
-                        String keyProp = key.propertyRefs().get(i);
-                        String paramName = Names.toJavaFieldName(keyProp);
-                        String paramType = resolveKeyType(entityType, keyProp, schema);
-                        String keyEdmType = keyEdmType(entityType, keyProp, schema);
-                        if (i > 0) { params.append(", "); args.append(".addKey(\""); }
-                        else { args.append("contextPath.addKey(\""); }
-                        params.append(paramType).append(" ").append(paramName);
-                        args.append(keyProp).append("\", ").append(paramName)
-                              .append(", \"").append(keyEdmType).append("\")");
-                    }
-                    sb.append("    public ").append(Names.entityRequestClassName(entityType.name()))
-                      .append(" ").append(Names.toJavaFieldName(entityType.name()))
-                      .append("By").append(Names.capitalize(Names.toJavaFieldName(key.propertyRefs().get(0))))
-                      .append("(").append(params).append(") {\n");
-                    sb.append("        return new ").append(Names.entityRequestClassName(entityType.name()))
-                      .append("(context, ").append(args).append(");\n");
-                    sb.append("    }\n\n");
-                }
-            }
-        }
+        // Keying lives on keyed container overloads and keyed nav overloads
+        // (decision 95, option A) — the collection-request byID/byKey accessor
+        // family was removed (breaking, pre-1.0).
 
         // copy()
         sb.append("    private ").append(className).append(" copy() {\n");
@@ -496,8 +474,40 @@ public class RequestGenerator extends AbstractTypeGenerator {
         entityTypeByQualifiedName = crossSchemaMap;
     }
 
-    private String resolveKeyType(EntityTypeModel entityType, String keyPropName, SchemaModel schema) {
-        for (PropertyModel prop : entityType.properties()) {
+    /** One typed key parameter: CSDL name, Java identifier, Java type, resolved Edm type. */
+    public record KeyParamSpec(String csdlName, String javaParamName, String javaType, String edmType) {}
+
+    /** Resolves an entity-set/singleton type reference to its model (qualified, then same-schema simple name). */
+    public EntityTypeModel resolveEntityType(String typeRef, SchemaModel schema) {
+        initEffectiveSchemas(schema);
+        ensureSchemaCache(schema);
+        EntityTypeModel hit = entityTypeByQualifiedName.get(typeRef);
+        if (hit != null) return hit;
+        if (!typeRef.contains(".")) {
+            return entityTypeMap.get(Names.entityClassName(typeRef));
+        }
+        return null;
+    }
+
+    /**
+     * Key parameters of the entity type (own + inherited), flattened in CSDL order:
+     * one entry per {@code PropertyRef}. Empty for keyless types. Shared by keyed
+     * container overloads, keyed nav overloads, and (previously) the byID accessors.
+     */
+    public java.util.List<KeyParamSpec> keyParamSpecs(EntityTypeModel entityType, SchemaModel schema) {
+        initEffectiveSchemas(schema);
+        java.util.List<KeyParamSpec> out = new java.util.ArrayList<>();
+        for (KeyModel key : resolvedKeys(entityType, schema)) {
+            for (String keyProp : key.propertyRefs()) {
+                out.add(new KeyParamSpec(keyProp, Names.toJavaFieldName(keyProp),
+                        resolveKeyType(entityType, keyProp, schema),
+                        keyEdmType(entityType, keyProp, schema)));
+            }
+        }
+        return out;
+    }
+
+    private String resolveKeyType(EntityTypeModel entityType, String keyPropName, SchemaModel schema) {        for (PropertyModel prop : entityType.properties()) {
             if (prop.name().equals(keyPropName)) {
                 return keyJavaType(prop.edmType(), schema);
             }
@@ -614,6 +624,19 @@ public class RequestGenerator extends AbstractTypeGenerator {
             sb.append(Names.collectionRequestClassName(elementClassName)).append(" ").append(methodName).append("() {\n");
             sb.append("        return new ").append(Names.collectionRequestClassName(elementClassName))
               .append("(context, contextPath.addSegment(\"").append(nav.name()).append("\"));\n");
+            sb.append("    }\n\n");
+
+            // Keyed nav overload (decision 95): person.trips(2) renders
+            // People('x')/Trips(2) without a tripByID() detour. Only for keyed
+            // entity targets — keyless/complex/primitive navs get no overload.
+            EntityTypeModel navTarget = resolveEntityType(unwrapped, schema);
+            if (navTarget != null) {
+                java.util.List<KeyParamSpec> keySpecs = keyParamSpecs(navTarget, schema);
+                if (!keySpecs.isEmpty()) {
+                    appendKeyedNavOverload(sb, nav.name(), methodName, elementClassName, keySpecs);
+                    return sb.toString();
+                }
+            }
         } else {
             sb.append(Names.entityRequestClassName(elementClassName)).append(" ").append(methodName).append("() {\n");
             sb.append("        return new ").append(Names.entityRequestClassName(elementClassName))
@@ -621,6 +644,24 @@ public class RequestGenerator extends AbstractTypeGenerator {
         }
         sb.append("    }\n\n");
         return sb.toString();
+    }
+
+    private static void appendKeyedNavOverload(StringBuilder sb, String rawNavName, String methodName,
+                                               String elementClassName,
+                                               java.util.List<KeyParamSpec> keySpecs) {
+        String entityReqClass = Names.entityRequestClassName(elementClassName);
+        StringBuilder params = new StringBuilder();
+        StringBuilder args = new StringBuilder("contextPath.addSegment(\"").append(rawNavName).append("\")");
+        for (KeyParamSpec k : keySpecs) {
+            if (params.length() > 0) params.append(", ");
+            params.append(k.javaType()).append(' ').append(k.javaParamName());
+            args.append(".addKey(\"").append(k.csdlName()).append("\", ")
+                .append(k.javaParamName()).append(", \"").append(k.edmType()).append("\")");
+        }
+        sb.append("    public ").append(entityReqClass).append(' ').append(methodName)
+          .append('(').append(params).append(") {\n");
+        sb.append("        return new ").append(entityReqClass).append("(context, ").append(args).append(");\n");
+        sb.append("    }\n\n");
     }
 
     private boolean isComplexTypeNav(NavigationPropertyModel nav, SchemaModel schema) {

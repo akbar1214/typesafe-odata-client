@@ -91,7 +91,7 @@ CollectionPage<Person> result = client.people()
 ```java
 import com.example.trippin.request.PersonEntityRequest;
 
-PersonEntityRequest request = client.people().personByUserName("scottketchum");
+PersonEntityRequest request = client.people("scottketchum");
 Person scott = request.get();
 ```
 
@@ -99,12 +99,12 @@ Person scott = request.get();
 
 ```java
 // Get trips for a specific person
-CollectionPage<Trip> trips = client.people().personByUserName("scottketchum")
+CollectionPage<Trip> trips = client.people("scottketchum")
     .trips()
     .get();
 
 // Get trips with a filter
-CollectionPage<Trip> expensiveTrips = client.people().personByUserName("scottketchum")
+CollectionPage<Trip> expensiveTrips = client.people("scottketchum")
     .trips()
     .filter(Trip.BUDGET.greaterThan(500.0f))
     .orderBy(Trip.STARTS_AT.desc())
