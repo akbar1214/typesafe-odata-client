@@ -56,7 +56,7 @@ In OData Codegen this becomes:
 
 ```java
 client.people()                         // → collection request
-client.people().personByUserName("scottketchum") // → single entity request
+client.people("scottketchum") // → single entity request
 ```
 
 ### Properties, Keys, and Nullability
@@ -113,7 +113,7 @@ In Codegen, you traverse through **request objects** (not the entity itself —
 entities are pure data and hold no HTTP context):
 
 ```java
-client.people().personByUserName("scottketchum")
+client.people("scottketchum")
     .trips()
     .filter(Trip.BUDGET.greaterThan(500.0f))
     .get();
@@ -162,7 +162,7 @@ So a query written against `PlanItem` works on `Flight` too:
 FilterExpression<PlanItem> hasBudget = PlanItem.BUDGET.greaterThan(100);
 
 // Accepted when filtering a subtype collection — compile-time safe
-client.people().personByUserName("scott").trips()
+client.people("scott").trips()
     .filter(hasBudget)  // FilterExpression<? super PlanItem>
     .get();
 ```
@@ -265,7 +265,7 @@ Navigation properties deserialized from expanded JSON are accessible via
 typed getters on the entity itself:
 
 ```java
-Person person = client.people().personByUserName("scott").expand(Person.TRIPS).get().orElseThrow();
+Person person = client.people("scott").expand(Person.TRIPS).get().orElseThrow();
 List<Trip> trips = person.getTrips();  // already populated by Jackson
 ```
 
@@ -371,7 +371,7 @@ the core value proposition of OData Codegen.
 |------------------------|-------------------------------------------------|
 | Entity Type            | `final class Person implements ODataEntityType` |
 | Entity Set             | `client.people()` — collection request          |
-| Key                    | `client.people().personByUserName(...)` — entity request |
+| Key                    | `client.people(...)` — entity request |
 | Property (getter)      | `person.getFirstName()` → `Optional<String>`    |
 | Property (constant)    | `Person.FIRST_NAME` — `StringProperty<Person>`  |
 | `$filter`              | `.filter(Person.FIRST_NAME.equalTo("Scott"))`   |

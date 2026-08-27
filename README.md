@@ -94,7 +94,7 @@ long totalPeople = page.count().orElse(0L);
 
 ```java
 // Get entity by key
-PersonEntityRequest personReq = client.people().personByUserName("scottketchum");
+PersonEntityRequest personReq = client.people("scottketchum");
 Person person = personReq.get();
 
 // Navigate to collection
@@ -135,7 +135,7 @@ Person newPerson = Person.builder()
 Person created = client.people().create(newPerson);
 
 // PATCH with ETag — copy-on-write tracks changes, so only FirstName is sent
-PersonEntityRequest req = client.people().personByUserName("newuser");
+PersonEntityRequest req = client.people("newuser");
 Person existing = req.get();
 String etag = existing.getETag().orElse(null);
 
@@ -152,11 +152,11 @@ req.delete();
 
 ```java
 // Add friend (target entity path is resolved to an absolute @odata.id URL)
-client.people().personByUserName("scottketchum")
+client.people("scottketchum")
     .addFriendsRef("People('ronaldmundy')");
 
 // Remove friend
-client.people().personByUserName("scottketchum")
+client.people("scottketchum")
     .removeFriendsRef("People('ronaldmundy')");
 ```
 
@@ -166,7 +166,7 @@ client.people().personByUserName("scottketchum")
 import io.github.akbarhusain.odata.runtime.exception.*;
 
 try {
-    Person person = client.people().personByUserName("nonexistent").get();
+    Person person = client.people("nonexistent").get();
 } catch (NotFoundException e) {
     System.out.println("Person not found: " + e.getMessage());
 } catch (UnauthorizedException e) {
@@ -243,7 +243,7 @@ public final class PersonCollectionRequest {
     public Person create(Person entity);
     public long countValue();               // GET /People/$count
     public PersonCollectionRequest nextPage(String nextLink);
-    public PersonEntityRequest personByUserName(String userName);
+    public PersonEntityRequest people(String userName);   // keyed overload
 }
 
 // Entity request (CRUD operations)

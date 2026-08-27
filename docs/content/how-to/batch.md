@@ -128,13 +128,13 @@ DefaultContainer client = new DefaultContainer(ctx);
 
 BatchResponse response = ctx.batch()
     // Entity request → GET
-    .add(client.people().personByUserName("scott").toBatchOperation())
+    .add(client.people("scott").toBatchOperation())
 
     // Entity request → PATCH
-    .add(client.people().personByUserName("scott").patchToBatchOperation(updatedPerson))
+    .add(client.people("scott").patchToBatchOperation(updatedPerson))
 
     // Entity request → DELETE
-    .add(client.people().personByUserName("louis").deleteToBatchOperation())
+    .add(client.people("louis").deleteToBatchOperation())
 
     // Collection request → GET
     .add(client.people().top(5).toBatchOperation())

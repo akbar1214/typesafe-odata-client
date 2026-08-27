@@ -9,38 +9,42 @@ import java.io.InputStream;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * M9 (extended): generated key accessors pass the key's Edm type so literals render per
- * the OData ABNF instead of by value-shape heuristics.
+ * M9 (extended) after decision 95: keyed accessors pass the key's Edm type so literals
+ * render per the OData ABNF instead of by value-shape heuristics. The accessors now
+ * live as keyed container overloads (the collection-request byID family was removed).
  */
 class TypedKeyLiteralTest {
 
     @Test
-    void m9GeneratedKeyAccessorsPassEdmType() throws Exception {
+    void m9KeyedOverloadsPassEdmType() throws Exception {
         StaxCsdlParser parser = new StaxCsdlParser();
-        CsdlModel.SchemaModel schema;
+        CsdlModel.SchemaModel demo;
         try (InputStream is = TypedKeyLiteralTest.class.getResourceAsStream("/odata-demo-metadata.xml")) {
-            schema = parser.parse(is).schemas().get(0);
+            demo = parser.parse(is).schemas().get(0);
         }
-        // Advertisement has an Edm.Guid key; Person has a String UserName key in TripPin metadata
-        var advertisement = schema.entityTypes().stream()
-                .filter(e -> e.name().equals("Advertisement")).findFirst().orElseThrow();
-        String code = new RequestGenerator("com.example.demo")
-                .generateCollectionRequest(advertisement, schema);
+        // Advertisement has an Edm.Guid key
+        String containerCode = new ContainerGenerator("com.example.demo", java.util.Map.of(),
+                "com.example.demo", java.util.List.of(demo))
+                .generate(demo.containers().get(0), demo);
 
-        assertTrue(code.contains("addKey(\"ID\", iD, \"Edm.Guid\")"),
-                "Guid keys pass their Edm type so the literal renders unquoted without heuristics. Got:\n" + code);
+        assertTrue(containerCode.contains("addKey(\"ID\", iD, \"Edm.Guid\")"),
+                "Guid keys pass their Edm type so the literal renders unquoted without heuristics. Got:\n"
+                        + snippet(containerCode, "advertisements("));
 
         StaxCsdlParser tripPinParser = new StaxCsdlParser();
         CsdlModel.SchemaModel tripPin;
         try (InputStream is = TypedKeyLiteralTest.class.getResourceAsStream("/trippin-metadata.xml")) {
             tripPin = tripPinParser.parse(is).schemas().get(0);
         }
-        var person = tripPin.entityTypes().stream()
-                .filter(e -> e.name().equals("Person")).findFirst().orElseThrow();
-        String personCode = new RequestGenerator("com.example.trippin")
-                .generateCollectionRequest(person, tripPin);
-        assertTrue(personCode.contains("addKey(\"UserName\", userName, \"Edm.String\")"),
-                "String keys are always quoted — a UUID-shaped string key is no longer sent unquoted. Got:\n"
-                        + personCode);
+        String trippinContainer = new ContainerGenerator("com.example.trippin", java.util.Map.of(),
+                "com.example.trippin", java.util.List.of(tripPin))
+                .generate(tripPin.containers().get(0), tripPin);
+        assertTrue(trippinContainer.contains("addKey(\"UserName\", userName, \"Edm.String\")"),
+                "String keys are always quoted — a UUID-shaped string key is no longer sent unquoted");
+    }
+
+    private static String snippet(String code, String marker) {
+        int i = code.indexOf(marker);
+        return i < 0 ? "(missing)" : code.substring(i, Math.min(i + 200, code.length()));
     }
 }

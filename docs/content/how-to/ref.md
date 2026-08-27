@@ -14,7 +14,7 @@ Collection navigation properties on the **entity request** expose `add<Nav>Ref` 
 
 ```java
 // POST .../People('scottketchum')/Friends/$ref
-client.people().personByUserName("scottketchum")
+client.people("scottketchum")
     .addFriendsRef("People('ronaldmundy')");
 ```
 
@@ -26,7 +26,7 @@ must already exist; linking to a nonexistent entity is a server-side error.
 
 ```java
 // DELETE .../People('scottketchum')/Friends/$ref?$id=<absolute URL>
-client.people().personByUserName("scottketchum")
+client.people("scottketchum")
     .removeFriendsRef("People('ronaldmundy')");
 ```
 
@@ -41,7 +41,7 @@ not linked via `$ref` — which is why no `addTripsRef` methods are generated:
 
 ```java
 // Create a contained Trip (POST .../People('scottketchum')/Trips)
-Trip created = client.people().personByUserName("scottketchum")
+Trip created = client.people("scottketchum")
     .trips()
     .create(Trip.builder()
         .tripId(1001)
@@ -50,7 +50,7 @@ Trip created = client.people().personByUserName("scottketchum")
         .build());
 
 // Delete it through the same path
-client.people().personByUserName("scottketchum")
+client.people("scottketchum")
     .tripByTripId(1001)
     .delete();
 ```

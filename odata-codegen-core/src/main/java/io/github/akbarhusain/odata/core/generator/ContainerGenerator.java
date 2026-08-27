@@ -53,10 +53,16 @@ public class ContainerGenerator {
                 allSchemas == null || allSchemas.isEmpty() ? List.of(schema) : allSchemas);
     }
 
+    private RequestGenerator requestGenerator(CsdlModel.SchemaModel schema) {
+        return new RequestGenerator(basePackage, schemaPackages, defaultBasePackage,
+                allSchemas == null || allSchemas.isEmpty() ? List.of(schema) : allSchemas);
+    }
+
     public String generate(ContainerModel container, SchemaModel schema) {
         String pkg = basePackage + Names.packageNameSuffixContainer();
         String className = Names.containerClassName(container.name());
         OperationGenerator ops = operationGenerator(schema);
+        RequestGenerator reqGen = requestGenerator(schema);
 
         // Accessor methods derive from member names; two members folding onto one
         // method (e.g. an EntitySet and a Singleton both named 'People') previously
@@ -93,6 +99,14 @@ public class ContainerGenerator {
         for (EntitySetModel es : container.entitySets()) {
             String entityClassName = Names.simpleNameFromFullName(es.entityType());
             imports.add(basePackageForType(es.entityType(), schema) + Names.packageNameSuffixCollectionRequest() + "." + Names.collectionRequestClassName(entityClassName));
+            // Keyed overloads (decision 95) return the entity request directly — import it
+            // when the set's type is keyable
+            CsdlModel.EntityTypeModel importType = reqGen.resolveEntityType(es.entityType(), schema);
+            if (importType != null && !reqGen.keyParamSpecs(importType, schema).isEmpty()) {
+                imports.add(basePackageForType(es.entityType(), schema)
+                        + Names.packageNameSuffixEntityRequest() + "."
+                        + Names.entityRequestClassName(entityClassName));
+            }
         }
 
         for (SingletonModel singleton : container.singletons()) {
@@ -136,6 +150,17 @@ public class ContainerGenerator {
             sb.append("        return new ").append(collReqClassName)
               .append("(context, context.basePath().addSegment(\"").append(es.name()).append("\"));\n");
             sb.append("    }\n\n");
+
+            // Keyed overload (decision 95): <set>(key...) → entity request, so
+            // client.people("russellwhyte") keys the first segment directly
+            CsdlModel.EntityTypeModel setType = reqGen.resolveEntityType(es.entityType(), schema);
+            if (setType != null) {
+                java.util.List<RequestGenerator.KeyParamSpec> keySpecs =
+                        reqGen.keyParamSpecs(setType, schema);
+                if (!keySpecs.isEmpty()) {
+                    appendKeyedOverload(sb, es.name(), methodName, entityClassName, keySpecs);
+                }
+            }
         }
 
         for (SingletonModel singleton : container.singletons()) {
@@ -158,9 +183,32 @@ public class ContainerGenerator {
         return sb.toString();
     }
 
+    /**
+     * Emits {@code public FooEntityRequest foo(keyParams...) } — the keyed container
+     * overload returning the entity request. Single keys take one parameter; composite
+     * keys chain one {@code addKey} per {@code PropertyRef} in CSDL order.
+     */
+    private static void appendKeyedOverload(StringBuilder sb, String rawSetName, String methodName,
+                                            String entityClassName,
+                                            java.util.List<RequestGenerator.KeyParamSpec> keySpecs) {
+        String entityReqClass = Names.entityRequestClassName(entityClassName);
+        StringBuilder params = new StringBuilder();
+        StringBuilder args = new StringBuilder("context.basePath().addSegment(\"")
+                .append(rawSetName).append("\")");
+        for (RequestGenerator.KeyParamSpec k : keySpecs) {
+            if (params.length() > 0) params.append(", ");
+            params.append(k.javaType()).append(' ').append(k.javaParamName());
+            args.append(".addKey(\"").append(k.csdlName()).append("\", ")
+                .append(k.javaParamName()).append(", \"").append(k.edmType()).append("\")");
+        }
+        sb.append("    public ").append(entityReqClass).append(' ').append(methodName)
+          .append('(').append(params).append(") {\n");
+        sb.append("        return new ").append(entityReqClass).append("(context, ").append(args).append(");\n");
+        sb.append("    }\n\n");
+    }
+
     private static void checkAccessorCollision(Map<String, String> accessors, String methodName,
-                                                String memberDescription, String className) {
-        String previous = accessors.putIfAbsent(methodName, memberDescription);
+                                                String memberDescription, String className) {        String previous = accessors.putIfAbsent(methodName, memberDescription);
         if (previous != null) {
             throw new IllegalStateException("Cannot generate container " + className + ": " + previous
                     + " and " + memberDescription + " both map to accessor '" + methodName + "()'. "

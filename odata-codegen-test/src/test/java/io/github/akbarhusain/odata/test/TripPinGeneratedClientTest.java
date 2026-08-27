@@ -48,7 +48,7 @@ class TripPinGeneratedClientTest {
 
     @Test
     void getPersonByKey() {
-        Person scott = client.people().personByUserName("scottketchum").get();
+        Person scott = client.people("scottketchum").get();
         assertNotNull(scott);
         assertEquals("scottketchum", scott.getUserName());
         assertEquals("Scott", scott.getFirstName());
@@ -110,7 +110,7 @@ class TripPinGeneratedClientTest {
 
     @Test
     void getPersonTrips() {
-        List<Trip> trips = client.people().personByUserName("scottketchum")
+        List<Trip> trips = client.people("scottketchum")
                 .trips()
                 .toList();
 
@@ -119,7 +119,7 @@ class TripPinGeneratedClientTest {
 
     @Test
     void filterTripsByBudget() {
-        CollectionPage<Trip> page = client.people().personByUserName("scottketchum")
+        CollectionPage<Trip> page = client.people("scottketchum")
                 .trips()
                 .orderBy(Trip.BUDGET.desc())
                 .top(2)
@@ -149,7 +149,7 @@ class TripPinGeneratedClientTest {
 
     @Test
     void getETagFromPerson() {
-        Person scott = client.people().personByUserName("scottketchum").get();
+        Person scott = client.people("scottketchum").get();
         assertNotNull(scott);
         assertTrue(scott.getETag().isPresent(), "Should have ETag from response");
         assertNotNull(scott.getETag().get(), "ETag value should not be null");
@@ -173,11 +173,11 @@ class TripPinGeneratedClientTest {
 
     @Test
     void entityRequestNavigation() {
-        Person scott = client.people().personByUserName("scottketchum").get();
+        Person scott = client.people("scottketchum").get();
         assertNotNull(scott);
         assertEquals("scottketchum", scott.getUserName());
 
-        List<Trip> trips = client.people().personByUserName("scottketchum")
+        List<Trip> trips = client.people("scottketchum")
                 .trips()
                 .top(2)
                 .get()
@@ -207,13 +207,13 @@ class TripPinGeneratedClientTest {
         // entity on the shared public service. deleteWithETag accepts a null etag.
         String etag = null;
         try {
-            Person created = client.people().personByUserName(testUserName).get();
+            Person created = client.people(testUserName).get();
             assertNotNull(created);
             assertEquals(testUserName, created.getUserName());
             assertEquals("Test", created.getFirstName());
             etag = created.getETag().orElse(null);
         } finally {
-            client.people().personByUserName(testUserName).deleteWithETag(etag);
+            client.people(testUserName).deleteWithETag(etag);
         }
     }
 

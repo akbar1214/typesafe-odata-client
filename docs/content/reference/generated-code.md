@@ -227,19 +227,26 @@ public class DefaultContainer {
     public AirlineCollectionRequest airlines() { ... }
     public AirportCollectionRequest airports() { ... }
     public PhotoCollectionRequest photos() { ... }
+
+    // Keyed overloads (decision 95) — key the first segment directly:
+    public PersonEntityRequest people(String userName) { ... }
+    public TripEntityRequest trips(Integer tripId) { ... }
 }
 ```
 
-Entity-by-key accessors live on the **collection request**, not the container:
+Entity requests are reached by keying at any level — container overloads for the
+first segment, keyed nav overloads for deeper segments:
 
 ```java
-// On PersonCollectionRequest / TripCollectionRequest
-public PersonEntityRequest personByUserName(String userName) { ... }
-public TripEntityRequest tripByTripId(Integer tripId) { ... }
+// Container keyed overload
+PersonEntityRequest req = client.people("scottketchum");
 
-// Usage
-PersonEntityRequest req = client.people().personByUserName("scottketchum");
+// Keyed nav overload on the entity request
+CollectionPage<Trip> trips = client.people("scottketchum").trips().get();
+Trip trip = client.people("scottketchum").trips(1).get();   // People('x')/Trips(1)
 ```
+
+Keyless entity sets emit only the zero-arg collection accessor.
 
 ## Complex Type Classes
 

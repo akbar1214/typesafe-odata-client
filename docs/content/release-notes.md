@@ -36,8 +36,20 @@
 - Interceptor chain cached per `Context`; interceptor failures complete futures exceptionally;
   `Retry-After` HTTP-date parsing + `hasServerRetryAfter()`; `ODataError` maps `details[]`/`target`
 
-### Function/Action Imports (request-object style)
+### Keyed Accessor API — BREAKING (decision 95, option A)
 
+- **Keyed container overloads**: every keyed entity set gains `client.people("russellwhyte")`,
+  `client.orderDetails(orderId, productId)` returning the entity request directly. Keyless
+  entity sets keep only the zero-arg collection accessor
+- **Keyed nav overloads**: collection navigations to keyed entities gain `person.trips(2)`
+  (renders `People('x')/Trips(2)`) on the entity request; single navs unchanged
+- **The `byID`/`byKey` family on collection requests is removed** — `personByUserName(...)`,
+  `tripByID(...)`, `advertisementByID(...)` and friends no longer exist. Migrate:
+  `client.people().personByUserName("x")` → `client.people("x")`;
+  `person.trips().tripByID(2)` → `person.trips(2)`. Key literals stay type-driven
+  (decision 52); composite and inherited keys surface as multi-parameter overloads
+
+### Function/Action Imports (request-object style)
 - Unbound container imports generate final `<Name>FunctionRequest`/`<Name>ActionRequest` classes
   in `.operation`, with one typed container accessor per import; functions GET with typed URL
   literals (key-predicate formatting), actions POST a JSON body keyed by CSDL parameter names

@@ -51,7 +51,7 @@ class ODataDemoGeneratedClientTest {
 
     @Test
     void getProductByKey() {
-        Product product = client.products().productByID(1).get();
+        Product product = client.products(1).get();
         assertNotNull(product);
         assertEquals(1, product.getID());
     }
@@ -170,7 +170,7 @@ class ODataDemoGeneratedClientTest {
 
     @Test
     void getSupplierByKey() {
-        Supplier supplier = client.suppliers().supplierByID(1).get();
+        Supplier supplier = client.suppliers(1).get();
         assertNotNull(supplier);
         assertEquals(1, supplier.getID());
         // Address is a complex type
@@ -283,7 +283,7 @@ class ODataDemoGeneratedClientTest {
 
     @Test
     void geography_supplierLocationIsPresent() {
-        Supplier supplier = client.suppliers().supplierByID(1).get();
+        Supplier supplier = client.suppliers(1).get();
         assertNotNull(supplier);
         // Location is GeoJSON but typed as Object — should still be present
         assertTrue(supplier.getLocation().isPresent());
@@ -292,7 +292,7 @@ class ODataDemoGeneratedClientTest {
 
     @Test
     void geography_supplierAddressComplexType() {
-        Supplier supplier = client.suppliers().supplierByID(1).get();
+        Supplier supplier = client.suppliers(1).get();
         assertNotNull(supplier);
         assertTrue(supplier.getAddress().isPresent());
         Address addr = supplier.getAddress().get();

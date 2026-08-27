@@ -41,7 +41,7 @@ class NorthwindGeneratedClientTest {
 
     @Test
     void getCategoryByKey() {
-        Category category = client.categories().categoryByCategoryID(1).get();
+        Category category = client.categories(1).get();
         assertNotNull(category);
         assertEquals(1, category.getCategoryID());
         assertEquals("Beverages", category.getCategoryName().orElse(null));
@@ -59,7 +59,7 @@ class NorthwindGeneratedClientTest {
 
     @Test
     void getProductByKey() {
-        Product product = client.products().productByProductID(1).get();
+        Product product = client.products(1).get();
         assertNotNull(product);
         assertEquals(1, product.getProductID());
         assertEquals("Chai", product.getProductName().orElse(null));
@@ -78,7 +78,7 @@ class NorthwindGeneratedClientTest {
 
     @Test
     void getCustomerByKey() {
-        Customer customer = client.customers().customerByCustomerID("ALFKI").get();
+        Customer customer = client.customers("ALFKI").get();
         assertNotNull(customer);
         assertEquals("ALFKI", customer.getCustomerID());
         assertEquals("Alfreds Futterkiste", customer.getCompanyName().orElse(null));

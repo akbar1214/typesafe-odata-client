@@ -20,7 +20,7 @@ The OData Demo service models `Advertisement` as a media entity. Read its bytes 
 Advertisement ad = client.advertisements().top(1).get().currentPage().get(0);
 
 try (InputStream media = client.advertisements()
-        .advertisementByID(ad.getID())
+         advertisements(ad.getID())
         .streamMedia()) {
     byte[] bytes = media.readAllBytes();
     // bytes is the raw media at .../Advertisements(<id>)/$value
@@ -40,7 +40,7 @@ concurrency (the runtime sends `If-Match`):
 
 ```java
 client.advertisements()
-    .advertisementByID(ad.getID())
+     advertisements(ad.getID())
     .setMedia(new ByteArrayInputStream(newBytes), ad.getETag().orElse(null));
 ```
 
