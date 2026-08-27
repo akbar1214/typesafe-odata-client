@@ -629,14 +629,17 @@ public class RequestGenerator extends AbstractTypeGenerator {
             // Keyed nav overload (decision 95): person.trips(2) renders
             // People('x')/Trips(2) without a tripByID() detour. Only for keyed
             // entity targets — keyless/complex/primitive navs get no overload.
+            // The collection method above is fully closed already, so the
+            // collection branch ALWAYS returns here — falling through to the
+            // shared close would emit a stray '}' (keyless targets)
             EntityTypeModel navTarget = resolveEntityType(unwrapped, schema);
             if (navTarget != null) {
                 java.util.List<KeyParamSpec> keySpecs = keyParamSpecs(navTarget, schema);
                 if (!keySpecs.isEmpty()) {
                     appendKeyedNavOverload(sb, nav.name(), methodName, elementClassName, keySpecs);
-                    return sb.toString();
                 }
             }
+            return sb.toString();
         } else {
             sb.append(Names.entityRequestClassName(elementClassName)).append(" ").append(methodName).append("() {\n");
             sb.append("        return new ").append(Names.entityRequestClassName(elementClassName))
