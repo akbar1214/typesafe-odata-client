@@ -88,10 +88,62 @@ public class RequestGenerator extends AbstractTypeGenerator {
 
         sb.append("public final class ").append(className).append(" {\n\n");
         sb.append("    private final Context context;\n");
-        sb.append("    private final ContextPath contextPath;\n\n");
+        sb.append("    private final ContextPath contextPath;\n");
+        sb.append("    private final java.util.List<String> selects = new java.util.ArrayList<>();\n");
+        sb.append("    private final java.util.List<String> expands = new java.util.ArrayList<>();\n\n");
         sb.append("    public ").append(className).append("(Context context, ContextPath contextPath) {\n");
         sb.append("        this.context = context;\n");
         sb.append("        this.contextPath = contextPath;\n");
+        sb.append("    }\n\n");
+
+        // Read-shaping options for the single-entity GET: $select/$expand are the query
+        // options valid there (filter/top/skip/orderby apply to collections only).
+        // Chaining mirrors the collection request: copy() snapshots state, methods
+        // mutate the copy — the source request is untouched
+        sb.append("    @SafeVarargs\n");
+        sb.append("    public final ").append(className).append(" select(PropertyExpression<? super ").append(entityClassName).append(", ?>... properties) {\n");
+        sb.append("        ").append(className).append(" next = copy();\n");
+        sb.append("        for (var p : properties) {\n");
+        sb.append("            String name = p.getEdmName();\n");
+        sb.append("            if (name.contains(\"(\")) {\n");
+        sb.append("                throw new IllegalArgumentException(\"'\" + name + \"' is not a selectable property \"\n");
+        sb.append("                        + \"(select accepts property paths only; function transformations belong in filter or compute)\");\n");
+        sb.append("            }\n");
+        sb.append("            next.selects.add(name);\n");
+        sb.append("        }\n");
+        sb.append("        return next;\n");
+        sb.append("    }\n\n");
+
+        sb.append("    @SafeVarargs\n");
+        sb.append("    public final ").append(className).append(" expand(NavProperty<? super ").append(entityClassName).append(", ?>... properties) {\n");
+        sb.append("        ").append(className).append(" next = copy();\n");
+        sb.append("        for (var p : properties) next.expands.add(p.getEdmName());\n");
+        sb.append("        return next;\n");
+        sb.append("    }\n\n");
+
+        sb.append("    @SafeVarargs\n");
+        sb.append("    public final ").append(className).append(" expand(NavProperty.NavQuery<? super ").append(entityClassName).append(", ?>... queries) {\n");
+        sb.append("        ").append(className).append(" next = copy();\n");
+        sb.append("        for (var q : queries) next.expands.add(q.toODataExpand());\n");
+        sb.append("        return next;\n");
+        sb.append("    }\n\n");
+
+        sb.append("    public ContextPath buildContext() {\n");
+        sb.append("        ContextPath ctx = contextPath;\n");
+        sb.append("        if (!selects.isEmpty()) {\n");
+        sb.append("            ctx = ctx.addQuery(\"$select\", String.join(\",\", selects));\n");
+        sb.append("        }\n");
+        sb.append("        if (!expands.isEmpty()) {\n");
+        sb.append("            ctx = ctx.addQuery(\"$expand\", String.join(\",\", expands));\n");
+        sb.append("        }\n");
+        sb.append("        return ctx;\n");
+        sb.append("    }\n\n");
+
+        sb.append("    private ").append(className).append(" copy() {\n");
+        sb.append("        ").append(className).append(" c = new ").append(className).append("(context, contextPath);\n");
+        sb.append("        c.selects.addAll(selects);\n");
+        sb.append("        c.expands.addAll(expands);\n");
+        sb.append("        return c;\n");
         sb.append("    }\n\n");
 
         // Navigation property methods — only for entity nav targets (complex types are inline data, not navigable).
@@ -127,7 +179,7 @@ public class RequestGenerator extends AbstractTypeGenerator {
 
         // CRUD operations
         sb.append("    public ").append(entityClassName).append(" get() {\n");
-        sb.append("        return EntityOperations.executeAndGetEntity(context, contextPath, ").append(entityClassName).append(".class, " + Names.schemaInfoClassName() + ".INSTANCE);\n");
+        sb.append("        return EntityOperations.executeAndGetEntity(context, buildContext(), ").append(entityClassName).append(".class, " + Names.schemaInfoClassName() + ".INSTANCE);\n");
         sb.append("    }\n\n");
 
         sb.append("    public ").append(entityClassName).append(" patch(").append(entityClassName).append(" entity) {\n");

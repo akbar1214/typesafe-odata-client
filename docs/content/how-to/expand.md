@@ -91,11 +91,31 @@ client.people()
 
 ## Expand on Entity Requests
 
+Keyed accessors return the entity request, which carries the same typed
+`expand()`/`select()` options as collection requests:
+
 ```java
 // Expand when getting a single entity
 Person scott = client.people("scottketchum")
     .expand(Person.TRIPS)
     .get();
+```
+
+Nested expands compose the same way — the inner `NavQuery` renders the parenthesized
+options (`Folders($expand=Files)`), no raw strings needed:
+
+```java
+var container = client.containers(id)
+    .expand(MyContainer.FOLDERS.expand(MyFolder.FILES))
+    .get();
+// GET .../Containers(id)?$expand=Folders($expand=Files)
+
+// combine with a select on the outer entity
+var brief = client.containers(id)
+    .select(MyContainer.NAME)
+    .expand(MyContainer.FOLDERS.expand(MyFolder.FILES.select(MyFile.NAME)))
+    .get();
+// GET .../Containers(id)?$select=Name&$expand=Folders($expand=Files($select=Name))
 ```
 
 ## Deep / Multi-Level Nested Expand
