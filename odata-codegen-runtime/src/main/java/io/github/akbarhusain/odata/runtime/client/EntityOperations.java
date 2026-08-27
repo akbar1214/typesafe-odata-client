@@ -383,6 +383,259 @@ public class EntityOperations {
         throw ODataException.fromResponse(response);
     }
 
+    // Operation (function/action import) invocations. Functions are GET with parameters
+    // embedded in the URL fragment; actions are POST with a JSON parameter body. Generated
+    // request classes build the path/parameter encoding and pick the right variant based on
+    // the operation's return-type kind: object → invoke*, primitive → invokePrimitive*,
+    // collection-of-primitive → invokePrimitiveCollection*, void → invokeVoidSync.
+
+    public static <T> T invokeSync(Context context, ContextPath path, HttpMethod method,
+                                   byte[] body, Class<T> responseType) {
+        HttpResponse response = executeSync(context, method, path, body, contentTypeHeader(body));
+        checkResponse(response);
+        return deserializeOrNull(response, context, responseType);
+    }
+
+    public static <T> CompletableFuture<T> invokeAsync(Context context, ContextPath path, HttpMethod method,
+                                                       byte[] body, Class<T> responseType) {
+        return executeAsync(context, method, path, body, contentTypeHeader(body))
+                .thenApply(response -> {
+                    checkResponse(response);
+                    return deserializeOrNull(response, context, responseType);
+                });
+    }
+
+    public static <T> T invokeSync(Context context, ContextPath path, HttpMethod method,
+                                   byte[] body, Class<T> responseType, SchemaInfo schemaInfo) {
+        HttpResponse response = executeSync(context, method, path, body, contentTypeHeader(body));
+        checkResponse(response);
+        T entity = readEntity(response, context, responseType, schemaInfo);
+        applyEtagHeader(entity, response);
+        return entity;
+    }
+
+    public static <T> CompletableFuture<T> invokeAsync(Context context, ContextPath path, HttpMethod method,
+                                                       byte[] body, Class<T> responseType, SchemaInfo schemaInfo) {
+        return executeAsync(context, method, path, body, contentTypeHeader(body))
+                .thenApply(response -> {
+                    checkResponse(response);
+                    T entity = readEntity(response, context, responseType, schemaInfo);
+                    applyEtagHeader(entity, response);
+                    return entity;
+                });
+    }
+
+    /** Entity-shaped read with optional polymorphic {@code @odata.type} resolution. */
+    private static <T> T readEntity(HttpResponse response, Context context, Class<T> type,
+                                    SchemaInfo schemaInfo) {
+        if (schemaInfo != null && response.body() != null && response.body().length > 0) {
+            T polymorphic = deserializePolymorphic(response.body(), context, type, schemaInfo);
+            if (polymorphic != null) return polymorphic;
+        }
+        return deserializeOrNull(response, context, type);
+    }
+
+    /**
+     * Invokes an operation whose result is a single complex-type or enum value. Per the
+     * OData v4 JSON format these arrive value-wrapped — {@code {"@odata.context":...,
+     * "value":{...}}} — unlike entities, which arrive at the JSON root. The envelope is
+     * unwrapped (a {@code "value"} that is the sole non-control property), tolerating
+     * services that inline the value at the root; {@code schemaInfo} additionally
+     * resolves {@code @odata.type} to subtypes, mirroring entity reads.
+     */
+    public static <T> T invokeComplexSync(Context context, ContextPath path, HttpMethod method,
+                                          byte[] body, Class<T> complexType) {
+        return invokeComplexSync(context, path, method, body, complexType, null);
+    }
+
+    public static <T> T invokeComplexSync(Context context, ContextPath path, HttpMethod method,
+                                          byte[] body, Class<T> complexType, SchemaInfo schemaInfo) {
+        try {
+            return invokeComplexAsync(context, path, method, body, complexType, schemaInfo).join();
+        } catch (CompletionException e) {
+            rethrowCause(e, "Operation failed");
+            throw new ODataException("Operation failed: " + e.getCause().getMessage(), e.getCause());
+        }
+    }
+
+    public static <T> CompletableFuture<T> invokeComplexAsync(Context context, ContextPath path, HttpMethod method,
+                                                              byte[] body, Class<T> complexType) {
+        return invokeComplexAsync(context, path, method, body, complexType, null);
+    }
+
+    public static <T> CompletableFuture<T> invokeComplexAsync(Context context, ContextPath path, HttpMethod method,
+                                                              byte[] body, Class<T> complexType,
+                                                              SchemaInfo schemaInfo) {
+        return executeAsync(context, method, path, body, contentTypeHeader(body))
+                .thenApply(response -> {
+                    checkResponse(response);
+                    return deserializeWrapped(response.body(), context, complexType, schemaInfo);
+                });
+    }
+
+    /**
+     * Invokes an operation whose result is a single primitive value. Spec-conformant
+     * services wrap it — {@code {"@odata.context":"...","value":<literal>}} — so the
+     * envelope is unwrapped whenever {@code "value"} is the only non-control property;
+     * bare JSON literals at the root are taken as-is. Element bytes always route through
+     * the configured {@link io.github.akbarhusain.odata.runtime.serialization.Serializer} so
+     * custom serializers apply (parity with collection reads, lesson 50).
+     */
+    public static <T> T invokePrimitiveSync(Context context, ContextPath path, HttpMethod method,
+                                            byte[] body, Class<T> primitiveType) {
+        try {
+            return invokePrimitiveAsync(context, path, method, body, primitiveType).join();
+        } catch (CompletionException e) {
+            rethrowCause(e, "Operation failed");
+            throw new ODataException("Operation failed: " + e.getCause().getMessage(), e.getCause());
+        }
+    }
+
+    public static <T> CompletableFuture<T> invokePrimitiveAsync(Context context, ContextPath path,
+                                                                HttpMethod method, byte[] body,
+                                                                Class<T> primitiveType) {
+        return executeAsync(context, method, path, body, contentTypeHeader(body))
+                .thenApply(response -> {
+                    checkResponse(response);
+                    return deserializePrimitive(response.body(), context, primitiveType);
+                });
+    }
+
+    public static <T> List<T> invokePrimitiveCollectionSync(Context context, ContextPath path,
+                                                            HttpMethod method, byte[] body,
+                                                            Class<T> elementClass) {
+        try {
+            return executeAsync(context, method, path, body, contentTypeHeader(body))
+                    .thenApply(response -> {
+                        checkResponse(response);
+                        return deserializePrimitiveList(response.body(), context, elementClass);
+                    })
+                    .join();
+        } catch (CompletionException e) {
+            rethrowCause(e, "Operation failed");
+            throw new ODataException("Operation failed: " + e.getCause().getMessage(), e.getCause());
+        }
+    }
+
+    /** Void operations: execute and surface typed errors only; no result parsing. */
+    public static void invokeVoidSync(Context context, ContextPath path, HttpMethod method, byte[] body) {
+        HttpResponse response = executeSync(context, method, path, body, contentTypeHeader(body));
+        checkResponse(response);
+    }
+
+    /**
+     * Serializes an action-import parameter map into the JSON request body. Uses the shared
+     * mapper directly — parameter maps are plain JSON objects with no entity-specific
+     * serialization policy to honor.
+     */
+    public static byte[] buildActionBody(Map<String, Object> parameters) {
+        Objects.requireNonNull(parameters, "parameters");
+        try {
+            return COLLECTION_MAPPER.writeValueAsBytes(new LinkedHashMap<>(parameters));
+        } catch (IOException e) {
+            throw new ODataException("Failed to serialize action parameters: " + e.getMessage(), e);
+        }
+    }
+
+    private static Map<String, String> contentTypeHeader(byte[] body) {
+        return body == null ? null : Map.of("Content-Type", "application/json");
+    }
+
+    @SuppressWarnings("unchecked")
+    static <T> T deserializePrimitive(byte[] bodyBytes, Context context, Class<T> type) {
+        if (bodyBytes == null || bodyBytes.length == 0) {
+            return null;
+        }
+        try {
+            var root = unwrapValueEnvelope(COLLECTION_MAPPER.readTree(bodyBytes));
+            return (T) context.serializer().deserialize(COLLECTION_MAPPER.writeValueAsBytes(root), type);
+        } catch (IOException e) {
+            throw new ODataException("Failed to parse operation result: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Spec-conformant operation responses carry control annotations alongside the
+     * result — {@code {"@odata.context":"...","value":42}} — so the envelope is
+     * recognized whenever {@code "value"} is the only non-{@code @}-prefixed property,
+     * not only when it is the only property at all.
+     */
+    static com.fasterxml.jackson.databind.JsonNode unwrapValueEnvelope(
+            com.fasterxml.jackson.databind.JsonNode root) {
+        if (!root.isObject() || !root.has("value")) {
+            return root;
+        }
+        for (var it = root.fieldNames(); it.hasNext(); ) {
+            String field = it.next();
+            if (!field.startsWith("@") && !field.equals("value")) {
+                return root;
+            }
+        }
+        return root.get("value");
+    }
+
+    /**
+     * Deserializes a value-wrapped (complex/enum) operation result: unwrap the envelope,
+     * optionally resolve {@code @odata.type} to a subtype, then deserialize through the
+     * configured {@link io.github.akbarhusain.odata.runtime.serialization.Serializer}.
+     */
+    @SuppressWarnings("unchecked")
+    static <T> T deserializeWrapped(byte[] bodyBytes, Context context, Class<T> type, SchemaInfo schemaInfo) {
+        if (bodyBytes == null || bodyBytes.length == 0) {
+            return null;
+        }
+        try {
+            var root = unwrapValueEnvelope(COLLECTION_MAPPER.readTree(bodyBytes));
+            Class<?> target = type;
+            if (schemaInfo != null && root.isObject()) {
+                var typeNode = root.get("@odata.type");
+                if (typeNode != null && typeNode.isTextual()) {
+                    Class<?> actual = schemaInfo.getClassFromTypeWithNamespace(
+                            stripTypeAnnotationPrefix(typeNode.asText()));
+                    if (actual != null && type.isAssignableFrom(actual)) {
+                        target = actual;
+                    }
+                }
+            }
+            return (T) context.serializer().deserialize(COLLECTION_MAPPER.writeValueAsBytes(root), target);
+        } catch (IOException e) {
+            throw new ODataException("Failed to parse operation result: " + e.getMessage(), e);
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    static <T> List<T> deserializePrimitiveList(byte[] bodyBytes, Context context, Class<T> elementClass) {
+
+        if (bodyBytes == null || bodyBytes.length == 0) {
+            return List.of();
+        }
+        try {
+            var root = COLLECTION_MAPPER.readTree(bodyBytes);
+            List<com.fasterxml.jackson.databind.JsonNode> elements = root.isObject() && root.has("value")
+                    && root.get("value").isArray()
+                    ? asNodes(root.get("value"))
+                    : root.isArray() ? asNodes(root)
+                    : null;
+            if (elements == null) {
+                throw new ODataException("Expected a JSON array in the operation response");
+            }
+            List<T> result = new ArrayList<>(elements.size());
+            for (var element : elements) {
+                result.add((T) context.serializer().deserialize(
+                        COLLECTION_MAPPER.writeValueAsBytes(element), elementClass));
+            }
+            return Collections.unmodifiableList(result);
+        } catch (IOException e) {
+            throw new ODataException("Failed to parse operation result: " + e.getMessage(), e);
+        }
+    }
+
+    private static List<com.fasterxml.jackson.databind.JsonNode> asNodes(com.fasterxml.jackson.databind.JsonNode arrayNode) {
+        List<com.fasterxml.jackson.databind.JsonNode> nodes = new ArrayList<>(arrayNode.size());
+        arrayNode.forEach(nodes::add);
+        return nodes;
+    }
+
     // Media ($value) operations — entity itself is a media stream (HasStream="true") or a
     // property is an Edm.Stream (named stream at <property>/$value). The request layer builds
     // the path with addSegment("$value"); entities (no Context) must go through the request.

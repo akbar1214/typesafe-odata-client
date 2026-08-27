@@ -1,10 +1,15 @@
 package io.github.akbarhusain.odata.core.generator;
 
+import io.github.akbarhusain.odata.core.model.CsdlModel;
+import io.github.akbarhusain.odata.core.model.CsdlModel.ActionImportModel;
 import io.github.akbarhusain.odata.core.model.CsdlModel.ContainerModel;
 import io.github.akbarhusain.odata.core.model.CsdlModel.EntitySetModel;
+import io.github.akbarhusain.odata.core.model.CsdlModel.FunctionImportModel;
 import io.github.akbarhusain.odata.core.model.CsdlModel.SchemaModel;
 import io.github.akbarhusain.odata.core.model.CsdlModel.SingletonModel;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
@@ -17,6 +22,7 @@ public class ContainerGenerator {
     private final String basePackage;
     private final Map<String, String> schemaPackages;
     private final String defaultBasePackage;
+    private List<CsdlModel.SchemaModel> allSchemas;
 
     public ContainerGenerator(String basePackage) {
         this(basePackage, Map.of());
@@ -26,25 +32,51 @@ public class ContainerGenerator {
         this(basePackage, schemaPackages, null);
     }
 
-    public ContainerGenerator(String basePackage, Map<String, String> schemaPackages, String defaultBasePackage) {
+    public ContainerGenerator(String basePackage, Map<String, String> schemaPackages,
+                              String defaultBasePackage) {
         this.basePackage = basePackage;
         this.schemaPackages = schemaPackages;
         this.defaultBasePackage = defaultBasePackage;
     }
 
+    /** Cross-schema-aware constructor — required to resolve operations declared in other schemas. */
+    public ContainerGenerator(String basePackage, Map<String, String> schemaPackages,
+                              String defaultBasePackage, List<CsdlModel.SchemaModel> allSchemas) {
+        this.basePackage = basePackage;
+        this.schemaPackages = schemaPackages;
+        this.defaultBasePackage = defaultBasePackage;
+        this.allSchemas = allSchemas;
+    }
+
+    private OperationGenerator operationGenerator(CsdlModel.SchemaModel schema) {
+        return new OperationGenerator(basePackage, schemaPackages, defaultBasePackage,
+                allSchemas == null || allSchemas.isEmpty() ? List.of(schema) : allSchemas);
+    }
+
     public String generate(ContainerModel container, SchemaModel schema) {
         String pkg = basePackage + Names.packageNameSuffixContainer();
         String className = Names.containerClassName(container.name());
+        OperationGenerator ops = operationGenerator(schema);
 
         // Accessor methods derive from member names; two members folding onto one
         // method (e.g. an EntitySet and a Singleton both named 'People') previously
-        // emitted duplicate methods that don't compile — fail loudly instead
+        // emitted duplicate methods that don't compile — fail loudly instead.
+        // Function/action imports join the same registry so an import named like a
+        // set/singleton cannot silently shadow (or be shadowed by) another accessor.
         Map<String, String> accessors = new java.util.HashMap<>();
         for (EntitySetModel es : container.entitySets()) {
             checkAccessorCollision(accessors, Names.toJavaFieldName(es.name()), "EntitySet '" + es.name() + "'", className);
         }
         for (SingletonModel singleton : container.singletons()) {
             checkAccessorCollision(accessors, Names.toJavaFieldName(singleton.name()), "Singleton '" + singleton.name() + "'", className);
+        }
+        for (FunctionImportModel fi : container.functionImports()) {
+            checkAccessorCollision(accessors, Names.toJavaFieldName(fi.name()),
+                    "FunctionImport '" + fi.name() + "'", className);
+        }
+        for (ActionImportModel ai : container.actionImports()) {
+            checkAccessorCollision(accessors, Names.toJavaFieldName(ai.name()),
+                    "ActionImport '" + ai.name() + "'", className);
         }
 
         StringBuilder sb = new StringBuilder();
@@ -61,6 +93,20 @@ public class ContainerGenerator {
         for (SingletonModel singleton : container.singletons()) {
             String entityClassName = Names.simpleNameFromFullName(singleton.type());
             imports.add(basePackageForType(singleton.type(), schema) + Names.packageNameSuffixEntityRequest() + "." + Names.entityRequestClassName(entityClassName));
+        }
+
+        List<String> importAccessorMethods = new ArrayList<>();
+        for (FunctionImportModel fi : container.functionImports()) {
+            // resolveValidationThrowsUnknownOrBound — resolution happens here so failures surface at generation
+            importAccessorMethods.add(ops.functionImportAccessorMethod(fi, schema));
+            imports.add(ops.functionImportClassImportLine(fi, schema));
+            // accessors reference structured/enum parameter types from other packages
+            imports.addAll(ops.functionImportParameterImports(fi, schema));
+        }
+        for (ActionImportModel ai : container.actionImports()) {
+            importAccessorMethods.add(ops.actionImportAccessorMethod(ai, schema));
+            imports.add(ops.actionImportClassImportLine(ai, schema));
+            imports.addAll(ops.actionImportParameterImports(ai, schema));
         }
 
         for (String imp : imports) {
@@ -87,16 +133,6 @@ public class ContainerGenerator {
             sb.append("    }\n\n");
         }
 
-        for (var functionImport : container.functionImports()) {
-            log.warn("FunctionImport '{}' is not yet supported by the generator; skipping",
-                    functionImport.name());
-        }
-        for (var actionImport : container.actionImports()) {
-            log.warn("ActionImport '{}' is not yet supported by the generator; skipping",
-                    actionImport.name());
-        }
-
-        // Singleton accessors
         for (SingletonModel singleton : container.singletons()) {
             String entityClassName = Names.simpleNameFromFullName(singleton.type());
             String entityReqClassName = Names.entityRequestClassName(entityClassName);
@@ -106,6 +142,11 @@ public class ContainerGenerator {
             sb.append("        return new ").append(entityReqClassName)
               .append("(context, context.basePath().addSegment(\"").append(singleton.name()).append("\"));\n");
             sb.append("    }\n\n");
+        }
+
+        // Function/action import accessors (resolved + validated in the import loop above)
+        for (String accessor : importAccessorMethods) {
+            sb.append(accessor);
         }
 
         sb.append("}\n");

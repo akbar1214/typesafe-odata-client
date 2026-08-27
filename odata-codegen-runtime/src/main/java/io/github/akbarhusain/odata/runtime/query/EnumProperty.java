@@ -80,7 +80,8 @@ public final class EnumProperty<E, V extends Enum<V>> implements PropertyExpress
                             + "EnumProperty(edmName, entityType, enumType, \"Namespace.EnumName\"). "
                             + "Generated property constants always pass the qualified name.");
         }
-        return typeName + "'" + value.name() + "'";
+        // Sanitized members must render their CSDL wire name, not the Java identifier
+        return typeName + "'" + io.github.akbarhusain.odata.runtime.entity.ContextPath.enumWireName(value) + "'";
     }
 
     @SuppressWarnings("unchecked")

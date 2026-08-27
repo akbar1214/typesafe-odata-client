@@ -60,7 +60,8 @@ class HostileNamesCompilationTest {
                 "dot maps to underscore. Got:\n" + entity);
 
         String enumCode = Files.readString(out.resolve("com/p/enums/E.java"));
-        assertTrue(enumCode.contains("A_B(0L)"), "sanitized enum constant. Got:\n" + enumCode);
+        assertTrue(enumCode.contains("A_B(0L, \"a-b\")"),
+                "sanitized enum constant with its wire name. Got:\n" + enumCode);
 
         assertTrue(compileAll(out), "output must compile (previously FIRST-NAME / A-B(0L) / tByFirst-Name)");
     }
@@ -93,6 +94,11 @@ class HostileNamesCompilationTest {
     private static boolean compileAll(Path dir) throws Exception {
         JavaCompiler compiler = ToolProvider.getSystemJavaCompiler();
         List<File> classpath = new ArrayList<>();
+        // current reactor runtime first — the ~/.m2 snapshot may predate new runtime types
+        Path siblingRuntime = Path.of("..", "odata-codegen-runtime", "target", "classes");
+        if (Files.isReadable(siblingRuntime)) {
+            classpath.add(siblingRuntime.toFile());
+        }
         Path m2 = Path.of(System.getProperty("user.home"), ".m2", "repository");
         try (Stream<Path> jars = Files.walk(m2)) {
             jars.filter(p -> p.toString().endsWith(".jar"))

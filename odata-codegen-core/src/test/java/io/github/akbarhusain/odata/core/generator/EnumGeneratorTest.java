@@ -20,14 +20,34 @@ class EnumGeneratorTest {
 
         String code = new EnumGenerator("com.example.reserved").generate(enumType);
 
-        assertTrue(code.contains("CLASS(1L)"),
-                "member 'class' must be sanitized to a valid enum constant (CLASS)");
-        assertTrue(code.contains("_2FA(2L)"),
+        assertTrue(code.contains("CLASS(1L, \"class\")"),
+                "member 'class' must be sanitized to a valid enum constant (CLASS), "
+                        + "keeping the CSDL name as its wire name");
+        assertTrue(code.contains("_2FA(2L, \"2FA\")"),
                 "member '2FA' must not produce an invalid identifier");
-        assertTrue(code.contains("goodMember(3L)"),
+        assertTrue(code.contains("goodMember(3L, \"goodMember\")"),
                 "valid identifiers must be kept verbatim to preserve existing generated API");
-        assertFalse(code.contains("class(1L)"),
+        assertFalse(code.contains("class(1L"),
                 "raw member name 'class' must not appear as an enum constant");
+    }
+
+    @Test
+    void enumsCarryWireNamesForUrlLiterals() throws Exception {
+        // M5: sanitized members must render their CSDL wire name in URL literals
+        // (function parameters, key predicates, filters) — the constants therefore
+        // record the member name and expose it via the runtime ODataEnumValue interface
+        CsdlModel.EnumTypeModel e = new CsdlModel.EnumTypeModel("Color", "Edm.Int32", false,
+                java.util.List.of(new CsdlModel.EnumMemberModel("Red", 0L),
+                        new CsdlModel.EnumMemberModel("A-B", 1L)));
+
+        String code = new EnumGenerator("com.example.reserved").generate(e);
+
+        assertTrue(code.contains("implements io.github.akbarhusain.odata.runtime.entity.ODataEnumValue"),
+                "generated enums expose their wire name to the runtime literal formatters: " + code);
+        assertTrue(code.contains("Red(0L, \"Red\")"));
+        assertTrue(code.contains("A_B(1L, \"A-B\")"),
+                "the wire name is the original CSDL member name, not the sanitized constant");
+        assertTrue(code.contains("public String wireName()"));
     }
 
     @Test

@@ -67,4 +67,31 @@ class EnumPropertyTest {
         String expr = prop.notEqualTo(null).toODataExpression();
         assertEquals("Gender ne null", expr);
     }
+
+    // ---- M5: sanitized members render their CSDL wire name ----
+
+    enum WireColor implements io.github.akbarhusain.odata.runtime.entity.ODataEnumValue {
+        A_B("A-B");
+
+        private final String wire;
+        WireColor(String wire) { this.wire = wire; }
+
+        @Override
+        public String wireName() { return wire; }
+    }
+
+    @Test
+    void sanitizedEnumLiteralUsesCsdLWireName() {
+        EnumProperty<Object, WireColor> prop =
+                new EnumProperty<>("Color", Object.class, WireColor.class, "Test.Color");
+        assertEquals("Color eq Test.Color'A-B'", prop.equalTo(WireColor.A_B).toODataExpression(),
+                "the literal must carry the CSDL member name, not the sanitized Java name");
+    }
+
+    @Test
+    void plainEnumLiteralKeepsJavaName() {
+        EnumProperty<Object, PersonGender> prop =
+                new EnumProperty<>("Gender", Object.class, PersonGender.class, "Test.PersonGender");
+        assertEquals("Gender eq Test.PersonGender'Male'", prop.equalTo(PersonGender.Male).toODataExpression());
+    }
 }

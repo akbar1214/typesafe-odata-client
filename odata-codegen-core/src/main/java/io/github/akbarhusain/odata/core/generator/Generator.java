@@ -93,7 +93,8 @@ public class Generator {
         EnumGenerator enumGenerator = new EnumGenerator(basePackage);
         ComplexTypeGenerator complexTypeGenerator = new ComplexTypeGenerator(basePackage, schemaPackages, defaultBasePackage, allSchemas, generateWithMethods);
         RequestGenerator requestGenerator = new RequestGenerator(basePackage, schemaPackages, defaultBasePackage, allSchemas);
-        ContainerGenerator containerGenerator = new ContainerGenerator(basePackage, schemaPackages, defaultBasePackage);
+        ContainerGenerator containerGenerator = new ContainerGenerator(basePackage, schemaPackages, defaultBasePackage, allSchemas);
+        OperationGenerator operationGenerator = new OperationGenerator(basePackage, schemaPackages, defaultBasePackage, allSchemas);
 
         for (EnumTypeModel enumType : schema.enumTypes()) {
             String code = enumGenerator.generate(enumType);
@@ -122,6 +123,21 @@ public class Generator {
         for (ContainerModel container : schema.containers()) {
             String code = containerGenerator.generate(container, schema);
             writeCode(basePackage + Names.packageNameSuffixContainer(), Names.containerClassName(container.name()), code);
+
+            // Operation import request classes: one file per import, packaged by the
+            // operation's OWNING schema (cross-schema imports resolve like type references)
+            for (var fi : container.functionImports()) {
+                String pkg = operationGenerator.functionRequestFilePackage(fi, schema)
+                        + Names.packageNameSuffixOperation();
+                writeCode(pkg, Names.functionRequestClassName(fi.name()),
+                        operationGenerator.generateFunctionImportRequest(fi, schema));
+            }
+            for (var ai : container.actionImports()) {
+                String pkg = operationGenerator.actionRequestFilePackage(ai, schema)
+                        + Names.packageNameSuffixOperation();
+                writeCode(pkg, Names.actionRequestClassName(ai.name()),
+                        operationGenerator.generateActionImportRequest(ai, schema));
+            }
         }
     }
 
