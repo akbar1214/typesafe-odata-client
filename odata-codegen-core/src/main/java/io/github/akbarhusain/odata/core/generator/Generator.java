@@ -124,13 +124,16 @@ public class Generator {
             String code = containerGenerator.generate(container, schema);
             writeCode(basePackage + Names.packageNameSuffixContainer(), Names.containerClassName(container.name()), code);
 
-            // Operation import request classes: one file per import, packaged by the
-            // operation's OWNING schema (cross-schema imports resolve like type references)
+            // Operation import request classes: one file per import — per OVERLOAD for
+            // overloaded functions (OData identifies an unbound overload by its parameter
+            // names) — packaged by the operation's OWNING schema (cross-schema imports
+            // resolve like type references)
             for (var fi : container.functionImports()) {
                 String pkg = operationGenerator.functionRequestFilePackage(fi, schema)
                         + Names.packageNameSuffixOperation();
-                writeCode(pkg, Names.functionRequestClassName(fi.name()),
-                        operationGenerator.generateFunctionImportRequest(fi, schema));
+                for (var req : operationGenerator.generateFunctionImportRequests(fi, schema)) {
+                    writeCode(pkg, req.className(), req.code());
+                }
             }
             for (var ai : container.actionImports()) {
                 String pkg = operationGenerator.actionRequestFilePackage(ai, schema)

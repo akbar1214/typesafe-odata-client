@@ -24,6 +24,12 @@ import java.util.TreeSet;
  * {@link io.github.akbarhusain.odata.runtime.client.EntityOperations#buildActionBody}.
  * Nullable return types wrap in {@code Optional<T>}; collection results render
  * {@code List<Element>} (empty on absent — never null).
+ *
+ * <p>OData identifies an unbound function overload by its PARAMETER NAMES, so a
+ * single FunctionImport exposing several same-name unbound overloads generates
+ * one request class ({@code <Name>By<Params>FunctionRequest}) and one container
+ * accessor per overload — the invocation URL's parameter names select the overload
+ * ({@code IsSiteAdmin(username=...)} vs {@code IsSiteAdmin(userId=...)}).
  */
 public class OperationGenerator extends AbstractTypeGenerator {
 
@@ -38,6 +44,9 @@ public class OperationGenerator extends AbstractTypeGenerator {
     /** Java type + class-literal reference + required import for structured result types. */
     private record ResultClass(String simpleName, String classRef, String importLine) {}
 
+    /** One generated operation-request source file: its class name (within {@code .operation}) and source. */
+    public record GeneratedOperationRequest(String className, String code) {}
+
     public OperationGenerator(String basePackage, Map<String, String> schemaPackages,
                               String defaultBasePackage, List<SchemaModel> allSchemas) {
         super(basePackage, schemaPackages, defaultBasePackage, allSchemas);
@@ -47,21 +56,39 @@ public class OperationGenerator extends AbstractTypeGenerator {
     // Public entry points
     // ------------------------------------------------------------------
 
-    public String generateFunctionImportRequest(FunctionImportModel fi, SchemaModel containerSchema) {
+    /**
+     * One request class per unbound overload of the referenced function: a lone
+     * overload keeps the historical unsuffixed {@code <Name>FunctionRequest} name;
+     * overloads disambiguate by parameter names ({@code <Name>By<Params>FunctionRequest}).
+     */
+    public List<GeneratedOperationRequest> generateFunctionImportRequests(
+            FunctionImportModel fi, SchemaModel containerSchema) {
         initEffectiveSchemas(containerSchema);
-        Owned<FunctionModel> owned = resolveFunction(fi.function(), fi.name());
-        FunctionModel fn = owned.model();
-        validateFunctionParameters(fn.parameters(), fi.name(), owned.owner());
-        ResolvedOp op = new ResolvedOp(fn.name(), fn.parameters(), fn.returnType(), true, owned.owner());
-        return render(fi.name(), Names.functionRequestClassName(fi.name()), op);
+        List<Owned<FunctionModel>> overloads = resolveUnboundFunctionOverloads(fi.function(), fi.name());
+        List<String> suffixes = allocateOverloadSuffixes(overloads);
+        List<GeneratedOperationRequest> out = new ArrayList<>(overloads.size());
+        for (int i = 0; i < overloads.size(); i++) {
+            Owned<FunctionModel> owned = overloads.get(i);
+            FunctionModel fn = owned.model();
+            validateFunctionParameters(fn.parameters(), fi.name(), owned.owner());
+            ResolvedOp op = new ResolvedOp(fn.name(), fn.parameters(), fn.returnType(), true, owned.owner());
+            String className = Names.functionRequestClassName(fi.name(), suffixes.get(i));
+            out.add(new GeneratedOperationRequest(className, render(fi.name(), className, op, suffixes.get(i))));
+        }
+        return out;
+    }
+
+    /** Convenience for non-overloaded imports — renders the first (only) overload. */
+    public String generateFunctionImportRequest(FunctionImportModel fi, SchemaModel containerSchema) {
+        return generateFunctionImportRequests(fi, containerSchema).get(0).code();
     }
 
     public String generateActionImportRequest(ActionImportModel ai, SchemaModel containerSchema) {
         initEffectiveSchemas(containerSchema);
-        Owned<ActionModel> owned = resolveAction(ai.action(), ai.name());
+        Owned<ActionModel> owned = resolveUnboundAction(ai.action(), ai.name());
         ActionModel ac = owned.model();
         ResolvedOp op = new ResolvedOp(ac.name(), ac.parameters(), ac.returnType(), false, owned.owner());
-        return render(ai.name(), Names.actionRequestClassName(ai.name()), op);
+        return render(ai.name(), Names.actionRequestClassName(ai.name()), op, "");
     }
 
     // ------------------------------------------------------------------
@@ -70,11 +97,17 @@ public class OperationGenerator extends AbstractTypeGenerator {
 
     /**
      * Import references are alias-resolved to real namespaces at parse time. Qualified
-     * references win over simple-name references; a lone simple-name match is accepted,
-     * any ambiguity throws loudly (one ambiguity policy everywhere — lessons H11/M2/156).
-     * A resolved function must additionally be UNBOUND.
+     * references win over simple-name references; a simple-name reference matching
+     * operations in more than one namespace stays a loud ambiguity (one ambiguity
+     * policy everywhere — lessons H11/M2/156).
+     *
+     * <p>Functions may be overloaded: same-name UNBOUND functions with distinct
+     * parameter names are distinct overloads and all resolve (the import exposes
+     * every overload; parameter names select one on the wire). Bound same-name
+     * siblings never compete with an unbound import target. Overloads with identical
+     * parameter names cannot be distinguished in a URL — invalid CSDL, fails loudly.
      */
-    private Owned<FunctionModel> resolveFunction(String reference, String importLabel) {
+    private List<Owned<FunctionModel>> resolveUnboundFunctionOverloads(String reference, String importLabel) {
         List<Owned<FunctionModel>> qualified = new ArrayList<>();
         List<Owned<FunctionModel>> simple = new ArrayList<>();
         for (SchemaModel s : effectiveSchemas) {
@@ -83,16 +116,28 @@ public class OperationGenerator extends AbstractTypeGenerator {
                         reference, qualified, simple);
             }
         }
-        Owned<FunctionModel> chosen = pick(qualified, simple, importLabel, reference, "FunctionImport");
-        if (chosen.model().isBound()) {
-            throw new IllegalStateException("FunctionImport '" + importLabel
-                    + "' references bound function '" + reference
-                    + "' — function imports must reference UNBOUND operations");
+        List<Owned<FunctionModel>> unbound = resolveUnbound(qualified, simple, importLabel,
+                reference, "FunctionImport", "function", FunctionModel::isBound);
+        if (unbound.size() > 1) {
+            Set<String> seen = new java.util.HashSet<>();
+            for (Owned<FunctionModel> o : unbound) {
+                String names = parameterNames(o.model());
+                if (!seen.add(names)) {
+                    throw new IllegalStateException("FunctionImport '" + importLabel + "': function '"
+                            + reference + "' has multiple overloads with identical parameter names "
+                            + names + " — OData requires unbound overloads to differ in parameter names");
+                }
+            }
         }
-        return chosen;
+        return unbound;
     }
 
-    private Owned<ActionModel> resolveAction(String reference, String importLabel) {
+    /**
+     * Actions cannot be overloaded by parameter names, so multiple same-name unbound
+     * actions are invalid CSDL and fail loudly; bound same-name siblings are ignored
+     * for an unbound import target.
+     */
+    private Owned<ActionModel> resolveUnboundAction(String reference, String importLabel) {
         List<Owned<ActionModel>> qualified = new ArrayList<>();
         List<Owned<ActionModel>> simple = new ArrayList<>();
         for (SchemaModel s : effectiveSchemas) {
@@ -101,13 +146,56 @@ public class OperationGenerator extends AbstractTypeGenerator {
                         reference, qualified, simple);
             }
         }
-        Owned<ActionModel> chosen = pick(qualified, simple, importLabel, reference, "ActionImport");
-        if (chosen.model().isBound()) {
-            throw new IllegalStateException("ActionImport '" + importLabel
-                    + "' references bound action '" + reference
-                    + "' — action imports must reference UNBOUND operations");
+        List<Owned<ActionModel>> unbound = resolveUnbound(qualified, simple, importLabel,
+                reference, "ActionImport", "action", ActionModel::isBound);
+        if (unbound.size() > 1) {
+            throw new IllegalStateException("ActionImport '" + importLabel + "': " + unbound.size()
+                    + " unbound actions named '" + reference + "' — actions cannot be overloaded by "
+                    + "parameter names, so same-name unbound actions are invalid CSDL");
         }
-        return chosen;
+        return unbound.get(0);
+    }
+
+    /**
+     * Qualified references win over simple-name references; a simple name matching
+     * operations in more than one namespace stays a loud ambiguity. Bound same-name
+     * siblings never compete with an unbound import target; a reference with no
+     * unbound candidate fails with the bound message.
+     */
+    private <T> List<Owned<T>> resolveUnbound(List<Owned<T>> qualified, List<Owned<T>> simple,
+                                              String importLabel, String reference,
+                                              String kindLabel, String opLabel,
+                                              java.util.function.Predicate<T> isBound) {
+        List<Owned<T>> candidates = !qualified.isEmpty() ? qualified : simple;
+        if (candidates.isEmpty()) {
+            throw new IllegalStateException(kindLabel + " '" + importLabel
+                    + "' references unknown operation '" + reference + "'");
+        }
+        if (qualified.isEmpty()) {
+            long namespaces = candidates.stream()
+                    .map(Owned::owner).map(SchemaModel::namespace).distinct().count();
+            if (namespaces > 1) {
+                throw ambiguous(importLabel, reference);
+            }
+        }
+        List<Owned<T>> unbound = new ArrayList<>();
+        for (Owned<T> c : candidates) {
+            if (!isBound.test(c.model())) {
+                unbound.add(c);
+            }
+        }
+        if (unbound.isEmpty()) {
+            throw new IllegalStateException(kindLabel + " '" + importLabel
+                    + "' references bound " + opLabel + " '" + reference
+                    + "' — " + opLabel + " imports must reference UNBOUND operations");
+        }
+        return unbound;
+    }
+
+    /** Order-insensitive parameter-name key: OData URL parameters are named, so the SET of names must identify the overload. */
+    private static String parameterNames(FunctionModel f) {
+        return f.parameters().stream().map(ParameterModel::name).sorted()
+                .collect(java.util.stream.Collectors.joining(", ", "[", "]"));
     }
 
     private <T> void classify(Owned<T> candidate, String fullName, String simpleName,
@@ -118,24 +206,6 @@ public class OperationGenerator extends AbstractTypeGenerator {
         } else if (simpleName.equals(reference)) {
             simpleOut.add(candidate);
         }
-    }
-
-    private <T> Owned<T> pick(List<Owned<T>> qualified, List<Owned<T>> simple,
-                              String importLabel, String reference, String kindLabel) {
-        if (qualified.size() > 1) {
-            throw ambiguous(importLabel, reference);
-        }
-        if (!qualified.isEmpty()) {
-            return qualified.get(0);
-        }
-        if (simple.size() == 1) {
-            return simple.get(0);
-        }
-        if (simple.isEmpty()) {
-            throw new IllegalStateException(kindLabel + " '" + importLabel
-                    + "' references unknown operation '" + reference + "'");
-        }
-        throw ambiguous(importLabel, reference);
     }
 
     private IllegalStateException ambiguous(String importLabel, String reference) {
@@ -169,10 +239,49 @@ public class OperationGenerator extends AbstractTypeGenerator {
     }
 
     // ------------------------------------------------------------------
+    // Overload disambiguation by parameter names
+    // ------------------------------------------------------------------
+
+    /**
+     * One suffix per overload: empty for a lone overload (historical unsuffixed class
+     * and accessor names), else {@code By<Param>And<Param>}. Hostile parameter names
+     * that fold onto the same suffix ({@code user-name} vs {@code user_name}) get
+     * deterministic {@code _2}/{@code _3} suffixes (decision 54 policy).
+     */
+    private static List<String> allocateOverloadSuffixes(List<Owned<FunctionModel>> overloads) {
+        if (overloads.size() == 1) {
+            return List.of("");
+        }
+        List<String> out = new ArrayList<>(overloads.size());
+        Set<String> used = new java.util.HashSet<>();
+        for (Owned<FunctionModel> o : overloads) {
+            String suffix = overloadSuffix(o.model().parameters());
+            String unique = suffix;
+            int n = 2;
+            while (!used.add(unique)) {
+                unique = suffix + "_" + n++;
+            }
+            out.add(unique);
+        }
+        return out;
+    }
+
+    private static String overloadSuffix(List<ParameterModel> parameters) {
+        StringBuilder sb = new StringBuilder("By");
+        for (int i = 0; i < parameters.size(); i++) {
+            if (i > 0) {
+                sb.append("And");
+            }
+            sb.append(Names.capitalize(Names.toJavaFieldName(parameters.get(i).name())));
+        }
+        return sb.toString();
+    }
+
+    // ------------------------------------------------------------------
     // Rendering
     // ------------------------------------------------------------------
 
-    private String render(String importName, String className, ResolvedOp op) {
+    private String render(String importName, String className, ResolvedOp op, String overloadSuffix) {
         Kind kind = resultKind(op);
         boolean isAction = !op.isFunction();
 
@@ -237,7 +346,14 @@ public class OperationGenerator extends AbstractTypeGenerator {
         }
         sb.append("\n/** Invokes ")
           .append(isAction ? "action" : "function")
-          .append(" import \"").append(importName).append("\".\n */\n");
+          .append(" import \"").append(importName).append("\".");
+        if (!overloadSuffix.isEmpty()) {
+            sb.append(" Overload of the same-name function, selected by its parameter names (")
+              .append(op.parameters().stream().map(ParameterModel::name)
+                      .collect(java.util.stream.Collectors.joining(", ")))
+              .append(").");
+        }
+        sb.append("\n */\n");
         sb.append("public final class ").append(className).append(" {\n\n");
         sb.append("    private final Context context;\n\n");
         sb.append("    private final ContextPath contextPath;\n\n");
@@ -541,43 +657,69 @@ public class OperationGenerator extends AbstractTypeGenerator {
         return basePkg + Names.packageNameSuffixOperation() + "." + cls;
     }
 
-    /** Import line for the generated request class of this function import. */
-    public String functionImportClassImportLine(FunctionImportModel fi, SchemaModel containerSchema) {
+    /** Import lines for the generated request classes of this import's overloads. */
+    public List<String> functionImportClassImportLines(FunctionImportModel fi, SchemaModel containerSchema) {
         initEffectiveSchemas(containerSchema);
-        Owned<FunctionModel> owned = resolveFunction(fi.function(), fi.name());
-        return classImportLine(basePackageOf(owned.owner()), Names.functionRequestClassName(fi.name()));
+        List<Owned<FunctionModel>> overloads = resolveUnboundFunctionOverloads(fi.function(), fi.name());
+        List<String> suffixes = allocateOverloadSuffixes(overloads);
+        List<String> lines = new ArrayList<>(overloads.size());
+        for (int i = 0; i < overloads.size(); i++) {
+            lines.add(classImportLine(basePackageOf(overloads.get(i).owner()),
+                    Names.functionRequestClassName(fi.name(), suffixes.get(i))));
+        }
+        return lines;
     }
 
     /** Import line for the generated request class of this action import. */
     public String actionImportClassImportLine(ActionImportModel ai, SchemaModel containerSchema) {
         initEffectiveSchemas(containerSchema);
-        Owned<ActionModel> owned = resolveAction(ai.action(), ai.name());
+        Owned<ActionModel> owned = resolveUnboundAction(ai.action(), ai.name());
         return classImportLine(basePackageOf(owned.owner()), Names.actionRequestClassName(ai.name()));
     }
 
-    /** Output package of the generated file for this function import (no suffix). */
+    /** Output package of the generated files for this function import (no suffix). */
     public String functionRequestFilePackage(FunctionImportModel fi, SchemaModel containerSchema) {
         initEffectiveSchemas(containerSchema);
-        return basePackageOf(resolveFunction(fi.function(), fi.name()).owner());
+        return basePackageOf(resolveUnboundFunctionOverloads(fi.function(), fi.name()).get(0).owner());
     }
 
     public String actionRequestFilePackage(ActionImportModel ai, SchemaModel containerSchema) {
         initEffectiveSchemas(containerSchema);
-        return basePackageOf(resolveAction(ai.action(), ai.name()).owner());
+        return basePackageOf(resolveUnboundAction(ai.action(), ai.name()).owner());
     }
 
-    /** Full accessor-method source for the container: typed signature + delegation body. */
-    public String functionImportAccessorMethod(FunctionImportModel fi, SchemaModel containerSchema) {
+    /** Container accessor method NAMES (one per overload) — feeds the collision registry. */
+    public List<String> functionImportAccessorNames(FunctionImportModel fi, SchemaModel containerSchema) {
         initEffectiveSchemas(containerSchema);
-        Owned<FunctionModel> owned = resolveFunction(fi.function(), fi.name());
-        validateFunctionParameters(owned.model().parameters(), fi.name(), owned.owner());
-        return accessorMethodSource(Names.functionRequestClassName(fi.name()),
-                Names.toJavaFieldName(fi.name()), owned.model().parameters(), owned.owner());
+        List<Owned<FunctionModel>> overloads = resolveUnboundFunctionOverloads(fi.function(), fi.name());
+        List<String> suffixes = allocateOverloadSuffixes(overloads);
+        List<String> names = new ArrayList<>(overloads.size());
+        for (String suffix : suffixes) {
+            names.add(Names.toJavaFieldName(fi.name()) + suffix);
+        }
+        return names;
+    }
+
+    /** Full accessor-method sources for the container: one per overload. */
+    public List<String> functionImportAccessorMethods(FunctionImportModel fi, SchemaModel containerSchema) {
+        initEffectiveSchemas(containerSchema);
+        List<Owned<FunctionModel>> overloads = resolveUnboundFunctionOverloads(fi.function(), fi.name());
+        List<String> suffixes = allocateOverloadSuffixes(overloads);
+        List<String> methods = new ArrayList<>(overloads.size());
+        for (int i = 0; i < overloads.size(); i++) {
+            Owned<FunctionModel> owned = overloads.get(i);
+            validateFunctionParameters(owned.model().parameters(), fi.name(), owned.owner());
+            methods.add(accessorMethodSource(
+                    Names.functionRequestClassName(fi.name(), suffixes.get(i)),
+                    Names.toJavaFieldName(fi.name()) + suffixes.get(i),
+                    owned.model().parameters(), owned.owner()));
+        }
+        return methods;
     }
 
     public String actionImportAccessorMethod(ActionImportModel ai, SchemaModel containerSchema) {
         initEffectiveSchemas(containerSchema);
-        Owned<ActionModel> owned = resolveAction(ai.action(), ai.name());
+        Owned<ActionModel> owned = resolveUnboundAction(ai.action(), ai.name());
         return accessorMethodSource(Names.actionRequestClassName(ai.name()),
                 Names.toJavaFieldName(ai.name()), owned.model().parameters(), owned.owner());
     }
@@ -585,15 +727,16 @@ public class OperationGenerator extends AbstractTypeGenerator {
     /** Imports the CONTAINER needs for this import's parameter types (H1: accessors live in .container). */
     public java.util.Set<String> functionImportParameterImports(FunctionImportModel fi, SchemaModel containerSchema) {
         initEffectiveSchemas(containerSchema);
-        Owned<FunctionModel> owned = resolveFunction(fi.function(), fi.name());
         java.util.Set<String> imports = new java.util.TreeSet<>();
-        collectParameterImports(owned.model().parameters(), owned.owner(), imports);
+        for (Owned<FunctionModel> owned : resolveUnboundFunctionOverloads(fi.function(), fi.name())) {
+            collectParameterImports(owned.model().parameters(), owned.owner(), imports);
+        }
         return imports;
     }
 
     public java.util.Set<String> actionImportParameterImports(ActionImportModel ai, SchemaModel containerSchema) {
         initEffectiveSchemas(containerSchema);
-        Owned<ActionModel> owned = resolveAction(ai.action(), ai.name());
+        Owned<ActionModel> owned = resolveUnboundAction(ai.action(), ai.name());
         java.util.Set<String> imports = new java.util.TreeSet<>();
         collectParameterImports(owned.model().parameters(), owned.owner(), imports);
         return imports;

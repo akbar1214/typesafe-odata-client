@@ -70,9 +70,14 @@ public class ContainerGenerator {
         for (SingletonModel singleton : container.singletons()) {
             checkAccessorCollision(accessors, Names.toJavaFieldName(singleton.name()), "Singleton '" + singleton.name() + "'", className);
         }
+        // Function/action imports join the same registry, one entry PER OVERLOAD accessor
+        // (an overloaded import emits suffixed accessors like isSiteAdminByUserId — the
+        // unsuffixed import name itself never becomes a method).
         for (FunctionImportModel fi : container.functionImports()) {
-            checkAccessorCollision(accessors, Names.toJavaFieldName(fi.name()),
-                    "FunctionImport '" + fi.name() + "'", className);
+            for (String accessorName : ops.functionImportAccessorNames(fi, schema)) {
+                checkAccessorCollision(accessors, accessorName,
+                        "FunctionImport '" + fi.name() + "'", className);
+            }
         }
         for (ActionImportModel ai : container.actionImports()) {
             checkAccessorCollision(accessors, Names.toJavaFieldName(ai.name()),
@@ -98,8 +103,8 @@ public class ContainerGenerator {
         List<String> importAccessorMethods = new ArrayList<>();
         for (FunctionImportModel fi : container.functionImports()) {
             // resolveValidationThrowsUnknownOrBound — resolution happens here so failures surface at generation
-            importAccessorMethods.add(ops.functionImportAccessorMethod(fi, schema));
-            imports.add(ops.functionImportClassImportLine(fi, schema));
+            importAccessorMethods.addAll(ops.functionImportAccessorMethods(fi, schema));
+            imports.addAll(ops.functionImportClassImportLines(fi, schema));
             // accessors reference structured/enum parameter types from other packages
             imports.addAll(ops.functionImportParameterImports(fi, schema));
         }
