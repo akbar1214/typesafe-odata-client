@@ -59,6 +59,15 @@ class OperationImportsHostileParamsCompilationTest {
               <Function Name="AllPeople">
                 <ReturnType Type="Collection(NS.Person)" Nullable="false"/>
               </Function>
+              <Function Name="ByTags">
+                <Parameter Name="tags" Type="Collection(Edm.String)" Nullable="false"/>
+                <ReturnType Type="Edm.Int32" Nullable="false"/>
+              </Function>
+              <Function Name="ByScores">
+                <Parameter Name="min" Type="Edm.Double" Nullable="false"/>
+                <Parameter Name="scores" Type="Collection(Edm.Int32)" Nullable="true"/>
+                <ReturnType Type="Edm.Int32" Nullable="false"/>
+              </Function>
               <Action Name="ShipTo">
                 <Parameter Name="addr" Type="NS.Address" Nullable="false"/>
                 <ReturnType Type="Edm.Int32" Nullable="false"/>
@@ -75,6 +84,8 @@ class OperationImportsHostileParamsCompilationTest {
                 <FunctionImport Name="pickColor" Function="NS.PickColor"/>
                 <FunctionImport Name="homeAddress" Function="NS.HomeAddress"/>
                 <FunctionImport Name="allPeople" Function="NS.AllPeople"/>
+                <FunctionImport Name="byTags" Function="NS.ByTags"/>
+                <FunctionImport Name="byScores" Function="NS.ByScores"/>
                 <ActionImport Name="shipTo" Action="NS.ShipTo"/>
                 <ActionImport Name="addTags" Action="NS.AddTags"/>
                 <ActionImport Name="rename" Action="NS.Rename"/>
@@ -108,11 +119,31 @@ class OperationImportsHostileParamsCompilationTest {
                 "com/example/ops/operation/RenameActionRequest.java"));
         assertTrue(rename.contains("__params.put(\"new-name\", new_name)"),
                 "JSON body keys use the CSDL parameter name: " + rename);
+        // collection function parameters ride parameter aliases: pair in the segment,
+        // value as a query option — never an inline collection literal
+        String byTags = Files.readString(tempDir.resolve(
+                "com/example/ops/operation/ByTagsFunctionRequest.java"));
+        assertTrue(byTags.contains("public ByTagsFunctionRequest(Context context, List<String> tags)"),
+                "collection parameter maps to List<element>: " + byTags);
+        assertTrue(byTags.contains("__pairs.add(\"tags=@p0\");"));
+        assertTrue(byTags.contains(
+                "addQuery(\"@p0\", OperationPath.collectionParameter(tags, \"Edm.String\"))"));
+        String byScores = Files.readString(tempDir.resolve(
+                "com/example/ops/operation/ByScoresFunctionRequest.java"));
+        assertTrue(byScores.contains(
+                "public ByScoresFunctionRequest(Context context, double min, List<Integer> scores)"));
+        assertTrue(byScores.contains("\"min=\" + OperationPath.parameter(min, \"Edm.Double\")"),
+                "scalar parameters stay inline next to the alias");
+        assertTrue(byScores.contains(
+                "if (scores != null) {\n            __path = __path.addQuery(\"@p0\", "
+                        + "OperationPath.collectionParameter(scores, \"Edm.Int32\"))"));
         String container = Files.readString(tempDir.resolve(
                 "com/example/ops/container/DefaultContainer.java"));
         assertTrue(container.contains("import com.example.ops.enums.Color;"),
                 "container accessors need parameter-type imports: " + container);
         assertTrue(container.contains("import com.example.ops.complex.Address;"));
+        assertTrue(container.contains("public ByTagsFunctionRequest byTags(List<String> tags)"),
+                "container accessors carry collection parameters: " + container);
 
         // ... and the whole client — operations included — compiles against the runtime
         List<File> javaFiles = new ArrayList<>();
