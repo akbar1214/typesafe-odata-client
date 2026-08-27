@@ -108,4 +108,29 @@ class OperationPathTest {
         // enums compiled before the interface (or hand-written) keep the name() fallback
         assertEquals("NS.P'Male'", OperationPath.parameter(Plain.Male, "NS.P"));
     }
+
+    // ---- Collection parameters ride parameter aliases: @p=['a','b'] ----
+
+    @Test
+    void collectionParameterRendersBracketedCommaJoinedLiterals() {
+        assertEquals("['a','b']", OperationPath.collectionParameter(java.util.List.of("a", "b"), "Edm.String"));
+        assertEquals("[1,2,3]", OperationPath.collectionParameter(java.util.List.of(1, 2, 3), "Edm.Int32"));
+        assertEquals("[NS.P'Male']", OperationPath.collectionParameter(java.util.List.of(Plain.Male), "NS.P"),
+                "enum elements format by the same rules as scalar parameters");
+    }
+
+    @Test
+    void collectionParameterEmptyCollectionRendersEmptyArrayLiteral() {
+        assertEquals("[]", OperationPath.collectionParameter(java.util.List.of(), "Edm.String"),
+                "empty list is a meaningful value — distinct from omitting a nullable parameter");
+    }
+
+    @Test
+    void collectionParameterNullListRejectedLikeScalarNull() {
+        assertThrows(IllegalArgumentException.class,
+                () -> OperationPath.collectionParameter(null, "Edm.String"));
+        assertThrows(IllegalArgumentException.class,
+                () -> OperationPath.collectionParameter(java.util.Arrays.asList("a", null), "Edm.String"),
+                "null ELEMENTS are also invalid literals");
+    }
 }

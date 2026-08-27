@@ -36,6 +36,19 @@
 - Interceptor chain cached per `Context`; interceptor failures complete futures exceptionally;
   `Retry-After` HTTP-date parsing + `hasServerRetryAfter()`; `ODataError` maps `details[]`/`target`
 
+### Function/Action Imports (request-object style)
+
+- Unbound container imports generate final `<Name>FunctionRequest`/`<Name>ActionRequest` classes
+  in `.operation`, with one typed container accessor per import; functions GET with typed URL
+  literals (key-predicate formatting), actions POST a JSON body keyed by CSDL parameter names
+- **Overloaded functions supported**: OData identifies an unbound overload by its parameter names,
+  so each overload generates its own class/accessor (`isSiteAdminByUsername`/`isSiteAdminByUserId`);
+  bound same-name siblings no longer read as ambiguity; identical parameter-name sets and same-name
+  unbound actions fail generation per spec
+- **Collection function parameters supported via parameter aliases**: `Collection(Edm.String)` maps
+  to `List<String>` and renders `ByTags(tags=@p0)?@p0=['a','b']` (previously failed generation);
+  structured elements still fail loudly (no URL literal form)
+
 
 **Core Features:**
 

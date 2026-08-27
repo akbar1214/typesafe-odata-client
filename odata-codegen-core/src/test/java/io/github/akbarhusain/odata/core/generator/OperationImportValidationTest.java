@@ -98,25 +98,29 @@ class OperationImportValidationTest {
     }
 
     @Test
-    void collectionFunctionParameterFailsGenerationNamingImportAndParameter() {
-        // collection literals cannot be embedded in invocation URLs by this generator;
-        // previously the element-only validation let them through and generation
-        // emitted a garbage `String_` parameter type
-        CsdlModel.FunctionModel coll = new CsdlModel.FunctionModel("AllNames", false, false, null,
-                List.of(new CsdlModel.ParameterModel("names", "Collection(Edm.String)", false)),
+    void collectionOfStructuredElementsStillFailsNamingImportAndParameter() {
+        // Collection parameters of PRIMITIVES/ENUMS now pass via parameter aliases
+        // (OperationImportCollectionParamTest); structured elements cannot be rendered
+        // as alias literals either, and must fail generation naming import+parameter
+        CsdlModel.ComplexTypeModel address = new CsdlModel.ComplexTypeModel("Address", null,
+                false, false, List.of(), List.of());
+        CsdlModel.FunctionModel coll = new CsdlModel.FunctionModel("ByAddr", false, false, null,
+                List.of(new CsdlModel.ParameterModel("addrs", "Collection(NS.Address)", false)),
                 new CsdlModel.ReturnTypeModel("Edm.Int32", false));
-        CsdlModel m = model(
-                schema("Ops.NS", List.of(coll), List.of(), List.of()),
-                schema("App.NS", List.of(), List.of(), List.of(new CsdlModel.ContainerModel("C",
-                        List.of(), List.of(),
-                        List.of(new CsdlModel.FunctionImportModel("allNames", "Ops.NS.AllNames", null, false)),
-                        List.of()))));
+        CsdlModel.SchemaModel ns = new CsdlModel.SchemaModel("NS", null, List.of(),
+                List.of(address), List.of(), List.of(), List.of(coll), List.of(),
+                List.of(new CsdlModel.ContainerModel("C", List.of(), List.of(),
+                        List.of(new CsdlModel.FunctionImportModel("byAddr", "NS.ByAddr", null, false)),
+                        List.of())));
+        CsdlModel m = model(ns);
         IllegalStateException ex = assertThrows(IllegalStateException.class, () ->
                 new OperationGenerator("app", Map.of(), "app", m.schemas())
-                        .generateFunctionImportRequest(m.schemas().get(1).containers().get(0)
-                                .functionImports().get(0), m.schemas().get(1)));
-        assertTrue(ex.getMessage().contains("allNames"), ex.getMessage());
-        assertTrue(ex.getMessage().contains("names"), "parameter must be named: " + ex.getMessage());
-        assertTrue(ex.getMessage().contains("collection"), ex.getMessage());
+                        .generateFunctionImportRequest(
+                                m.schemas().get(0).containers().get(0).functionImports().get(0),
+                                m.schemas().get(0)));
+        assertTrue(ex.getMessage().contains("byAddr"), ex.getMessage());
+        assertTrue(ex.getMessage().contains("addrs"), "parameter must be named: " + ex.getMessage());
+        assertTrue(ex.getMessage().contains("Collection(NS.Address)"),
+                "the offending type must be named: " + ex.getMessage());
     }
 }

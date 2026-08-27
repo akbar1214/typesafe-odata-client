@@ -58,10 +58,38 @@ spelling even though the Java parameter is sanitized to `new_name`.
 
 ## Function Parameter Rules
 
-Only Edm primitives and enums can be embedded in an invocation URL, so function-import
-parameters are validated at generation time: a structured or collection-typed function
-parameter fails generation with the import and parameter named (use an action instead —
-actions accept any parameter type in their JSON body).
+Edm primitives and enums embed inline in the invocation URL. Collection parameters
+(`Collection(Edm.String)` → `List<String>`, `Collection(NS.Color)` → `List<Color>`)
+cannot be inline literals, so OData passes them as **parameter aliases** — the URL
+becomes `ByTags(tags=@p0)?@p0=['a','b']`, built for you from the typed list:
+
+```java
+// given <Function Name="ByTags"><Parameter Name="tags" Type="Collection(Edm.String)"/>
+Integer hits = client.byTags(List.of("hiking", "surfing")).execute();
+// GET .../ByTags(tags=@p0)?@p0=['hiking','surfing']
+```
+
+Nullable collection parameters may be passed null (both the pair and the alias are
+omitted); required ones throw at construction when null. Structured parameters
+(complex types, entities), standalone or as collection elements, still fail
+generation with the import and parameter named — they have no URL literal form
+(use an action instead; actions accept any parameter type in their JSON body).
+
+### Overloaded Functions
+
+OData identifies an unbound function overload by its parameter names, so one import
+can expose several same-name overloads. Each generates its own request class and
+container accessor, suffixed by the overload's parameter names:
+
+```java
+// IsSiteAdmin(username: Edm.String) and IsSiteAdmin(userId: Edm.String)
+Boolean byName = client.isSiteAdminByUsername("scottketchum").execute();
+Boolean byId   = client.isSiteAdminByUserId("u-123").execute();
+```
+
+Overloads with identical parameter-name sets are invalid CSDL and fail generation;
+same-name unbound actions also fail generation (actions cannot be overloaded by
+parameter names).
 
 ## Return-Kind Matrix
 

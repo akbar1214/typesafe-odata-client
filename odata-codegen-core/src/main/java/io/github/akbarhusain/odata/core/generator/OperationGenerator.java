@@ -216,24 +216,21 @@ public class OperationGenerator extends AbstractTypeGenerator {
     private void validateFunctionParameters(List<ParameterModel> parameters, String importName,
                                             SchemaModel owner) {
         for (ParameterModel p : parameters) {
-            if (Names.isCollectionType(p.type())) {
-                // Reject the COLLECTION before any element check: validating only the
-                // unwrapped element let Collection(Edm.String) through while generation
-                // emitted a garbage parameter type — fail loudly instead (lesson 170)
-                throw new IllegalStateException("FunctionImport '" + importName
-                        + "': parameter '" + p.name() + "' has collection type '" + p.type()
-                        + "' — collection function parameters cannot be embedded in an "
-                        + "invocation URL by this generator");
-            }
-            String resolved = resolveTypeDefinition(p.type(), owner);
+            // Collection parameters pass via parameter ALIASES (Name(param=@p)?@p=[...]);
+            // the ELEMENT must still be a primitive-or-enum literal — structured elements
+            // have no alias-literal form (lesson 170, amended for collections)
+            String element = Names.isCollectionType(p.type())
+                    ? Names.unwrapCollectionType(p.type()) : p.type();
+            String resolved = resolveTypeDefinition(element, owner);
             boolean primitive = Names.isPrimitiveType(resolved);
             boolean enumType = !primitive
                     && Names.resolveTypeKind(resolved, effectiveSchemas) == Names.TypeKind.ENUM;
             if (!primitive && !enumType) {
                 throw new IllegalStateException("FunctionImport '" + importName
                         + "': parameter '" + p.name() + "' of type '" + p.type()
-                        + "' cannot be embedded in an invocation URL (only Edm primitives "
-                        + "and enums are legal function-parameter literals)");
+                        + "' cannot be passed to a function (only Edm primitives and enums are "
+                        + "legal function-parameter literals, including as collection-alias "
+                        + "elements)");
             }
         }
     }
@@ -422,9 +419,33 @@ public class OperationGenerator extends AbstractTypeGenerator {
     private String constructorBody(String importName, ResolvedOp op, boolean isAction) {
         StringBuilder b = new StringBuilder();
         if (!isAction) {
+            // Collection parameters ride parameter aliases: the segment pair references
+            // the alias, the value rides a query option appended after the segment
+            // (contextPath is a blank final — alias queries chain through a local)
+            record AliasEmission(String alias, String field, String elementEdmType, boolean nullable) {}
+            List<AliasEmission> aliases = new ArrayList<>();
+            int aliasIndex = 0;
+
             b.append("        java.util.List<String> __pairs = new java.util.ArrayList<>();\n");
             for (ParameterModel p : op.parameters()) {
                 String field = Names.toJavaFieldName(p.name());
+                if (Names.isCollectionType(p.type())) {
+                    String elementEdmType = qualifiedEdmName(resolveTypeDefinition(
+                            Names.unwrapCollectionType(p.type()), op.owner()), op.owner());
+                    String alias = "@p" + aliasIndex++;
+                    if (p.nullable()) {
+                        b.append("        if (").append(field).append(" != null) {\n")
+                         .append("            __pairs.add(\"").append(p.name()).append('=')
+                         .append(alias).append("\");\n")
+                         .append("        }\n");
+                    } else {
+                        appendRequiredGuard(b, p, field, op);
+                        b.append("        __pairs.add(\"").append(p.name()).append('=')
+                         .append(alias).append("\");\n");
+                    }
+                    aliases.add(new AliasEmission(alias, field, elementEdmType, p.nullable()));
+                    continue;
+                }
                 String literalEdmType = qualifiedEdmName(
                         resolveTypeDefinition(p.type(), op.owner()), op.owner());
                 if (p.nullable()) {
@@ -436,8 +457,26 @@ public class OperationGenerator extends AbstractTypeGenerator {
                     appendPairAdd(b, p.name(), field, literalEdmType, "        ");
                 }
             }
-            b.append("        this.contextPath = context.basePath().addSegment(OperationPath.segment(\"")
+            if (aliases.isEmpty()) {
+                b.append("        this.contextPath = context.basePath().addSegment(OperationPath.segment(\"")
+                  .append(importName).append("\", __pairs.toArray(new String[0])));\n");
+                return b.toString();
+            }
+            b.append("        ContextPath __path = context.basePath().addSegment(OperationPath.segment(\"")
               .append(importName).append("\", __pairs.toArray(new String[0])));\n");
+            for (AliasEmission a : aliases) {
+                String add = "__path = __path.addQuery(\"" + a.alias()
+                        + "\", OperationPath.collectionParameter(" + a.field() + ", \""
+                        + a.elementEdmType() + "\"));\n";
+                if (a.nullable()) {
+                    b.append("        if (").append(a.field()).append(" != null) {\n")
+                     .append("            ").append(add)
+                     .append("        }\n");
+                } else {
+                    b.append("        ").append(add);
+                }
+            }
+            b.append("        this.contextPath = __path;\n");
             return b.toString();
         }
 
