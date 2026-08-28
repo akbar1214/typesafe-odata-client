@@ -18,6 +18,17 @@ public class NavProperty<E, T> {
     public Class<E> getEntityType() { return entityType; }
     public Class<T> getNavType() { return navType; }
 
+    public <S extends T> NavQuery<E, S> as(String qualifiedCast, Class<S> subtype) {
+        if (qualifiedCast == null || qualifiedCast.isBlank()) {
+            throw new IllegalArgumentException("qualifiedCast must not be blank");
+        }
+        if (subtype == null) {
+            throw new IllegalArgumentException("subtype must not be null");
+        }
+        return new NavQuery<>(edmName, List.of(), List.of(), List.of(), null, null, null,
+                List.of(), qualifiedCast, null);
+    }
+
     public NavQuery<E, T> select(PropertyExpression<? super T, ?>... properties) {
         List<String> selects = new ArrayList<>();
         for (var prop : properties) {
@@ -99,8 +110,17 @@ public class NavProperty<E, T> {
         String topOption,
         String skipOption,
         String countOption,
-        List<String> expands
+        List<String> expands,
+        String castSegment,
+        String rawExpression
     ) {
+        public NavQuery(String edmName, List<String> selects, List<String> filters,
+                        List<String> orderings, String topOption, String skipOption,
+                        String countOption, List<String> expands) {
+            this(edmName, selects, filters, orderings, topOption, skipOption, countOption,
+                    expands, null, null);
+        }
+
         public NavQuery {
             // Defensive copies: builder methods hand out mutable lists otherwise
             selects = List.copyOf(selects);
@@ -109,18 +129,28 @@ public class NavProperty<E, T> {
             expands = List.copyOf(expands);
         }
 
+        public static <S, T> NavQuery<S, T> raw(String odataExpand) {
+            if (odataExpand == null || odataExpand.isBlank()) {
+                throw new IllegalArgumentException("odataExpand must not be blank");
+            }
+            return new NavQuery<>("", List.of(), List.of(), List.of(), null, null, null,
+                    List.of(), null, odataExpand);
+        }
+
         public NavQuery<S, T> select(PropertyExpression<? super T, ?>... properties) {
             List<String> newSelects = new ArrayList<>(this.selects);
             for (var prop : properties) {
                 newSelects.add(selectableName(prop));
             }
-            return new NavQuery<>(edmName, newSelects, filters, orderings, topOption, skipOption, countOption, expands);
+            return new NavQuery<>(edmName, newSelects, filters, orderings, topOption, skipOption,
+                    countOption, expands, castSegment, rawExpression);
         }
 
         public NavQuery<S, T> filter(FilterExpression<? super T> predicate) {
             List<String> newFilters = new ArrayList<>(this.filters);
             newFilters.add(predicate.toODataExpression());
-            return new NavQuery<>(edmName, selects, newFilters, orderings, topOption, skipOption, countOption, expands);
+            return new NavQuery<>(edmName, selects, newFilters, orderings, topOption, skipOption,
+                    countOption, expands, castSegment, rawExpression);
         }
 
         public NavQuery<S, T> orderBy(OrderExpression<? super T, ?>... expressions) {
@@ -128,22 +158,26 @@ public class NavProperty<E, T> {
             for (var expr : expressions) {
                 newOrderings.add(expr.getODataPath());
             }
-            return new NavQuery<>(edmName, selects, filters, newOrderings, topOption, skipOption, countOption, expands);
+            return new NavQuery<>(edmName, selects, filters, newOrderings, topOption, skipOption,
+                    countOption, expands, castSegment, rawExpression);
         }
 
         public NavQuery<S, T> top(int count) {
             requireNonNegative("top", count);
-            return new NavQuery<>(edmName, selects, filters, orderings, "$top=" + count, skipOption, countOption, expands);
+            return new NavQuery<>(edmName, selects, filters, orderings, "$top=" + count, skipOption,
+                    countOption, expands, castSegment, rawExpression);
         }
 
         public NavQuery<S, T> skip(int count) {
             requireNonNegative("skip", count);
-            return new NavQuery<>(edmName, selects, filters, orderings, topOption, "$skip=" + count, countOption, expands);
+            return new NavQuery<>(edmName, selects, filters, orderings, topOption, "$skip=" + count,
+                    countOption, expands, castSegment, rawExpression);
         }
 
         /** Requests the inline count within the expansion: {@code Trips($count=true)}. */
         public NavQuery<S, T> count() {
-            return new NavQuery<>(edmName, selects, filters, orderings, topOption, skipOption, "$count=true", expands);
+            return new NavQuery<>(edmName, selects, filters, orderings, topOption, skipOption,
+                    "$count=true", expands, castSegment, rawExpression);
         }
 
         public NavQuery<S, T> expand(NavQuery<? super T, ?>... queries) {
@@ -151,7 +185,8 @@ public class NavProperty<E, T> {
             for (var q : queries) {
                 newExpands.add(q.toODataExpand());
             }
-            return new NavQuery<>(edmName, selects, filters, orderings, topOption, skipOption, countOption, newExpands);
+            return new NavQuery<>(edmName, selects, filters, orderings, topOption, skipOption,
+                    countOption, newExpands, castSegment, rawExpression);
         }
 
         public NavQuery<S, T> expand(NavProperty<? super T, ?>... properties) {
@@ -159,11 +194,18 @@ public class NavProperty<E, T> {
             for (var p : properties) {
                 newExpands.add(p.getEdmName());
             }
-            return new NavQuery<>(edmName, selects, filters, orderings, topOption, skipOption, countOption, newExpands);
+            return new NavQuery<>(edmName, selects, filters, orderings, topOption, skipOption,
+                    countOption, newExpands, castSegment, rawExpression);
         }
 
         public String toODataExpand() {
+            if (rawExpression != null) {
+                return rawExpression;
+            }
             StringBuilder sb = new StringBuilder(edmName);
+            if (castSegment != null) {
+                sb.append('/').append(castSegment);
+            }
             List<String> options = new ArrayList<>();
             if (!selects.isEmpty()) {
                 options.add("$select=" + String.join(",", selects));

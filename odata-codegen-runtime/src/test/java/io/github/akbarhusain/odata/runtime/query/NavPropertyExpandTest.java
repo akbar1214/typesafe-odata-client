@@ -6,6 +6,11 @@ import static org.junit.jupiter.api.Assertions.*;
 
 class NavPropertyExpandTest {
 
+    private static class Version {}
+
+    private static class Doc extends Version {
+    }
+
     @Test
     void simpleExpand() {
         NavProperty<Object, Object> nav = new NavProperty<>("Trips", Object.class, Object.class);
@@ -109,6 +114,32 @@ class NavPropertyExpandTest {
         NavProperty<Object, Object> planItems = new NavProperty<>("PlanItems", Object.class, Object.class);
         NavProperty.NavQuery<Object, Object> query = trips.expand(planItems);
         assertEquals("Trips($expand=PlanItems)", query.toODataExpand());
+    }
+
+    @Test
+    void navPropertyAsRendersQualifiedCastAndKeepsSubtypeType() {
+        NavProperty<Object, Version> versions = new NavProperty<>("Versions", Object.class, Version.class);
+        NavProperty<Doc, Object> abc = new NavProperty<>("abc", Doc.class, Object.class);
+
+        NavProperty.NavQuery<Object, Doc> query = versions.as("ABC.Doc", Doc.class).expand(abc);
+
+        assertEquals("Versions/ABC.Doc($expand=abc)", query.toODataExpand());
+    }
+
+    @Test
+    void navQueryRawRendersVerbatim() {
+        assertEquals("Versions/ABC.Doc($expand=abc)",
+                NavProperty.NavQuery.raw("Versions/ABC.Doc($expand=abc)").toODataExpand());
+    }
+
+    @Test
+    void navPropertyAsRejectsBlankCast() {
+        NavProperty<Object, Version> versions = new NavProperty<>("Versions", Object.class, Version.class);
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> versions.as("  ", Doc.class));
+
+        assertTrue(ex.getMessage().contains("qualifiedCast"), ex.getMessage());
     }
 
     @Test

@@ -151,6 +151,33 @@ Chaining works at any depth — `NavQuery.expand(...)` also accepts another
 `NavQuery`, so you can keep nesting (e.g.
 `People($expand=Trips($expand=PlanItems($expand=...)))`).
 
+## Polymorphic Expands (Type Casts)
+
+When a navigation targets a base type and you need a subtype-only navigation, use a
+**type-cast segment** — OData's `Versions/ABC.Doc($expand=abc)` form. The generator
+emits a typed constant per (navigation, known subtype) pair, with the qualified CSDL
+type name baked in:
+
+```java
+// given Version with derived type ABC.Doc declaring the abc navigation
+var containers = client.containers(id)
+    .expand(MyContainer.VERSIONS_AS_DOC.expand(MyDoc.ABC))
+    .get();
+// GET .../Containers(id)?$expand=Versions/ABC.Doc($expand=abc)
+```
+
+- The cast narrows the expanded collection to `Doc` elements; nested options
+  (`select`/`filter`/`expand`/`top`/`count`) are type-checked against `Doc` — its own
+  constants and inherited base constants both work
+- Casting to an unrelated type is a compile error (`<S extends T>` bound)
+- For subtypes the generator doesn't know (or quick experiments), the escape hatch:
+
+```java
+client.containers(id)
+    .expand(NavQuery.raw("Versions/ABC.Doc($expand=abc)"))
+    .get();
+```
+
 ## Expanded Values in Getters
 
 When you `$expand` a navigation property, the expanded data is automatically

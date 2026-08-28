@@ -113,6 +113,71 @@ class QueryTypeSafetyCompilationTest {
                 "Compiler errors should mention the narrowed query methods. Output:\n" + output);
     }
 
+    @Test
+    void asCastToNonSubtypeFailsToCompile(@TempDir Path tempDir) throws Exception {
+        String namespace = "Microsoft.OData.SampleService.Models.TripPin";
+        String basePackage = "com.example.trippin";
+
+        Generator generator = new Generator(tempDir, Map.of(namespace, basePackage));
+        generator.generate(trippinModel);
+
+        List<File> javaFiles;
+        try (Stream<Path> paths = Files.walk(tempDir)) {
+            javaFiles = paths
+                    .filter(p -> p.toString().endsWith(".java"))
+                    .map(Path::toFile)
+                    .toList();
+        }
+        assertFalse(javaFiles.isEmpty(), "Should have generated Java files");
+
+        // Airline is not a subtype of Trip — the <S extends T> bound on as() must reject it
+        Path badSource = tempDir.resolve("BadCast.java");
+        Files.writeString(badSource, """
+                import com.example.trippin.entity.Airline;
+                import com.example.trippin.entity.Person;
+                import io.github.akbarhusain.odata.runtime.entity.Context;
+
+                public class BadCast {
+                    public static void main(String[] args) {
+                        Context ctx = Context.builder().baseUrl("https://example.org").build();
+                        DefaultContainerUnused.run(ctx);
+                    }
+                    static class DefaultContainerUnused {
+                        static void run(Context ctx) {
+                            Person.TRIPS.as("NS.Airline", Airline.class);
+                        }
+                    }
+                }
+                """);
+
+        JavaCompiler compiler = ToolProvider.getSystemJavaCompiler();
+        assertNotNull(compiler, "Java compiler not available - run with JDK not JRE");
+
+        StringWriter compilerOutput = new StringWriter();
+        PrintWriter compilerWriter = new PrintWriter(compilerOutput);
+        StandardJavaFileManager fileManager = compiler.getStandardFileManager(null, null, null);
+
+        List<File> classpath = findClasspathJars();
+        fileManager.setLocation(javax.tools.StandardLocation.CLASS_PATH, classpath);
+
+        List<String> options = List.of(
+                "-classpath", classpath.stream().map(File::getAbsolutePath)
+                        .collect(java.util.stream.Collectors.joining(File.pathSeparator))
+        );
+
+        Iterable<? extends javax.tools.JavaFileObject> compilationUnits =
+                fileManager.getJavaFileObjects(badSource.toFile());
+
+        JavaCompiler.CompilationTask task = compiler.getTask(
+                compilerWriter, fileManager, null, options, null, compilationUnits);
+
+        boolean success = task.call();
+        String output = compilerOutput.toString();
+
+        assertFalse(success, "as() to a non-subtype must fail to compile. Output:\n" + output);
+        assertTrue(output.contains("as"), "Compiler errors should mention as(). Output:\n" + output);
+    }
+
     private List<File> findClasspathJars() {
         String userHome = System.getProperty("user.home");
         Path mavenRepo = Path.of(userHome, ".m2", "repository");

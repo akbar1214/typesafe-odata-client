@@ -23,6 +23,9 @@ public class EntityGenerator extends AbstractTypeGenerator {
     private java.util.Map<String, String> entityNamespace;
     private java.util.Map<String, Set<String>> schemaExtendedBases;
     private java.util.Map<String, Set<String>> schemaOpenRootNames;
+    private Map<String, List<EntitySubtype>> subtypesByBase;
+
+    private record EntitySubtype(String qualifiedName, EntityTypeModel model) {}
 
     public EntityGenerator(String basePackage, Map<String, String> schemaPackages) {
         this(basePackage, schemaPackages, null, List.of());
@@ -47,6 +50,7 @@ public class EntityGenerator extends AbstractTypeGenerator {
     public String generate(EntityTypeModel entityType, SchemaModel schema) {
         initEffectiveSchemas(schema);
         ensureSchemaCache(schema);
+        ensureSubtypeIndex();
         String pkg = basePackage + Names.packageNameSuffixEntity();
         String className = Names.entityClassName(entityType.name());
         EntityTypeModel base = findBase(entityType);
@@ -106,6 +110,13 @@ public class EntityGenerator extends AbstractTypeGenerator {
                 imports.add(basePackageForType(elementType, schema) + suffix + "." + navTargetClass);
             }
         }
+        for (NavigationPropertyModel nav : entityType.navigationProperties()) {
+            for (EntitySubtype subtype : subtypesFor(nav, schema)) {
+                imports.add(basePackageForType(subtype.qualifiedName(), schema)
+                        + Names.packageNameSuffixEntity() + "."
+                        + Names.entityClassName(subtype.model().name()));
+            }
+        }
 
         for (PropertyModel prop : allProps) {
             addPropertyImports(prop, imports, schema);
@@ -139,8 +150,21 @@ public class EntityGenerator extends AbstractTypeGenerator {
         sb.append("\n");
 
         // Static navigation property constants
+        Set<String> usedConstantNames = new HashSet<>();
+        for (PropertyModel prop : allProps) {
+            usedConstantNames.add(constantNameFor(prop.name()));
+        }
+        for (NavigationPropertyModel nav : allNavs) {
+            usedConstantNames.add(constantNameFor(nav.name()));
+        }
         for (NavigationPropertyModel nav : entityType.navigationProperties()) {
             sb.append(generateNavPropertyConstant(nav, className, schema));
+            for (EntitySubtype subtype : subtypesFor(nav, schema)) {
+                String constantName = uniqueSubtypeConstantName(
+                        constantNameFor(nav.name()), subtype.model().name(), usedConstantNames);
+                sb.append(generateSubtypeNavPropertyConstant(nav, className, schema, subtype,
+                        constantName));
+            }
         }
         if (!entityType.navigationProperties().isEmpty()) sb.append("\n");
 
@@ -563,6 +587,70 @@ public class EntityGenerator extends AbstractTypeGenerator {
                     + elementClassName + "> " + constantName
                     + " = new NavProperty<>(\"" + nav.name() + "\", " + className + ".class, "
                     + elementClassName + ".class);\n";
+        }
+    }
+
+    private String generateSubtypeNavPropertyConstant(NavigationPropertyModel nav, String className,
+                                                       SchemaModel schema, EntitySubtype subtype,
+                                                       String constantName) {
+        String subtypeClassName = Names.entityClassName(subtype.model().name());
+        return "    public static final NavProperty.NavQuery<" + className + ", "
+                + subtypeClassName + "> " + constantName + " = "
+                + constantNameFor(nav.name()) + ".as(\"" + subtype.qualifiedName() + "\", "
+                + subtypeClassName + ".class);\n";
+    }
+
+    private String uniqueSubtypeConstantName(String navConstantName, String subtypeName,
+                                             Set<String> used) {
+        String base = navConstantName + "_AS_" + Names.toConstantName(subtypeName);
+        String candidate = base;
+        int suffix = 2;
+        while (!used.add(candidate)) {
+            candidate = base + "_" + suffix++;
+        }
+        return candidate;
+    }
+
+    private List<EntitySubtype> subtypesFor(NavigationPropertyModel nav, SchemaModel schema) {
+        String target = resolveTypeDefinition(Names.unwrapCollectionType(nav.type()), schema);
+        if (Names.resolveTypeKind(target, effectiveSchemas) != Names.TypeKind.ENTITY) {
+            return List.of();
+        }
+        return subtypesByBase.getOrDefault(target, List.of());
+    }
+
+    private void ensureSubtypeIndex() {
+        if (subtypesByBase != null) {
+            return;
+        }
+        // Identity-keyed qualified names resolved once: chain walking below must stay
+        // O(1) per lookup or large-metadata generation degrades quadratically (lesson 178)
+        java.util.IdentityHashMap<EntityTypeModel, String> qualifiedNames = new java.util.IdentityHashMap<>();
+        subtypesByBase = new HashMap<>();
+        for (SchemaModel schema : effectiveSchemas) {
+            for (EntityTypeModel et : schema.entityTypes()) {
+                qualifiedNames.put(et, schema.namespace() + "." + et.name());
+            }
+        }
+        for (SchemaModel schema : effectiveSchemas) {
+            for (EntityTypeModel candidate : schema.entityTypes()) {
+                String candidateQualifiedName = qualifiedNames.get(candidate);
+                EntityTypeModel current = candidate;
+                Set<String> visited = new HashSet<>();
+                while (true) {
+                    EntityTypeModel base = findBase(current);
+                    if (base == null) {
+                        break;
+                    }
+                    String baseQualifiedName = qualifiedNames.get(base);
+                    if (baseQualifiedName == null || !visited.add(baseQualifiedName)) {
+                        break;
+                    }
+                    subtypesByBase.computeIfAbsent(baseQualifiedName, ignored -> new ArrayList<>())
+                            .add(new EntitySubtype(candidateQualifiedName, candidate));
+                    current = base;
+                }
+            }
         }
     }
 
