@@ -47,7 +47,7 @@ class CrossSchemaSimpleNameCompilationTest {
         // with its own nav (navWith copy code lands in the foreign package) and an
         // open-type complex property (unmappedFields copy code)
         CsdlModel.EntityTypeModel twoA = new CsdlModel.EntityTypeModel("A", "One.Base",
-                false, true, false,
+                true, false, false,
                 List.of(),
                 List.of(new CsdlModel.PropertyModel("Title", "Edm.String", true, null, List.of()),
                         new CsdlModel.PropertyModel("Address", "Two.Addr", true, null, List.of())),
@@ -84,6 +84,20 @@ class CrossSchemaSimpleNameCompilationTest {
                         + "collides:\n" + oneASource);
         assertTrue(oneASource.contains("CHILDREN_AS_A_2 = CHILDREN.as(\"Two.A\", com.p2.entity.A.class)"),
                 "foreign same-name subtype referenced by FQN:\n" + oneASource);
+
+        // The generated entity in a DIFFERENT schema from its parent: with*/navWith copy
+        // code in the foreign package touches the parent's protected lifecycle fields
+        // (contextPath, etag, unmappedFields, changedFields) — legal per JLS 6.6.2
+        // (subclass access via own-type references) and must compile
+        String twoASource = Files.readString(out.resolve("com/p2/entity/A.java"));
+        assertTrue(twoASource.contains("    public A withTitle(String value)"),
+                "cross-package subtype gets with* copy code:\n" + twoASource);
+        assertTrue(twoASource.contains("        e.contextPath = contextPath;\n")
+                        && twoASource.contains("        e.etag = etag;\n"),
+                "copy code references the parent's protected lifecycle fields:\n" + twoASource);
+        assertTrue(twoASource.contains("EntityUtil.mergeChanged(changedFields"), twoASource);
+        assertTrue(twoASource.contains("        e.items = value;"),
+                "navWith copy code for the subtype's own nav:\n" + twoASource);
 
         JavaCompiler compiler = ToolProvider.getSystemJavaCompiler();
         assertNotNull(compiler);
