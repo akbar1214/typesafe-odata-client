@@ -110,12 +110,15 @@ public class EntityGenerator extends AbstractTypeGenerator {
                 imports.add(basePackageForType(elementType, schema) + suffix + "." + navTargetClass);
             }
         }
-        for (NavigationPropertyModel nav : entityType.navigationProperties()) {
-            for (EntitySubtype subtype : subtypesFor(nav, schema)) {
-                imports.add(basePackageForType(subtype.qualifiedName(), schema)
-                        + Names.packageNameSuffixEntity() + "."
-                        + Names.entityClassName(subtype.model().name()));
-            }
+        // Cast-constant references (decision 18a): two schemas may declare entities with
+        // the SAME simple name, and a subtype may collide with the generated class itself.
+        // Importing either produces ambiguous or self-colliding references, so foreign
+        // same-name subtypes are referenced by fully-qualified name and never imported
+        SubtypeRefs subtypeRefs = subtypeReferences(entityType, className, pkg, schema);
+        for (String qualified : subtypeRefs.importNames()) {
+            String simple = Names.entityClassName(Names.simpleNameFromFullName(qualified));
+            imports.add(basePackageForType(qualified, schema)
+                    + Names.packageNameSuffixEntity() + "." + simple);
         }
 
         for (PropertyModel prop : allProps) {
@@ -163,7 +166,7 @@ public class EntityGenerator extends AbstractTypeGenerator {
                 String constantName = uniqueSubtypeConstantName(
                         constantNameFor(nav.name()), subtype.model().name(), usedConstantNames);
                 sb.append(generateSubtypeNavPropertyConstant(nav, className, schema, subtype,
-                        constantName));
+                        constantName, subtypeRefs.refs().get(subtype.qualifiedName())));
             }
         }
         if (!entityType.navigationProperties().isEmpty()) sb.append("\n");
@@ -592,12 +595,56 @@ public class EntityGenerator extends AbstractTypeGenerator {
 
     private String generateSubtypeNavPropertyConstant(NavigationPropertyModel nav, String className,
                                                        SchemaModel schema, EntitySubtype subtype,
-                                                       String constantName) {
-        String subtypeClassName = Names.entityClassName(subtype.model().name());
+                                                       String constantName, String javaRef) {
         return "    public static final NavProperty.NavQuery<" + className + ", "
-                + subtypeClassName + "> " + constantName + " = "
+                + javaRef + "> " + constantName + " = "
                 + constantNameFor(nav.name()) + ".as(\"" + subtype.qualifiedName() + "\", "
-                + subtypeClassName + ".class);\n";
+                + javaRef + ".class);\n";
+    }
+
+    private record SubtypeRefs(java.util.Map<String, String> refs, java.util.Set<String> importNames) {}
+
+    /**
+     * Resolves each cast-subtype to a Java reference expression. The generated class
+     * itself (same package + same simple name) stays an unqualified self-reference and
+     * is never imported; any subtype whose simple name collides — with the generated
+     * class (other package) or with another subtype from a different package — is
+     * referenced by fully-qualified name and never imported.
+     */
+    private SubtypeRefs subtypeReferences(EntityTypeModel entityType,
+                                          String className, String pkg,
+                                          SchemaModel schema) {
+        java.util.Map<String, String> refs = new java.util.LinkedHashMap<>();
+        java.util.Set<String> importNames = new java.util.LinkedHashSet<>();
+        List<EntitySubtype> all = new ArrayList<>();
+        for (NavigationPropertyModel nav : entityType.navigationProperties()) {
+            all.addAll(subtypesFor(nav, schema));
+        }
+        java.util.Map<String, Set<String>> packagesBySimpleName = new java.util.LinkedHashMap<>();
+        java.util.Map<String, String> packageByQualifiedName = new java.util.LinkedHashMap<>();
+        for (EntitySubtype subtype : all) {
+            String simple = Names.entityClassName(subtype.model().name());
+            String stPkg = basePackageForType(subtype.qualifiedName(), schema)
+                    + Names.packageNameSuffixEntity();
+            packagesBySimpleName.computeIfAbsent(simple, ignored -> new HashSet<>()).add(stPkg);
+            packageByQualifiedName.put(subtype.qualifiedName(), stPkg);
+        }
+        for (EntitySubtype subtype : all) {
+            String simple = Names.entityClassName(subtype.model().name());
+            String stPkg = packageByQualifiedName.get(subtype.qualifiedName());
+            boolean selfGenerated = simple.equals(className) && stPkg.equals(pkg);
+            boolean collides = packagesBySimpleName.get(simple).size() > 1
+                    || (simple.equals(className) && !selfGenerated);
+            if (selfGenerated) {
+                refs.put(subtype.qualifiedName(), simple);
+            } else if (collides) {
+                refs.put(subtype.qualifiedName(), stPkg + "." + simple);
+            } else {
+                refs.put(subtype.qualifiedName(), simple);
+                importNames.add(subtype.qualifiedName());
+            }
+        }
+        return new SubtypeRefs(refs, importNames);
     }
 
     private String uniqueSubtypeConstantName(String navConstantName, String subtypeName,
