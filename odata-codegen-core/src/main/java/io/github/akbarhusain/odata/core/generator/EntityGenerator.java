@@ -23,6 +23,9 @@ public class EntityGenerator extends AbstractTypeGenerator {
     private java.util.Map<String, String> entityNamespace;
     private java.util.Map<String, Set<String>> schemaExtendedBases;
     private java.util.Map<String, Set<String>> schemaOpenRootNames;
+    private Map<String, List<EntitySubtype>> subtypesByBase;
+
+    private record EntitySubtype(String qualifiedName, EntityTypeModel model) {}
 
     public EntityGenerator(String basePackage, Map<String, String> schemaPackages) {
         this(basePackage, schemaPackages, null, List.of());
@@ -47,6 +50,7 @@ public class EntityGenerator extends AbstractTypeGenerator {
     public String generate(EntityTypeModel entityType, SchemaModel schema) {
         initEffectiveSchemas(schema);
         ensureSchemaCache(schema);
+        ensureSubtypeIndex();
         String pkg = basePackage + Names.packageNameSuffixEntity();
         String className = Names.entityClassName(entityType.name());
         EntityTypeModel base = findBase(entityType);
@@ -91,19 +95,58 @@ public class EntityGenerator extends AbstractTypeGenerator {
         imports.add("io.github.akbarhusain.odata.runtime.serialization.DynamicPropertyConverter");
         imports.add("io.github.akbarhusain.odata.runtime.query.*");
 
+        // Reference resolution FIRST: two schemas may contribute the same simple name
+        // to this file (nav targets, property types, cast subtypes) — contested names
+        // are referenced fully-qualified and never imported
+        List<String> refCandidates = new ArrayList<>();
         for (NavigationPropertyModel nav : allNavs) {
             String elementType = Names.unwrapCollectionType(nav.type());
             String edmSimpleName = Names.simpleNameFromFullName(elementType);
             if (!isBuiltinType(edmSimpleName)) {
-                Names.TypeKind kind = Names.resolveTypeKind(elementType, effectiveSchemas);
-                String suffix = Names.resolvedSuffix(elementType, effectiveSchemas);
-                String navTargetClass = Names.resolvedClassName(elementType, effectiveSchemas);
+                refCandidates.add(basePackageForType(elementType, schema)
+                        + Names.resolvedSuffix(elementType, effectiveSchemas)
+                        + "." + Names.resolvedClassName(elementType, effectiveSchemas));
+            }
+        }
+        for (PropertyModel prop : allProps) {
+            collectPropertyTypeFqns(prop, schema, refCandidates);
+        }
+        SubtypeRefs subtypeRefs = subtypeReferences(entityType, className, pkg, schema);
+        for (NavigationPropertyModel nav : entityType.navigationProperties()) {
+            for (EntitySubtype subtype : subtypesFor(nav, schema)) {
+                refCandidates.add(basePackageForType(subtype.qualifiedName(), schema)
+                        + Names.packageNameSuffixEntity() + "."
+                        + Names.entityClassName(subtype.model().name()));
+            }
+        }
+        this.typeRefs = TypeRefs.resolve(refCandidates);
+
+        for (NavigationPropertyModel nav : allNavs) {
+            String elementType = Names.unwrapCollectionType(nav.type());
+            String edmSimpleName = Names.simpleNameFromFullName(elementType);
+            if (!isBuiltinType(edmSimpleName)) {
                 // Skip self-referencing navs: importing the class being generated is a compile error
+                String navTargetClass = Names.resolvedClassName(elementType, effectiveSchemas);
+                String suffix = Names.resolvedSuffix(elementType, effectiveSchemas);
                 if (navTargetClass.equals(className)
                         && (basePackageForType(elementType, schema) + suffix).equals(pkg)) {
                     continue;
                 }
+                if (isContested(elementType, schema)) {
+                    continue;
+                }
                 imports.add(basePackageForType(elementType, schema) + suffix + "." + navTargetClass);
+            }
+        }
+        // Cast-constant references (decision 18a): two schemas may declare entities with
+        // the SAME simple name, and a subtype may collide with the generated class itself.
+        // Importing either produces ambiguous or self-colliding references, so foreign
+        // same-name subtypes are referenced by fully-qualified name and never imported
+        for (String qualified : subtypeRefs.importNames()) {
+            String simple = Names.entityClassName(Names.simpleNameFromFullName(qualified));
+            if (!Names.entityClassName(Names.simpleNameFromFullName(qualified)).equals(className)) {
+                imports.add(basePackageForType(qualified, schema)
+                        + Names.packageNameSuffixEntity() + "." + simple);
             }
         }
 
@@ -139,8 +182,21 @@ public class EntityGenerator extends AbstractTypeGenerator {
         sb.append("\n");
 
         // Static navigation property constants
+        Set<String> usedConstantNames = new HashSet<>();
+        for (PropertyModel prop : allProps) {
+            usedConstantNames.add(constantNameFor(prop.name()));
+        }
+        for (NavigationPropertyModel nav : allNavs) {
+            usedConstantNames.add(constantNameFor(nav.name()));
+        }
         for (NavigationPropertyModel nav : entityType.navigationProperties()) {
             sb.append(generateNavPropertyConstant(nav, className, schema));
+            for (EntitySubtype subtype : subtypesFor(nav, schema)) {
+                String constantName = uniqueSubtypeConstantName(
+                        constantNameFor(nav.name()), subtype.model().name(), usedConstantNames);
+                sb.append(generateSubtypeNavPropertyConstant(nav, className, schema, subtype,
+                        constantName, subtypeRefs.refs().get(subtype.qualifiedName())));
+            }
         }
         if (!entityType.navigationProperties().isEmpty()) sb.append("\n");
 
@@ -547,10 +603,23 @@ public class EntityGenerator extends AbstractTypeGenerator {
                 + ");\n";
     }
 
+    /** Mirrors addPropertyImports: the generated-class FQNs a property contributes to the file. */
+    private void collectPropertyTypeFqns(PropertyModel prop, SchemaModel schema, List<String> out) {
+        String edmType = resolveTypeDefinition(prop.edmType(), schema);
+        if (Names.isCollectionType(edmType)) {
+            String resolvedElement = resolveTypeDefinition(Names.unwrapCollectionType(edmType), schema);
+            if (!Names.isPrimitiveType(resolvedElement)) {
+                out.add(typeFqnOf(resolvedElement, schema));
+            }
+        } else if (!Names.isPrimitiveType(edmType)) {
+            out.add(typeFqnOf(edmType, schema));
+        }
+    }
+
     private String generateNavPropertyConstant(NavigationPropertyModel nav, String className, SchemaModel schema) {
         boolean isCollection = Names.isCollectionType(nav.type());
         String unwrapped = Names.unwrapCollectionType(nav.type());
-        String elementClassName = Names.resolvedClassName(unwrapped, effectiveSchemas);
+        String elementClassName = refFor(resolveTypeDefinition(unwrapped, schema), schema);
         String constantName = constantNameFor(nav.name());
 
         if (isCollection) {
@@ -563,6 +632,114 @@ public class EntityGenerator extends AbstractTypeGenerator {
                     + elementClassName + "> " + constantName
                     + " = new NavProperty<>(\"" + nav.name() + "\", " + className + ".class, "
                     + elementClassName + ".class);\n";
+        }
+    }
+
+    private String generateSubtypeNavPropertyConstant(NavigationPropertyModel nav, String className,
+                                                       SchemaModel schema, EntitySubtype subtype,
+                                                       String constantName, String javaRef) {
+        return "    public static final NavProperty.NavQuery<" + className + ", "
+                + javaRef + "> " + constantName + " = "
+                + constantNameFor(nav.name()) + ".as(\"" + subtype.qualifiedName() + "\", "
+                + javaRef + ".class);\n";
+    }
+
+    private record SubtypeRefs(java.util.Map<String, String> refs, java.util.Set<String> importNames) {}
+
+    /**
+     * Resolves each cast-subtype to a Java reference expression. The generated class
+     * itself (same package + same simple name) stays an unqualified self-reference and
+     * is never imported; any subtype whose simple name collides — with the generated
+     * class (other package) or with another subtype from a different package — is
+     * referenced by fully-qualified name and never imported.
+     */
+    private SubtypeRefs subtypeReferences(EntityTypeModel entityType,
+                                          String className, String pkg,
+                                          SchemaModel schema) {
+        java.util.Map<String, String> refs = new java.util.LinkedHashMap<>();
+        java.util.Set<String> importNames = new java.util.LinkedHashSet<>();
+        List<EntitySubtype> all = new ArrayList<>();
+        for (NavigationPropertyModel nav : entityType.navigationProperties()) {
+            all.addAll(subtypesFor(nav, schema));
+        }
+        java.util.Map<String, Set<String>> packagesBySimpleName = new java.util.LinkedHashMap<>();
+        java.util.Map<String, String> packageByQualifiedName = new java.util.LinkedHashMap<>();
+        for (EntitySubtype subtype : all) {
+            String simple = Names.entityClassName(subtype.model().name());
+            String stPkg = basePackageForType(subtype.qualifiedName(), schema)
+                    + Names.packageNameSuffixEntity();
+            packagesBySimpleName.computeIfAbsent(simple, ignored -> new HashSet<>()).add(stPkg);
+            packageByQualifiedName.put(subtype.qualifiedName(), stPkg);
+        }
+        for (EntitySubtype subtype : all) {
+            String simple = Names.entityClassName(subtype.model().name());
+            String stPkg = packageByQualifiedName.get(subtype.qualifiedName());
+            boolean selfGenerated = simple.equals(className) && stPkg.equals(pkg);
+            boolean collides = packagesBySimpleName.get(simple).size() > 1
+                    || (simple.equals(className) && !selfGenerated);
+            if (selfGenerated) {
+                refs.put(subtype.qualifiedName(), simple);
+            } else if (collides) {
+                refs.put(subtype.qualifiedName(), stPkg + "." + simple);
+            } else {
+                refs.put(subtype.qualifiedName(), simple);
+                importNames.add(subtype.qualifiedName());
+            }
+        }
+        return new SubtypeRefs(refs, importNames);
+    }
+
+    private String uniqueSubtypeConstantName(String navConstantName, String subtypeName,
+                                             Set<String> used) {
+        String base = navConstantName + "_AS_" + Names.toConstantName(subtypeName);
+        String candidate = base;
+        int suffix = 2;
+        while (!used.add(candidate)) {
+            candidate = base + "_" + suffix++;
+        }
+        return candidate;
+    }
+
+    private List<EntitySubtype> subtypesFor(NavigationPropertyModel nav, SchemaModel schema) {
+        String target = resolveTypeDefinition(Names.unwrapCollectionType(nav.type()), schema);
+        if (Names.resolveTypeKind(target, effectiveSchemas) != Names.TypeKind.ENTITY) {
+            return List.of();
+        }
+        return subtypesByBase.getOrDefault(target, List.of());
+    }
+
+    private void ensureSubtypeIndex() {
+        if (subtypesByBase != null) {
+            return;
+        }
+        // Identity-keyed qualified names resolved once: chain walking below must stay
+        // O(1) per lookup or large-metadata generation degrades quadratically (lesson 178)
+        java.util.IdentityHashMap<EntityTypeModel, String> qualifiedNames = new java.util.IdentityHashMap<>();
+        subtypesByBase = new HashMap<>();
+        for (SchemaModel schema : effectiveSchemas) {
+            for (EntityTypeModel et : schema.entityTypes()) {
+                qualifiedNames.put(et, schema.namespace() + "." + et.name());
+            }
+        }
+        for (SchemaModel schema : effectiveSchemas) {
+            for (EntityTypeModel candidate : schema.entityTypes()) {
+                String candidateQualifiedName = qualifiedNames.get(candidate);
+                EntityTypeModel current = candidate;
+                Set<String> visited = new HashSet<>();
+                while (true) {
+                    EntityTypeModel base = findBase(current);
+                    if (base == null) {
+                        break;
+                    }
+                    String baseQualifiedName = qualifiedNames.get(base);
+                    if (baseQualifiedName == null || !visited.add(baseQualifiedName)) {
+                        break;
+                    }
+                    subtypesByBase.computeIfAbsent(baseQualifiedName, ignored -> new ArrayList<>())
+                            .add(new EntitySubtype(candidateQualifiedName, candidate));
+                    current = base;
+                }
+            }
         }
     }
 

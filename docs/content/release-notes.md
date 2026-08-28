@@ -88,6 +88,11 @@
   "has overloads with identical parameter names"); a derived-type request sees ancestor-bound
   overloads via the cast segment; bound actions overload by binding parameter (one per binding type);
   only overloads identical in names AND types still fail generation
+- **Type-safe polymorphic expands** (cast segments): `expand(MyContainer.VERSIONS_AS_DOC.expand(MyDoc.ABC))`
+  renders `$expand=Versions/ABC.Doc($expand=abc)` — the generator emits a typed `<NAV>_AS_<TYPE>`
+  constant per navigation/known-subtype pair with the qualified CSDL name baked in; nested options
+  type-check against the subtype and casting to an unrelated type is a compile error; `NavQuery.raw(...)`
+  is the general escape hatch
 - **Typed `select()`/`expand()` on entity requests** (keyed accessors): `client.people("x").expand(...)`
   / `.select(...)` now exist — $select/$expand are the query options valid on a single-entity GET
   (the docs promised this when keyed accessors shipped; the generator never emitted it); nested

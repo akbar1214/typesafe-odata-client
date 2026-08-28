@@ -24,6 +24,32 @@ public abstract class AbstractTypeGenerator {
     private boolean effectiveSchemasInitialized;
     protected boolean generateWithMethods;
 
+    /**
+     * Per-file generated-class references (FQN → simple name, or the FQN itself when two
+     * schemas contribute the same simple name to one file — then the type is referenced
+     * fully-qualified and never imported). Populated by each generator's generate()
+     * before emission; identity behavior when left empty.
+     */
+    protected java.util.Map<String, String> typeRefs = java.util.Map.of();
+
+    /** The full import-candidate FQN for a resolved type reference (never a primitive). */
+    protected String typeFqnOf(String resolvedType, SchemaModel schema) {
+        return basePackageForType(resolvedType, schema) + Names.resolvedSuffix(resolvedType, effectiveSchemas)
+                + "." + Names.resolvedClassName(resolvedType, effectiveSchemas);
+    }
+
+    /** True when the resolved reference for this type is its fully-qualified name (contested simple name). */
+    protected boolean isContested(String resolvedType, SchemaModel schema) {
+        String ref = typeRefs.get(typeFqnOf(resolvedType, schema));
+        return ref != null && ref.contains(".");
+    }
+
+    /** The reference to print for a resolved type: simple name, or FQN when contested. */
+    protected String refFor(String resolvedType, SchemaModel schema) {
+        String simple = Names.resolvedClassName(resolvedType, effectiveSchemas);
+        return typeRefs.getOrDefault(typeFqnOf(resolvedType, schema), simple);
+    }
+
     protected AbstractTypeGenerator(String basePackage, Map<String, String> schemaPackages,
                                     String defaultBasePackage, List<SchemaModel> allSchemas) {
         this(basePackage, schemaPackages, defaultBasePackage, allSchemas, false);
@@ -260,6 +286,7 @@ public abstract class AbstractTypeGenerator {
     // ------------------------------------------------------------------
 
     protected void addPropertyImports(PropertyModel prop, Set<String> imports, SchemaModel schema) {
+
         String edmType = resolveTypeDefinition(prop.edmType(), schema);
         if (Names.isCollectionType(edmType)) {
             String elementType = Names.unwrapCollectionType(edmType);
@@ -267,7 +294,7 @@ public abstract class AbstractTypeGenerator {
             if (Names.isPrimitiveType(resolvedElement)) {
                 String javaType = Names.edmTypeToSimpleJavaType(resolvedElement);
                 if (javaType.startsWith("java.")) imports.add(javaType);
-            } else {
+            } else if (!isContested(resolvedElement, schema)) {
                 String pkg = basePackageForType(resolvedElement, schema);
                 imports.add(pkg + Names.resolvedSuffix(resolvedElement, effectiveSchemas) + "."
                         + Names.resolvedClassName(resolvedElement, effectiveSchemas));
@@ -275,7 +302,7 @@ public abstract class AbstractTypeGenerator {
         } else if (Names.isPrimitiveType(edmType)) {
             String javaType = Names.edmTypeToSimpleJavaType(edmType);
             if (javaType.startsWith("java.")) imports.add(javaType);
-        } else {
+        } else if (!isContested(edmType, schema)) {
             String pkg = basePackageForType(edmType, schema);
             imports.add(pkg + Names.resolvedSuffix(edmType, effectiveSchemas) + "."
                     + Names.resolvedClassName(edmType, effectiveSchemas));
@@ -308,7 +335,7 @@ public abstract class AbstractTypeGenerator {
         // Resolve TypeDefinition chains so the Java type references the UNDERLYING
         // entity/complex/enum class (a typedef has no generated class of its own)
         String resolved = resolveTypeDefinition(unwrapped, schema);
-        String elementClassName = Names.resolvedClassName(resolved, effectiveSchemas);
+        String elementClassName = refFor(resolved, schema);
         if (Names.isCollectionType(nav.type())) {
             return "List<" + elementClassName + ">";
         }
@@ -418,6 +445,9 @@ public abstract class AbstractTypeGenerator {
 
     protected String resolveClassNameForConstant(String edmType, SchemaModel schema) {
         String resolved = resolveTypeDefinition(edmType, schema);
+        if (isContested(resolved, schema)) {
+            return typeRefs.get(typeFqnOf(resolved, schema));
+        }
         if (Names.isPrimitiveType(resolved)) {
             return Names.edmTypeToSimpleJavaType(resolved);
         }
