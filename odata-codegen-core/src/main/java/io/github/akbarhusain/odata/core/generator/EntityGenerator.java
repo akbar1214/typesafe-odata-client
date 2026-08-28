@@ -603,19 +603,6 @@ public class EntityGenerator extends AbstractTypeGenerator {
                 + ");\n";
     }
 
-    /** Mirrors addPropertyImports: the generated-class FQNs a property contributes to the file. */
-    private void collectPropertyTypeFqns(PropertyModel prop, SchemaModel schema, List<String> out) {
-        String edmType = resolveTypeDefinition(prop.edmType(), schema);
-        if (Names.isCollectionType(edmType)) {
-            String resolvedElement = resolveTypeDefinition(Names.unwrapCollectionType(edmType), schema);
-            if (!Names.isPrimitiveType(resolvedElement)) {
-                out.add(typeFqnOf(resolvedElement, schema));
-            }
-        } else if (!Names.isPrimitiveType(edmType)) {
-            out.add(typeFqnOf(edmType, schema));
-        }
-    }
-
     private String generateNavPropertyConstant(NavigationPropertyModel nav, String className, SchemaModel schema) {
         boolean isCollection = Names.isCollectionType(nav.type());
         String unwrapped = Names.unwrapCollectionType(nav.type());

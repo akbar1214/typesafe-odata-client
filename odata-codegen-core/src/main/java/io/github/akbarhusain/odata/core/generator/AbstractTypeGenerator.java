@@ -313,7 +313,25 @@ public abstract class AbstractTypeGenerator {
         String edmType = Names.unwrapCollectionType(nav.type());
         String suffix = Names.resolvedSuffix(edmType, effectiveSchemas);
         String className = Names.resolvedClassName(edmType, effectiveSchemas);
-        imports.add(basePackageForType(edmType, schema) + suffix + "." + className);
+        String fqn = basePackageForType(edmType, schema) + suffix + "." + className;
+        String ref = typeRefs.get(fqn);
+        if (ref != null && ref.contains(".")) {
+            return; // contested simple name — referenced fully-qualified, never imported
+        }
+        imports.add(fqn);
+    }
+
+    /** Mirrors addPropertyImports: the generated-class FQNs a property contributes to the file. */
+    protected void collectPropertyTypeFqns(PropertyModel prop, SchemaModel schema, List<String> out) {
+        String edmType = resolveTypeDefinition(prop.edmType(), schema);
+        if (Names.isCollectionType(edmType)) {
+            String resolvedElement = resolveTypeDefinition(Names.unwrapCollectionType(edmType), schema);
+            if (!Names.isPrimitiveType(resolvedElement)) {
+                out.add(typeFqnOf(resolvedElement, schema));
+            }
+        } else if (!Names.isPrimitiveType(edmType)) {
+            out.add(typeFqnOf(edmType, schema));
+        }
     }
 
     // Look up the base package for a cross-namespace type reference
@@ -433,7 +451,7 @@ public abstract class AbstractTypeGenerator {
 
     protected String generateFilterableNavPropertyField(NavigationPropertyModel nav, String className, SchemaModel schema) {
         String unwrapped = Names.unwrapCollectionType(nav.type());
-        String elementClassName = Names.resolvedClassName(unwrapped, effectiveSchemas);
+        String elementClassName = refFor(resolveTypeDefinition(unwrapped, schema), schema);
         // must go through the per-type allocation like every other emission site —
         // the raw name collides with a property constant when e.g. prop BUDGET + nav budget
         String constantName = constantNameFor(nav.name());

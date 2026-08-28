@@ -78,6 +78,19 @@ public class ComplexTypeGenerator extends AbstractTypeGenerator {
         imports.add("io.github.akbarhusain.odata.runtime.entity.ODataType");
         imports.add("io.github.akbarhusain.odata.runtime.entity.ContextPath");
         imports.add("io.github.akbarhusain.odata.runtime.query.*");
+        // Contested simple names (same-named types from different output packages) must be
+        // referenced fully-qualified and never imported — resolve references before imports print
+        List<String> refCandidates = new ArrayList<>();
+        for (PropertyModel prop : allProps) {
+            collectPropertyTypeFqns(prop, schema, refCandidates);
+        }
+        for (NavigationPropertyModel nav : allNavs) {
+            String navElementType = Names.unwrapCollectionType(nav.type());
+            refCandidates.add(basePackageForType(navElementType, schema)
+                    + Names.resolvedSuffix(navElementType, effectiveSchemas)
+                    + "." + Names.resolvedClassName(navElementType, effectiveSchemas));
+        }
+        this.typeRefs = TypeRefs.resolve(refCandidates);
         if (openType) {
             imports.add("io.github.akbarhusain.odata.runtime.serialization.DynamicPropertyConverter");
         }

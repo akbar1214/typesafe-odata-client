@@ -133,6 +133,15 @@ class NavPropertyExpandTest {
     }
 
     @Test
+    void navQueryRawComposesWithOptions() {
+        NavProperty<Object, Object> abc = new NavProperty<>("abc", Object.class, Object.class);
+        NavProperty.NavQuery<Object, Object> query = NavProperty.NavQuery.<Object, Object>raw("Versions/ABC.Doc")
+                .expand(abc);
+        assertEquals("Versions/ABC.Doc($expand=abc)", query.toODataExpand(),
+                "raw is a root path; chained options must render, not be silently dropped");
+    }
+
+    @Test
     void navPropertyAsRejectsBlankCast() {
         NavProperty<Object, Version> versions = new NavProperty<>("Versions", Object.class, Version.class);
 
