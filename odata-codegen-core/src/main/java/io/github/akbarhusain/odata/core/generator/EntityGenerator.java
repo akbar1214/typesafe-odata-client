@@ -95,16 +95,44 @@ public class EntityGenerator extends AbstractTypeGenerator {
         imports.add("io.github.akbarhusain.odata.runtime.serialization.DynamicPropertyConverter");
         imports.add("io.github.akbarhusain.odata.runtime.query.*");
 
+        // Reference resolution FIRST: two schemas may contribute the same simple name
+        // to this file (nav targets, property types, cast subtypes) — contested names
+        // are referenced fully-qualified and never imported
+        List<String> refCandidates = new ArrayList<>();
         for (NavigationPropertyModel nav : allNavs) {
             String elementType = Names.unwrapCollectionType(nav.type());
             String edmSimpleName = Names.simpleNameFromFullName(elementType);
             if (!isBuiltinType(edmSimpleName)) {
-                Names.TypeKind kind = Names.resolveTypeKind(elementType, effectiveSchemas);
-                String suffix = Names.resolvedSuffix(elementType, effectiveSchemas);
-                String navTargetClass = Names.resolvedClassName(elementType, effectiveSchemas);
+                refCandidates.add(basePackageForType(elementType, schema)
+                        + Names.resolvedSuffix(elementType, effectiveSchemas)
+                        + "." + Names.resolvedClassName(elementType, effectiveSchemas));
+            }
+        }
+        for (PropertyModel prop : allProps) {
+            collectPropertyTypeFqns(prop, schema, refCandidates);
+        }
+        SubtypeRefs subtypeRefs = subtypeReferences(entityType, className, pkg, schema);
+        for (NavigationPropertyModel nav : entityType.navigationProperties()) {
+            for (EntitySubtype subtype : subtypesFor(nav, schema)) {
+                refCandidates.add(basePackageForType(subtype.qualifiedName(), schema)
+                        + Names.packageNameSuffixEntity() + "."
+                        + Names.entityClassName(subtype.model().name()));
+            }
+        }
+        this.typeRefs = TypeRefs.resolve(refCandidates);
+
+        for (NavigationPropertyModel nav : allNavs) {
+            String elementType = Names.unwrapCollectionType(nav.type());
+            String edmSimpleName = Names.simpleNameFromFullName(elementType);
+            if (!isBuiltinType(edmSimpleName)) {
                 // Skip self-referencing navs: importing the class being generated is a compile error
+                String navTargetClass = Names.resolvedClassName(elementType, effectiveSchemas);
+                String suffix = Names.resolvedSuffix(elementType, effectiveSchemas);
                 if (navTargetClass.equals(className)
                         && (basePackageForType(elementType, schema) + suffix).equals(pkg)) {
+                    continue;
+                }
+                if (isContested(elementType, schema)) {
                     continue;
                 }
                 imports.add(basePackageForType(elementType, schema) + suffix + "." + navTargetClass);
@@ -114,11 +142,12 @@ public class EntityGenerator extends AbstractTypeGenerator {
         // the SAME simple name, and a subtype may collide with the generated class itself.
         // Importing either produces ambiguous or self-colliding references, so foreign
         // same-name subtypes are referenced by fully-qualified name and never imported
-        SubtypeRefs subtypeRefs = subtypeReferences(entityType, className, pkg, schema);
         for (String qualified : subtypeRefs.importNames()) {
             String simple = Names.entityClassName(Names.simpleNameFromFullName(qualified));
-            imports.add(basePackageForType(qualified, schema)
-                    + Names.packageNameSuffixEntity() + "." + simple);
+            if (!Names.entityClassName(Names.simpleNameFromFullName(qualified)).equals(className)) {
+                imports.add(basePackageForType(qualified, schema)
+                        + Names.packageNameSuffixEntity() + "." + simple);
+            }
         }
 
         for (PropertyModel prop : allProps) {
@@ -574,10 +603,23 @@ public class EntityGenerator extends AbstractTypeGenerator {
                 + ");\n";
     }
 
+    /** Mirrors addPropertyImports: the generated-class FQNs a property contributes to the file. */
+    private void collectPropertyTypeFqns(PropertyModel prop, SchemaModel schema, List<String> out) {
+        String edmType = resolveTypeDefinition(prop.edmType(), schema);
+        if (Names.isCollectionType(edmType)) {
+            String resolvedElement = resolveTypeDefinition(Names.unwrapCollectionType(edmType), schema);
+            if (!Names.isPrimitiveType(resolvedElement)) {
+                out.add(typeFqnOf(resolvedElement, schema));
+            }
+        } else if (!Names.isPrimitiveType(edmType)) {
+            out.add(typeFqnOf(edmType, schema));
+        }
+    }
+
     private String generateNavPropertyConstant(NavigationPropertyModel nav, String className, SchemaModel schema) {
         boolean isCollection = Names.isCollectionType(nav.type());
         String unwrapped = Names.unwrapCollectionType(nav.type());
-        String elementClassName = Names.resolvedClassName(unwrapped, effectiveSchemas);
+        String elementClassName = refFor(resolveTypeDefinition(unwrapped, schema), schema);
         String constantName = constantNameFor(nav.name());
 
         if (isCollection) {

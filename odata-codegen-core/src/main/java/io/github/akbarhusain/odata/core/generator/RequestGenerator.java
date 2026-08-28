@@ -55,24 +55,47 @@ public class RequestGenerator extends AbstractTypeGenerator {
         imports.add("java.io.InputStream");
         imports.add(basePackage + Names.packageNameSuffixEntity() + "." + entityClassName);
 
+        // Two schemas may declare same-named entities in different output packages;
+        // contested request-class simple names are referenced fully-qualified, never imported
+        List<String> refCandidates = new ArrayList<>();
+        List<String[]> navFqns = new ArrayList<>();
         for (NavigationPropertyModel nav : resolvedNavs(entityType)) {
             if (isComplexTypeNav(nav, schema)) continue;
-            boolean isCollection = Names.isCollectionType(nav.type());
             // Resolve TypeDefinition chains: the typedef itself has no generated request
             // class — references must use the underlying type's name
             String elementType = resolveTypeDefinition(Names.unwrapCollectionType(nav.type()), schema);
             String elementClassName = Names.simpleNameFromFullName(elementType);
-            if (isCollection) {
-                imports.add(basePackageForType(elementType, schema) + Names.packageNameSuffixCollectionRequest() + "." + Names.collectionRequestClassName(elementClassName));
-                // Keyed nav overload (decision 95) constructs the target's ENTITY request
-                // too — for cross-schema targets that class lives in another package and
-                // needs its own import (same-package targets resolve without one)
+            String collFqn = basePackageForType(elementType, schema)
+                    + Names.packageNameSuffixCollectionRequest() + "."
+                    + Names.collectionRequestClassName(elementClassName);
+            String entFqn = basePackageForType(elementType, schema)
+                    + Names.packageNameSuffixEntityRequest() + "."
+                    + Names.entityRequestClassName(elementClassName);
+            boolean keyable = false;
+            if (Names.isCollectionType(nav.type())) {
                 EntityTypeModel navTarget = resolveEntityType(elementType, schema);
-                if (navTarget != null && !keyParamSpecs(navTarget, schema).isEmpty()) {
-                    imports.add(basePackageForType(elementType, schema) + Names.packageNameSuffixEntityRequest() + "." + Names.entityRequestClassName(elementClassName));
+                keyable = navTarget != null && !keyParamSpecs(navTarget, schema).isEmpty();
+            }
+            navFqns.add(new String[]{nav.name(), String.valueOf(Names.isCollectionType(nav.type())),
+                    collFqn, entFqn, String.valueOf(keyable)});
+            refCandidates.add(Names.isCollectionType(nav.type()) ? collFqn : entFqn);
+            if (keyable) {
+                refCandidates.add(entFqn);
+            }
+        }
+        this.typeRefs = TypeRefs.resolve(refCandidates);
+        for (String[] navFqn : navFqns) {
+            boolean isCollection = Boolean.parseBoolean(navFqn[1]);
+            boolean keyable = Boolean.parseBoolean(navFqn[4]);
+            if (isCollection) {
+                if (!isContestedFqn(navFqn[2])) {
+                    imports.add(navFqn[2]);
                 }
-            } else {
-                imports.add(basePackageForType(elementType, schema) + Names.packageNameSuffixEntityRequest() + "." + Names.entityRequestClassName(elementClassName));
+                if (keyable && !isContestedFqn(navFqn[3])) {
+                    imports.add(navFqn[3]);
+                }
+            } else if (!isContestedFqn(navFqn[3])) {
+                imports.add(navFqn[3]);
             }
         }
 
@@ -672,6 +695,12 @@ public class RequestGenerator extends AbstractTypeGenerator {
         return entityTypeMap.get(Names.entityClassName(Names.simpleNameFromFullName(bt)));
     }
 
+    /** True when the reference for this exact import-candidate FQN is fully-qualified (contested). */
+    private boolean isContestedFqn(String fqn) {
+        String ref = typeRefs.get(fqn);
+        return ref != null && ref.contains(".");
+    }
+
     private String generateNavMethod(NavigationPropertyModel nav, SchemaModel schema) {
         boolean isCollection = Names.isCollectionType(nav.type());
         // Resolve TypeDefinition chains so the emitted request class matches the
@@ -680,11 +709,20 @@ public class RequestGenerator extends AbstractTypeGenerator {
         String elementClassName = Names.simpleNameFromFullName(unwrapped);
         String methodName = Names.toJavaFieldName(nav.name());
 
+        String collRef = typeRefs.getOrDefault(basePackageForType(unwrapped, schema)
+                + Names.packageNameSuffixCollectionRequest() + "."
+                + Names.collectionRequestClassName(elementClassName),
+                Names.collectionRequestClassName(elementClassName));
+        String entRef = typeRefs.getOrDefault(basePackageForType(unwrapped, schema)
+                + Names.packageNameSuffixEntityRequest() + "."
+                + Names.entityRequestClassName(elementClassName),
+                Names.entityRequestClassName(elementClassName));
+
         StringBuilder sb = new StringBuilder();
         sb.append("    public ");
         if (isCollection) {
-            sb.append(Names.collectionRequestClassName(elementClassName)).append(" ").append(methodName).append("() {\n");
-            sb.append("        return new ").append(Names.collectionRequestClassName(elementClassName))
+            sb.append(collRef).append(" ").append(methodName).append("() {\n");
+            sb.append("        return new ").append(collRef)
               .append("(context, contextPath.addSegment(\"").append(nav.name()).append("\"));\n");
             sb.append("    }\n\n");
 
@@ -698,13 +736,13 @@ public class RequestGenerator extends AbstractTypeGenerator {
             if (navTarget != null) {
                 java.util.List<KeyParamSpec> keySpecs = keyParamSpecs(navTarget, schema);
                 if (!keySpecs.isEmpty()) {
-                    appendKeyedNavOverload(sb, nav.name(), methodName, elementClassName, keySpecs);
+                    appendKeyedNavOverload(sb, nav.name(), methodName, entRef, keySpecs);
                 }
             }
             return sb.toString();
         } else {
-            sb.append(Names.entityRequestClassName(elementClassName)).append(" ").append(methodName).append("() {\n");
-            sb.append("        return new ").append(Names.entityRequestClassName(elementClassName))
+            sb.append(entRef).append(" ").append(methodName).append("() {\n");
+            sb.append("        return new ").append(entRef)
               .append("(context, contextPath.addSegment(\"").append(nav.name()).append("\"));\n");
         }
         sb.append("    }\n\n");
@@ -712,9 +750,8 @@ public class RequestGenerator extends AbstractTypeGenerator {
     }
 
     private static void appendKeyedNavOverload(StringBuilder sb, String rawNavName, String methodName,
-                                               String elementClassName,
+                                               String entityReqClass,
                                                java.util.List<KeyParamSpec> keySpecs) {
-        String entityReqClass = Names.entityRequestClassName(elementClassName);
         StringBuilder params = new StringBuilder();
         StringBuilder args = new StringBuilder("contextPath.addSegment(\"").append(rawNavName).append("\")");
         for (KeyParamSpec k : keySpecs) {

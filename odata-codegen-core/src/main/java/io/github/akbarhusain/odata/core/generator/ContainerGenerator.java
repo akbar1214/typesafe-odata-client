@@ -96,22 +96,59 @@ public class ContainerGenerator {
         Set<String> imports = new TreeSet<>();
         imports.add("io.github.akbarhusain.odata.runtime.entity.Context");
 
+        // Two schemas may declare same-named entities mapped to different output
+        // packages; contested simple names are referenced fully-qualified, never imported
+        List<String> refCandidates = new ArrayList<>();
         for (EntitySetModel es : container.entitySets()) {
             String entityClassName = Names.simpleNameFromFullName(es.entityType());
-            imports.add(basePackageForType(es.entityType(), schema) + Names.packageNameSuffixCollectionRequest() + "." + Names.collectionRequestClassName(entityClassName));
-            // Keyed overloads (decision 95) return the entity request directly — import it
-            // when the set's type is keyable
+            refCandidates.add(basePackageForType(es.entityType(), schema)
+                    + Names.packageNameSuffixCollectionRequest() + "."
+                    + Names.collectionRequestClassName(entityClassName));
             CsdlModel.EntityTypeModel importType = reqGen.resolveEntityType(es.entityType(), schema);
             if (importType != null && !reqGen.keyParamSpecs(importType, schema).isEmpty()) {
-                imports.add(basePackageForType(es.entityType(), schema)
+                refCandidates.add(basePackageForType(es.entityType(), schema)
                         + Names.packageNameSuffixEntityRequest() + "."
                         + Names.entityRequestClassName(entityClassName));
+            }
+        }
+        for (SingletonModel singleton : container.singletons()) {
+            String entityClassName = Names.simpleNameFromFullName(singleton.type());
+            refCandidates.add(basePackageForType(singleton.type(), schema)
+                    + Names.packageNameSuffixEntityRequest() + "."
+                    + Names.entityRequestClassName(entityClassName));
+        }
+        java.util.Map<String, String> refs = TypeRefs.resolve(refCandidates);
+
+        for (EntitySetModel es : container.entitySets()) {
+            String entityClassName = Names.simpleNameFromFullName(es.entityType());
+            String collRef = refs.get(basePackageForType(es.entityType(), schema)
+                    + Names.packageNameSuffixCollectionRequest() + "."
+                    + Names.collectionRequestClassName(entityClassName));
+            if (!collRef.contains(".")) {
+                imports.add(basePackageForType(es.entityType(), schema)
+                        + Names.packageNameSuffixCollectionRequest() + "." + collRef);
+            }
+            CsdlModel.EntityTypeModel importType = reqGen.resolveEntityType(es.entityType(), schema);
+            if (importType != null && !reqGen.keyParamSpecs(importType, schema).isEmpty()) {
+                String entRef = refs.get(basePackageForType(es.entityType(), schema)
+                        + Names.packageNameSuffixEntityRequest() + "."
+                        + Names.entityRequestClassName(entityClassName));
+                if (!entRef.contains(".")) {
+                    imports.add(basePackageForType(es.entityType(), schema)
+                            + Names.packageNameSuffixEntityRequest() + "." + entRef);
+                }
             }
         }
 
         for (SingletonModel singleton : container.singletons()) {
             String entityClassName = Names.simpleNameFromFullName(singleton.type());
-            imports.add(basePackageForType(singleton.type(), schema) + Names.packageNameSuffixEntityRequest() + "." + Names.entityRequestClassName(entityClassName));
+            String entRef = refs.get(basePackageForType(singleton.type(), schema)
+                    + Names.packageNameSuffixEntityRequest() + "."
+                    + Names.entityRequestClassName(entityClassName));
+            if (!entRef.contains(".")) {
+                imports.add(basePackageForType(singleton.type(), schema)
+                        + Names.packageNameSuffixEntityRequest() + "." + entRef);
+            }
         }
 
         List<String> importAccessorMethods = new ArrayList<>();
@@ -143,7 +180,9 @@ public class ContainerGenerator {
         // Entity set accessors
         for (EntitySetModel es : container.entitySets()) {
             String entityClassName = Names.simpleNameFromFullName(es.entityType());
-            String collReqClassName = Names.collectionRequestClassName(entityClassName);
+            String collReqClassName = refs.get(basePackageForType(es.entityType(), schema)
+                    + Names.packageNameSuffixCollectionRequest() + "."
+                    + Names.collectionRequestClassName(entityClassName));
             String methodName = Names.toJavaFieldName(es.name());
 
             sb.append("    public ").append(collReqClassName).append(" ").append(methodName).append("() {\n");
@@ -158,14 +197,19 @@ public class ContainerGenerator {
                 java.util.List<RequestGenerator.KeyParamSpec> keySpecs =
                         reqGen.keyParamSpecs(setType, schema);
                 if (!keySpecs.isEmpty()) {
-                    appendKeyedOverload(sb, es.name(), methodName, entityClassName, keySpecs);
+                    String entRef = refs.get(basePackageForType(es.entityType(), schema)
+                            + Names.packageNameSuffixEntityRequest() + "."
+                            + Names.entityRequestClassName(entityClassName));
+                    appendKeyedOverload(sb, es.name(), methodName, entRef, keySpecs);
                 }
             }
         }
 
         for (SingletonModel singleton : container.singletons()) {
             String entityClassName = Names.simpleNameFromFullName(singleton.type());
-            String entityReqClassName = Names.entityRequestClassName(entityClassName);
+            String entityReqClassName = refs.get(basePackageForType(singleton.type(), schema)
+                    + Names.packageNameSuffixEntityRequest() + "."
+                    + Names.entityRequestClassName(entityClassName));
             String methodName = Names.toJavaFieldName(singleton.name());
 
             sb.append("    public ").append(entityReqClassName).append(" ").append(methodName).append("() {\n");
@@ -189,9 +233,8 @@ public class ContainerGenerator {
      * keys chain one {@code addKey} per {@code PropertyRef} in CSDL order.
      */
     private static void appendKeyedOverload(StringBuilder sb, String rawSetName, String methodName,
-                                            String entityClassName,
+                                            String entityReqClass,
                                             java.util.List<RequestGenerator.KeyParamSpec> keySpecs) {
-        String entityReqClass = Names.entityRequestClassName(entityClassName);
         StringBuilder params = new StringBuilder();
         StringBuilder args = new StringBuilder("context.basePath().addSegment(\"")
                 .append(rawSetName).append("\")");

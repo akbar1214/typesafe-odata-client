@@ -57,8 +57,23 @@ class CrossSchemaSimpleNameCompilationTest {
                 true, false,
                 List.of(new CsdlModel.PropertyModel("Street", "Edm.String", true, null, List.of())),
                 List.of());
+        // Holder navigates to BOTH same-named A's — nav imports must not collide
+        CsdlModel.EntityTypeModel holder = new CsdlModel.EntityTypeModel("Holder", null,
+                false, false, false,
+                List.of(new CsdlModel.KeyModel(List.of("Id"))),
+                List.of(new CsdlModel.PropertyModel("Id", "Edm.Int32", false, null, List.of())),
+                List.of(new CsdlModel.NavigationPropertyModel("OneAs",
+                        "Collection(One.A)", null, false, false, List.of(), List.of()),
+                        new CsdlModel.NavigationPropertyModel("TwoAs",
+                                "Collection(Two.A)", null, false, false, List.of(), List.of())));
+        CsdlModel.ContainerModel container = new CsdlModel.ContainerModel("C",
+                List.of(new CsdlModel.EntitySetModel("As1", "One.A", List.of(), List.of()),
+                        new CsdlModel.EntitySetModel("As2", "Two.A", List.of(), List.of()),
+                        new CsdlModel.EntitySetModel("Holders", "One.Holder", List.of(), List.of())),
+                List.of(), List.of(), List.of());
         CsdlModel.SchemaModel one = new CsdlModel.SchemaModel("One", null,
-                List.of(base, oneA), List.of(), List.of(), List.of(), List.of(), List.of(), List.of());
+                List.of(base, oneA, holder), List.of(), List.of(), List.of(), List.of(), List.of(),
+                List.of(container));
         CsdlModel.SchemaModel two = new CsdlModel.SchemaModel("Two", null,
                 List.of(twoA), List.of(addr), List.of(), List.of(), List.of(), List.of(), List.of());
         CsdlModel model = new CsdlModel(List.of(one, two), List.of());
@@ -98,6 +113,21 @@ class CrossSchemaSimpleNameCompilationTest {
         assertTrue(twoASource.contains("EntityUtil.mergeChanged(changedFields"), twoASource);
         assertTrue(twoASource.contains("        e.items = value;"),
                 "navWith copy code for the subtype's own nav:\n" + twoASource);
+
+        // Holder navigates to both same-named A's: nav-target classes must not be
+        // double-imported into ambiguous references
+        String holderSource = Files.readString(out.resolve("com/p1/entity/Holder.java"));
+        long aImports = holderSource.lines().filter(l -> l.startsWith("import ")
+                && l.endsWith(".entity.A;")).count();
+        assertTrue(aImports <= 1, "at most ONE import may claim the simple name A:\n"
+                + holderSource);
+
+        String containerSource = Files.readString(out.resolve("com/p1/container/C.java"));
+        long aReqImports = containerSource.lines().filter(l -> l.startsWith("import ")
+                && l.contains(".A")).count();
+        assertTrue(aReqImports <= 2,
+                "collection+entity request imports for A must not exceed one package each:\n"
+                        + containerSource);
 
         JavaCompiler compiler = ToolProvider.getSystemJavaCompiler();
         assertNotNull(compiler);
