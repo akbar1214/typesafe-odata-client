@@ -119,6 +119,11 @@ public final class CollectionProperty<E, T, F> extends NavProperty<E, T> {
     }
 
     public FilterExpression<E> contains(T value) {
+        if (value == null) {
+            // No null literal is valid inside contains(...) — filter for null elements
+            // explicitly (e.g. any(x: x eq null)) instead of passing null here.
+            throw new IllegalArgumentException("contains value must not be null");
+        }
         return new RawFilterExpression<>("contains(" + edmName + "," + formatElement(value) + ")");
     }
 

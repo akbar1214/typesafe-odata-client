@@ -52,18 +52,30 @@ public final class StringProperty<E> implements PropertyExpression<E, String> {
 
     // String-specific operators
     public FilterExpression<E> contains(String value) {
+        if (value == null) {
+            throw new IllegalArgumentException("contains value must not be null");
+        }
         return new RawFilterExpression("contains(" + edmName + ",'" + escape(value) + "')");
     }
 
     public FilterExpression<E> startsWith(String value) {
+        if (value == null) {
+            throw new IllegalArgumentException("startsWith value must not be null");
+        }
         return new RawFilterExpression("startswith(" + edmName + ",'" + escape(value) + "')");
     }
 
     public FilterExpression<E> endsWith(String value) {
+        if (value == null) {
+            throw new IllegalArgumentException("endsWith value must not be null");
+        }
         return new RawFilterExpression("endswith(" + edmName + ",'" + escape(value) + "')");
     }
 
     public FilterExpression<E> matchesPattern(String regex) {
+        if (regex == null) {
+            throw new IllegalArgumentException("matchesPattern regex must not be null");
+        }
         return new RawFilterExpression("matchesPattern(" + edmName + ",'" + escape(regex) + "')");
     }
 
@@ -85,14 +97,23 @@ public final class StringProperty<E> implements PropertyExpression<E, String> {
     }
 
     public StringProperty<E> concat(String value) {
+        if (value == null) {
+            throw new IllegalArgumentException("concat value must not be null");
+        }
         return new StringProperty<>("concat(" + edmName + ",'" + escape(value) + "')", entityType);
     }
 
     public StringProperty<E> concat(StringProperty<E> other) {
+        if (other == null) {
+            throw new IllegalArgumentException("concat other property must not be null");
+        }
         return new StringProperty<>("concat(" + edmName + "," + other.toODataExpression() + ")", entityType);
     }
 
     public NumberExpression<Integer, E> indexOf(String value) {
+        if (value == null) {
+            throw new IllegalArgumentException("indexOf value must not be null");
+        }
         return new NumberExpression<>("indexof(" + edmName + ",'" + escape(value) + "')", entityType);
     }
 
@@ -106,18 +127,30 @@ public final class StringProperty<E> implements PropertyExpression<E, String> {
 
     // Lexicographic comparison operators (valid OData for strings)
     public FilterExpression<E> greaterThan(String value) {
+        if (value == null) {
+            throw new IllegalArgumentException("greaterThan value must not be null");
+        }
         return new RawFilterExpression(edmName + " gt '" + escape(value) + "'");
     }
 
     public FilterExpression<E> greaterThanOrEqualTo(String value) {
+        if (value == null) {
+            throw new IllegalArgumentException("greaterThanOrEqualTo value must not be null");
+        }
         return new RawFilterExpression(edmName + " ge '" + escape(value) + "'");
     }
 
     public FilterExpression<E> lessThan(String value) {
+        if (value == null) {
+            throw new IllegalArgumentException("lessThan value must not be null");
+        }
         return new RawFilterExpression(edmName + " lt '" + escape(value) + "'");
     }
 
     public FilterExpression<E> lessThanOrEqualTo(String value) {
+        if (value == null) {
+            throw new IllegalArgumentException("lessThanOrEqualTo value must not be null");
+        }
         return new RawFilterExpression(edmName + " le '" + escape(value) + "'");
     }
 
@@ -134,3 +167,4 @@ public final class StringProperty<E> implements PropertyExpression<E, String> {
         return value.replace("'", "''");
     }
 }
+

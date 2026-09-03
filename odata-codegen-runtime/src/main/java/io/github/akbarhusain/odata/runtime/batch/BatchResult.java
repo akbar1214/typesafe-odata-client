@@ -20,6 +20,14 @@ public record BatchResult<T>(
      *                  correlate changeset responses with requests.
      */
     public BatchResult {
+        // Normalize like HttpResponse: header keys arrive in arbitrary case, and
+        // getHeader must match regardless of the case either side used.
+        Map<String, List<String>> caseInsensitive =
+                new java.util.TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+        if (headers != null) {
+            caseInsensitive.putAll(headers);
+        }
+        headers = caseInsensitive;
         body = body != null ? body.clone() : null;
     }
 

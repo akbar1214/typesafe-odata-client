@@ -65,6 +65,9 @@ public class JacksonSerializer implements Serializer {
 
     @Override
     public <T> byte[] serialize(T value, Class<T> type) {
+        if (value == null) {
+            throw new IllegalArgumentException("value must not be null (nothing to serialize)");
+        }
         try {
             // Use the runtime class so subtype-only fields are preserved when a
             // subtype is posted/patched through a base-typed collection request
@@ -78,6 +81,9 @@ public class JacksonSerializer implements Serializer {
     }
 
     public <T> byte[] serializeIncludeNulls(T value, Class<T> type) {
+        if (value == null) {
+            throw new IllegalArgumentException("value must not be null (nothing to serialize)");
+        }
         try {
             Class<?> effectiveType = value == null ? type : value.getClass();
             return MAPPER_INCLUDE_NULLS.writerFor(effectiveType).writeValueAsBytes(value);
@@ -128,6 +134,9 @@ public class JacksonSerializer implements Serializer {
 
     @Override
     public <T> byte[] serialize(T value, Class<T> type, java.util.Set<String> includeFields) {
+        if (value == null) {
+            throw new IllegalArgumentException("value must not be null (nothing to serialize)");
+        }
         if (includeFields == null || includeFields.isEmpty()) {
             return serialize(value, type);
         }

@@ -110,10 +110,12 @@ public class BatchRequest {
 
         Map<String, List<String>> headers = new HashMap<>();
         headers.putAll(toMultiMap(context.authProvider().getHeaders()));
-        headers.put("Content-Type", List.of("multipart/mixed; boundary=" + boundary));
-        headers.put("Accept", List.of("multipart/mixed"));
+        // Framing headers must win exactly once: an auth provider supplying e.g.
+        // lowercase "content-type" must not produce a duplicate Content-Type.
+        setHeaderCaseInsensitive(headers, "Content-Type", "multipart/mixed; boundary=" + boundary);
+        setHeaderCaseInsensitive(headers, "Accept", "multipart/mixed");
         if (continueOnError) {
-            headers.put("Prefer", List.of("continue-on-error=true"));
+            setHeaderCaseInsensitive(headers, "Prefer", "continue-on-error=true");
         }
 
         HttpRequest request = HttpRequest.builder()
@@ -121,8 +123,8 @@ public class BatchRequest {
                 .url(batchPath.toUrl())
                 .headers(headers)
                 .body(body)
-                .connectTimeout(Duration.ofSeconds(30))
-                .readTimeout(Duration.ofSeconds(120))
+                .connectTimeout(context.connectTimeout())
+                .readTimeout(context.readTimeout())
                 .build();
 
         HttpTransport transport = EntityOperations.buildTransportChain(context, context.transport());
@@ -195,6 +197,17 @@ public class BatchRequest {
             result.put(entry.getKey(), new ArrayList<>(List.of(entry.getValue())));
         }
         return result;
+    }
+
+    /**
+     * Sets a header, replacing any existing entry whose name matches
+     * case-insensitively (mirrors EntityOperations: HTTP names are
+     * case-insensitive per RFC 9110, and framing headers must win exactly once).
+     */
+    private static void setHeaderCaseInsensitive(Map<String, List<String>> headers,
+                                                 String name, String value) {
+        headers.keySet().removeIf(key -> key.equalsIgnoreCase(name));
+        headers.put(name, new ArrayList<>(List.of(value)));
     }
 
 }
