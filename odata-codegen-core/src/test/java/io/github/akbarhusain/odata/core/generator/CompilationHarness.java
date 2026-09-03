@@ -45,8 +45,7 @@ public final class CompilationHarness {
             return "no system Java compiler available";
         }
         StringWriter compilerOutput = new StringWriter();
-        try {
-            StandardJavaFileManager fileManager = compiler.getStandardFileManager(null, null, null);
+        try (StandardJavaFileManager fileManager = compiler.getStandardFileManager(null, null, null)) {
             List<File> classpath = findClasspathJars();
             fileManager.setLocation(javax.tools.StandardLocation.CLASS_PATH, classpath);
             Iterable<? extends javax.tools.JavaFileObject> units =
@@ -68,6 +67,11 @@ public final class CompilationHarness {
         return compileAll(root) == null;
     }
 
+    // Resolving an artifact walks the whole ~/.m2 tree — cache per JVM (surefire runs
+    // many referee tests in one fork; without the cache every test re-walks)
+    private static final java.util.concurrent.ConcurrentHashMap<String, File> JAR_CACHE =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
     private static List<File> findClasspathJars() {
         Path mavenRepo = Path.of(System.getProperty("user.home"), ".m2", "repository");
         List<String> artifactIds = List.of(
@@ -81,9 +85,18 @@ public final class CompilationHarness {
                 "slf4j-api");
         List<File> classpath = new ArrayList<>();
         for (String id : artifactIds) {
+            if (JAR_CACHE.containsKey(id)) {
+                File cached = JAR_CACHE.get(id);
+                if (cached != null) {
+                    classpath.add(cached);
+                }
+                continue;
+            }
             Path jar = findJar(mavenRepo, id);
-            if (jar != null) {
-                classpath.add(jar.toFile());
+            File file = jar != null ? jar.toFile() : null;
+            JAR_CACHE.put(id, file);
+            if (file != null) {
+                classpath.add(file);
             }
         }
         // current reactor runtime FIRST — the ~/.m2 snapshot may predate new runtime types
