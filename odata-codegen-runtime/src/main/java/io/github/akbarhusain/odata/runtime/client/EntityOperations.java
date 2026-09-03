@@ -24,6 +24,10 @@ import java.util.concurrent.ConcurrentHashMap;
 
 public class EntityOperations {
 
+    // JDK System.Logger (no dependency): deliberately-swallowed fallbacks below
+    // log at DEBUG so they are diagnosable without changing error semantics
+    private static final System.Logger LOG = System.getLogger(EntityOperations.class.getName());
+
     private static final ObjectMapper COLLECTION_MAPPER;
     private static final JavaType MAP_TYPE;
     private static final ConcurrentHashMap<Class<?>, JavaType> LIST_TYPE_CACHE = new ConcurrentHashMap<>();
@@ -91,15 +95,25 @@ public class EntityOperations {
             if (node != null && node.isObject()) {
                 var typeNode = node.get("@odata.type");
                 if (typeNode != null && typeNode.isTextual()) {
-                    Class<?> actual = schemaInfo.getClassFromTypeWithNamespace(
-                            stripTypeAnnotationPrefix(typeNode.asText()));
+                    String typeName = stripTypeAnnotationPrefix(typeNode.asText());
+                    Class<?> actual = schemaInfo.getClassFromTypeWithNamespace(typeName);
                     if (actual != null && declaredType.isAssignableFrom(actual)) {
                         return (T) context.serializer().deserialize(body, actual);
                     }
+                    LOG.log(System.Logger.Level.DEBUG,
+                            actual == null
+                                    ? "Ignoring unresolvable @odata.type '" + typeName
+                                            + "' for declared type " + declaredType.getName()
+                                            + "; deserializing as declared"
+                                    : "@odata.type '" + typeName + "' resolves to " + actual.getName()
+                                            + ", which is not a " + declaredType.getName()
+                                            + "; deserializing as declared");
                 }
             }
         } catch (IOException e) {
             // fall through to declared-type deserialization below
+            LOG.log(System.Logger.Level.DEBUG,
+                    "Polymorphic @odata.type sniffing failed; deserializing as declared", e);
         }
         return null;
     }

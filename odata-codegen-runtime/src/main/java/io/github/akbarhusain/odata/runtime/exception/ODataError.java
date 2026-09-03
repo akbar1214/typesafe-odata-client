@@ -10,6 +10,8 @@ import java.util.Map;
 
 public class ODataError {
 
+    private static final System.Logger LOG = System.getLogger(ODataError.class.getName());
+
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private final String code;
@@ -70,6 +72,9 @@ public class ODataError {
             String target = error.has("target") ? error.get("target").asText() : null;
             return new ODataError(code, message, target, details);
         } catch (Exception e) {
+            // Error parsing must never throw (it runs on the failure path), but a
+            // swallowed parse hides malformed error bodies — DEBUG keeps it visible
+            LOG.log(System.Logger.Level.DEBUG, "Could not parse OData error body; getError() stays null", e);
             return null;
         }
     }

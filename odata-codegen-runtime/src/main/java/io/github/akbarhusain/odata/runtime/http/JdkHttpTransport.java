@@ -30,8 +30,14 @@ public class JdkHttpTransport implements HttpTransport {
         this(DEFAULT_EXECUTOR);
     }
 
-    JdkHttpTransport(Executor executor) {
-        this.executor = executor;
+    /**
+     * Uses a caller-supplied executor for request execution instead of the shared
+     * static pool — isolates transports under burst load and makes execution
+     * observable/testable. The executor should use daemon threads (or be shut
+     * down by its owner) so it cannot hang JVM exit.
+     */
+    public JdkHttpTransport(Executor executor) {
+        this.executor = java.util.Objects.requireNonNull(executor, "executor must not be null");
     }
 
     private static final Duration DEFAULT_CONNECT_TIMEOUT = Duration.ofSeconds(30);

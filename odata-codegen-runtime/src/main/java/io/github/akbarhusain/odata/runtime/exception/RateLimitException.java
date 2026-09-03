@@ -6,7 +6,20 @@ import java.time.Instant;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 
+/**
+ * Thrown on HTTP 429 with the server's retry directive when one was sent.
+ *
+ * <p>The runtime never retries automatically — honoring {@code Retry-After} is an
+ * {@code HttpInterceptor} away. The contract this class carries is everything such
+ * an interceptor needs: {@link #getRetryAfter()} is the instant to wait for, and
+ * {@link #hasServerRetryAfter()} tells a fabricated client-side default apart
+ * from a real server directive (don't treat them identically — see
+ * {@code RetryAfterPatternTest} for the proven pattern: catch, sleep until
+ * {@code getRetryAfter()}, resubmit).</p>
+ */
 public class RateLimitException extends ODataException {
+
+    private static final System.Logger LOG = System.getLogger(RateLimitException.class.getName());
 
     private static final DateTimeFormatter HTTP_DATE = DateTimeFormatter.RFC_1123_DATE_TIME;
 
@@ -18,6 +31,10 @@ public class RateLimitException extends ODataException {
         Instant parsed = parseServerRetryAfter(response);
         this.retryAfter = parsed != null ? parsed : Instant.now().plusSeconds(60);
         this.serverSpecified = parsed != null;
+        if (parsed == null) {
+            LOG.log(System.Logger.Level.DEBUG,
+                    "No parseable Retry-After header; getRetryAfter() returns a fabricated now+60s default");
+        }
     }
 
     public RateLimitException(String message, Instant retryAfter) {
