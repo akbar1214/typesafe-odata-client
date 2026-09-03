@@ -6,8 +6,10 @@ import io.github.akbarhusain.odata.core.model.CsdlModel.PropertyModel;
 import io.github.akbarhusain.odata.core.model.CsdlModel.SchemaModel;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -17,7 +19,10 @@ public class ComplexTypeGenerator extends AbstractTypeGenerator {
 
     private Map<String, ComplexTypeModel> complexTypeMap;
     private Map<String, ComplexTypeModel> complexTypeByQualifiedName;
-    private java.util.Map<String, String> complexTypeNamespace;
+    // Keyed by model IDENTITY (not class name): two schemas may declare same-named
+    // types that a simple-name key collapses last-wins; records have value equality,
+    // so only identity distinguishes equal-valued distinct types.
+    private java.util.Map<ComplexTypeModel, String> complexTypeNamespaces;
     private java.util.Map<String, Set<String>> schemaOpenRootNames;
 
     public ComplexTypeGenerator(String basePackage, Map<String, String> schemaPackages) {
@@ -49,13 +54,17 @@ public class ComplexTypeGenerator extends AbstractTypeGenerator {
 
         List<PropertyModel> ownProps = complexType.properties();
         List<PropertyModel> inheritedProps = inheritedProperties(complexType);
-        List<PropertyModel> allProps = new ArrayList<>(inheritedProps);
-        allProps.addAll(ownProps);
-
         List<NavigationPropertyModel> ownNavs = complexType.navigationProperties();
         List<NavigationPropertyModel> inheritedNavs = inheritedNavProperties(complexType);
-        List<NavigationPropertyModel> allNavs = new ArrayList<>(inheritedNavs);
-        allNavs.addAll(ownNavs);
+        // Pairwise chain check (root-down, subsumes the leaf-vs-inherited case):
+        // the merged inherited list hides mid-chain pairs, so every level's own
+        // members are compared against all ancestors. Incompatible redeclaration
+        // is unrepresentable in Java inheritance — fail loudly before merging.
+        checkChainConflicts(className, complexType, schema);
+        // Own-wins merge: a compatible redeclared member shadows the inherited one (single copy)
+        List<PropertyModel> allProps = mergeOwnWinsProps(inheritedProps, ownProps);
+
+        List<NavigationPropertyModel> allNavs = mergeOwnWinsNavs(inheritedNavs, ownNavs);
 
         allocateConstantNames(allProps, allNavs);
         checkMemberNameCollisions(className, allProps, allNavs);
@@ -401,28 +410,67 @@ public class ComplexTypeGenerator extends AbstractTypeGenerator {
             }
         }
         complexTypeByQualifiedName = crossSchemaMap;
-        java.util.Map<String, String> ctNs = new java.util.HashMap<>();
+        java.util.Map<ComplexTypeModel, String> ctNs = new java.util.IdentityHashMap<>();
         for (SchemaModel s : effectiveSchemas) {
             for (ComplexTypeModel ct : s.complexTypes()) {
-                ctNs.put(Names.complexTypeClassName(ct.name()), s.namespace());
+                ctNs.put(ct, s.namespace());
             }
         }
-        complexTypeNamespace = ctNs;
+        complexTypeNamespaces = ctNs;
         schemaOpenRootNames = new java.util.HashMap<>();
+    }
+
+    /**
+     * The EXACT owning namespace of a model object — never a simple-name-keyed
+     * lookup, which collapses same-named types from different schemas last-wins.
+     * Unknown models (not in the cached schemas) yield "" (treated as non-open).
+     */
+    private String namespaceOf(ComplexTypeModel complexType) {
+        String ns = complexTypeNamespaces.get(complexType);
+        return ns != null ? ns : "";
     }
 
     // True if this type or any ancestor declares OpenType="true" (propagates to subtypes).
     private boolean openTypeResolved(ComplexTypeModel complexType) {
+        return openTypeResolved(complexType, newVisiting());
+    }
+
+    private boolean openTypeResolved(ComplexTypeModel complexType, Set<ComplexTypeModel> visiting) {
+        checkBaseCycle(visiting, complexType);
         if (complexType.openType()) {
             return true;
         }
         ComplexTypeModel base = findBase(complexType);
-        return base != null && openTypeResolved(base);
+        return base != null && openTypeResolved(base, visiting);
     }
 
     private ComplexTypeModel rootOf(ComplexTypeModel complexType) {
-        ComplexTypeModel base = findBase(complexType);
-        return base == null ? complexType : rootOf(base);
+        ComplexTypeModel current = complexType;
+        Set<ComplexTypeModel> visiting = newVisiting();
+        while (true) {
+            checkBaseCycle(visiting, current);
+            ComplexTypeModel base = findBase(current);
+            if (base == null) {
+                return current;
+            }
+            current = base;
+        }
+    }
+
+    /**
+     * Identity-keyed visiting set for base-chain walks: models are records (value
+     * equality), so two distinct but equal-valued types must NOT compare equal
+     * here — only revisiting the SAME object is a cycle.
+     */
+    private static Set<ComplexTypeModel> newVisiting() {
+        return Collections.newSetFromMap(new IdentityHashMap<>());
+    }
+
+    private static void checkBaseCycle(Set<ComplexTypeModel> visiting, ComplexTypeModel current) {
+        if (!visiting.add(current)) {
+            throw new IllegalStateException("Circular BaseType chain detected involving complex type: "
+                    + current.name() + " (BaseType '" + current.baseType() + "')");
+        }
     }
 
     // True if any type in the hierarchy rooted here is open (root must hold a mutable map).
@@ -433,8 +481,7 @@ public class ComplexTypeGenerator extends AbstractTypeGenerator {
                 for (ComplexTypeModel ct : s.complexTypes()) {
                     if (openTypeResolved(ct)) {
                         ComplexTypeModel root = rootOf(ct);
-                        String rootNs = complexTypeNamespace.get(Names.complexTypeClassName(root.name()));
-                        if (rootNs != null && rootNs.equals(ns)) {
+                        if (namespaceOf(root).equals(ns)) {
                             roots.add(Names.complexTypeClassName(root.name()));
                         }
                     }
@@ -445,9 +492,7 @@ public class ComplexTypeGenerator extends AbstractTypeGenerator {
     }
 
     private boolean subtreeHasOpen(ComplexTypeModel root) {
-        String ns = complexTypeNamespace.get(Names.complexTypeClassName(root.name()));
-        if (ns == null) return false;
-        return openRootNamesForSchema(ns).contains(Names.complexTypeClassName(root.name()));
+        return openRootNamesForSchema(namespaceOf(root)).contains(Names.complexTypeClassName(root.name()));
     }
 
     /**
@@ -468,6 +513,32 @@ public class ComplexTypeGenerator extends AbstractTypeGenerator {
             }
         }
         return schema.namespace() + "." + base.name();
+    }
+
+    /**
+     * Walks the base chain root-down, comparing every level's own members against
+     * all of its ancestors. A leaf-only check against the merged inherited list
+     * cannot see mid-chain pairs (the merge already collapsed them rootmost-wins),
+     * so e.g. Base1(Label: String) &lt;- Base2(Label: Int32) would merge silently.
+     */
+    private void checkChainConflicts(String className, ComplexTypeModel complexType, SchemaModel schema) {
+        List<ComplexTypeModel> chain = new ArrayList<>();
+        Set<ComplexTypeModel> visiting = newVisiting();
+        ComplexTypeModel cursor = complexType;
+        while (cursor != null) {
+            checkBaseCycle(visiting, cursor);
+            chain.add(cursor);
+            cursor = findBase(cursor);
+        }
+        java.util.Collections.reverse(chain);
+        List<PropertyModel> ancestors = new ArrayList<>();
+        List<NavigationPropertyModel> ancestorNavs = new ArrayList<>();
+        for (ComplexTypeModel level : chain) {
+            checkRedeclarationConflicts(className, ancestors, level.properties(),
+                    ancestorNavs, level.navigationProperties(), schema);
+            ancestors = mergeOwnWinsProps(ancestors, level.properties());
+            ancestorNavs = mergeOwnWinsNavs(ancestorNavs, level.navigationProperties());
+        }
     }
 
     private ComplexTypeModel findBase(ComplexTypeModel complexType) {
@@ -547,11 +618,16 @@ public class ComplexTypeGenerator extends AbstractTypeGenerator {
     }
 
     private List<NavigationPropertyModel> inheritedNavProperties(ComplexTypeModel complexType) {
+        return inheritedNavProperties(complexType, newVisiting());
+    }
+
+    private List<NavigationPropertyModel> inheritedNavProperties(ComplexTypeModel complexType, Set<ComplexTypeModel> visiting) {
+        checkBaseCycle(visiting, complexType);
         ComplexTypeModel base = findBase(complexType);
         if (base == null) {
             return List.of();
         }
-        List<NavigationPropertyModel> result = new ArrayList<>(inheritedNavProperties(base));
+        List<NavigationPropertyModel> result = new ArrayList<>(inheritedNavProperties(base, visiting));
         Set<String> seen = new HashSet<>();
         for (NavigationPropertyModel n : result) {
             seen.add(n.name());
@@ -565,11 +641,16 @@ public class ComplexTypeGenerator extends AbstractTypeGenerator {
     }
 
     private List<PropertyModel> inheritedProperties(ComplexTypeModel complexType) {
+        return inheritedProperties(complexType, newVisiting());
+    }
+
+    private List<PropertyModel> inheritedProperties(ComplexTypeModel complexType, Set<ComplexTypeModel> visiting) {
+        checkBaseCycle(visiting, complexType);
         ComplexTypeModel base = findBase(complexType);
         if (base == null) {
             return List.of();
         }
-        List<PropertyModel> result = new ArrayList<>(inheritedProperties(base));
+        List<PropertyModel> result = new ArrayList<>(inheritedProperties(base, visiting));
         Set<String> seen = new HashSet<>();
         for (PropertyModel p : result) {
             seen.add(p.name());

@@ -7,7 +7,9 @@ import io.github.akbarhusain.odata.core.model.CsdlModel.PropertyModel;
 import io.github.akbarhusain.odata.core.model.CsdlModel.SchemaModel;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -592,14 +594,20 @@ public class RequestGenerator extends AbstractTypeGenerator {
         return out;
     }
 
-    private String resolveKeyType(EntityTypeModel entityType, String keyPropName, SchemaModel schema) {        for (PropertyModel prop : entityType.properties()) {
+    private String resolveKeyType(EntityTypeModel entityType, String keyPropName, SchemaModel schema) {
+        return resolveKeyType(entityType, keyPropName, schema, newVisiting());
+    }
+
+    private String resolveKeyType(EntityTypeModel entityType, String keyPropName, SchemaModel schema, Set<EntityTypeModel> visiting) {
+        checkBaseCycle(visiting, entityType);
+        for (PropertyModel prop : entityType.properties()) {
             if (prop.name().equals(keyPropName)) {
                 return keyJavaType(prop.edmType(), schema);
             }
         }
         EntityTypeModel base = findBase(entityType);
         if (base != null) {
-            return resolveKeyType(base, keyPropName, schema);
+            return resolveKeyType(base, keyPropName, schema, visiting);
         }
         return "Object";
     }
@@ -616,6 +624,11 @@ public class RequestGenerator extends AbstractTypeGenerator {
 
     /** The RESOLVED Edm type of a key property (typedefs unwrapped), for typed key literals. */
     private String keyEdmType(EntityTypeModel entityType, String keyPropName, SchemaModel schema) {
+        return keyEdmType(entityType, keyPropName, schema, newVisiting());
+    }
+
+    private String keyEdmType(EntityTypeModel entityType, String keyPropName, SchemaModel schema, Set<EntityTypeModel> visiting) {
+        checkBaseCycle(visiting, entityType);
         for (PropertyModel prop : entityType.properties()) {
             if (prop.name().equals(keyPropName)) {
                 return resolveTypeDefinition(prop.edmType(), schema);
@@ -623,12 +636,17 @@ public class RequestGenerator extends AbstractTypeGenerator {
         }
         EntityTypeModel base = findBase(entityType);
         if (base != null) {
-            return keyEdmType(base, keyPropName, schema);
+            return keyEdmType(base, keyPropName, schema, visiting);
         }
         return "Edm.String";
     }
 
     private java.util.List<KeyModel> resolvedKeys(EntityTypeModel entityType, SchemaModel schema) {
+        return resolvedKeys(entityType, schema, newVisiting());
+    }
+
+    private java.util.List<KeyModel> resolvedKeys(EntityTypeModel entityType, SchemaModel schema, Set<EntityTypeModel> visiting) {
+        checkBaseCycle(visiting, entityType);
         if (!entityType.keys().isEmpty()) {
             return entityType.keys();
         }
@@ -636,28 +654,30 @@ public class RequestGenerator extends AbstractTypeGenerator {
         if (base == null) {
             return java.util.List.of();
         }
-        return resolvedKeys(base, schema);
+        return resolvedKeys(base, schema, visiting);
     }
 
     /** All navigation properties up the base chain (base-first), for request generation. */
     private java.util.List<NavigationPropertyModel> resolvedNavs(EntityTypeModel entityType) {
-        java.util.List<NavigationPropertyModel> out = new java.util.ArrayList<>();
-        collectNavs(entityType, out);
-        return out;
+        return resolvedNavs(entityType, newVisiting());
     }
 
-    private void collectNavs(EntityTypeModel entityType, java.util.List<NavigationPropertyModel> out) {
+    private java.util.List<NavigationPropertyModel> resolvedNavs(EntityTypeModel entityType, Set<EntityTypeModel> visiting) {
+        checkBaseCycle(visiting, entityType);
         EntityTypeModel base = findBase(entityType);
-        if (base != null) {
-            collectNavs(base, out);
-        }
-        out.addAll(entityType.navigationProperties());
+        java.util.List<NavigationPropertyModel> inherited =
+                base == null ? java.util.List.of() : resolvedNavs(base, visiting);
+        // Own-wins merge: a redeclared nav shadows the inherited one (single copy,
+        // otherwise nav/keyed-overload/$ref methods emit duplicates)
+        return mergeOwnWinsNavs(inherited, entityType.navigationProperties());
     }
 
     /** CSDL: HasStream="true" on a base type applies to all derived types. */
     private boolean resolvedHasStream(EntityTypeModel entityType) {
         EntityTypeModel t = entityType;
+        Set<EntityTypeModel> visiting = newVisiting();
         while (t != null) {
+            checkBaseCycle(visiting, t);
             if (t.hasStream()) {
                 return true;
             }
@@ -668,21 +688,22 @@ public class RequestGenerator extends AbstractTypeGenerator {
 
     /** Edm.Stream properties up the base chain, for named-stream request methods. */
     private java.util.List<PropertyModel> resolvedStreamProps(EntityTypeModel entityType) {
-        java.util.List<PropertyModel> out = new java.util.ArrayList<>();
-        collectStreamProps(entityType, out);
-        return out;
+        return resolvedStreamProps(entityType, newVisiting());
     }
 
-    private void collectStreamProps(EntityTypeModel entityType, java.util.List<PropertyModel> out) {
+    private java.util.List<PropertyModel> resolvedStreamProps(EntityTypeModel entityType, Set<EntityTypeModel> visiting) {
+        checkBaseCycle(visiting, entityType);
         EntityTypeModel base = findBase(entityType);
-        if (base != null) {
-            collectStreamProps(base, out);
-        }
+        java.util.List<PropertyModel> inherited =
+                base == null ? java.util.List.of() : resolvedStreamProps(base, visiting);
+        java.util.List<PropertyModel> own = new java.util.ArrayList<>();
         for (PropertyModel prop : entityType.properties()) {
             if ("Edm.Stream".equals(prop.edmType())) {
-                out.add(prop);
+                own.add(prop);
             }
         }
+        // Own-wins merge: a redeclared stream prop shadows the inherited one
+        return mergeOwnWinsProps(inherited, own);
     }
 
     private EntityTypeModel findBase(EntityTypeModel entityType) {
@@ -692,7 +713,52 @@ public class RequestGenerator extends AbstractTypeGenerator {
         EntityTypeModel base = entityTypeByQualifiedName.get(bt);
         if (base != null) return base;
         // Fallback: same-schema by simple name
-        return entityTypeMap.get(Names.entityClassName(Names.simpleNameFromFullName(bt)));
+        EntityTypeModel sameSchema = entityTypeMap.get(Names.entityClassName(Names.simpleNameFromFullName(bt)));
+        if (sameSchema != null) return sameSchema;
+        // Cross-schema unqualified fallback (parity with EntityGenerator/ComplexTypeGenerator)
+        return findBaseGlobal(bt);
+    }
+
+    private EntityTypeModel findBaseGlobal(String bt) {
+        if (bt == null || bt.isBlank()) return null;
+        EntityTypeModel base = entityTypeByQualifiedName.get(bt);
+        if (base != null) return base;
+        String simple = Names.simpleNameFromFullName(bt);
+        String className = Names.entityClassName(simple);
+        // Ambiguous matches must fail loudly (same policy as container Extends and the
+        // type-kind map): first-wins would make generation order-dependent.
+        EntityTypeModel found = null;
+        int matches = 0;
+        for (SchemaModel s : effectiveSchemas) {
+            for (EntityTypeModel et : s.entityTypes()) {
+                if (Names.entityClassName(et.name()).equals(className)) {
+                    found = et;
+                    matches++;
+                }
+            }
+        }
+        if (matches > 1) {
+            throw new IllegalArgumentException(
+                    "Ambiguous unqualified BaseType '" + bt + "': matches " + matches
+                            + " entity types with that simple name across schemas; use a qualified name (Namespace.Type)");
+        }
+        return found;
+    }
+
+    /**
+     * Identity-keyed visiting set for base-chain walks: models are records (value
+     * equality), so two distinct but equal-valued types must NOT compare equal
+     * here — only revisiting the SAME object is a cycle.
+     */
+    private static Set<EntityTypeModel> newVisiting() {
+        return Collections.newSetFromMap(new IdentityHashMap<>());
+    }
+
+    private static void checkBaseCycle(Set<EntityTypeModel> visiting, EntityTypeModel current) {
+        if (!visiting.add(current)) {
+            throw new IllegalStateException("Circular BaseType chain detected involving entity type: "
+                    + current.name() + " (BaseType '" + current.baseType() + "')");
+        }
     }
 
     /** True when the reference for this exact import-candidate FQN is fully-qualified (contested). */

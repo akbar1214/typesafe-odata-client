@@ -4,6 +4,7 @@ import io.github.akbarhusain.odata.core.model.CsdlModel.NavigationPropertyModel;
 import io.github.akbarhusain.odata.core.model.CsdlModel.PropertyModel;
 import io.github.akbarhusain.odata.core.model.CsdlModel.SchemaModel;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -143,6 +144,109 @@ public abstract class AbstractTypeGenerator {
         }
         for (NavigationPropertyModel nav : navs) {
             checkCollision(fields, Names.toJavaFieldName(nav.name()), "field", nav.name(), className);
+        }
+    }
+
+    /**
+     * Merges an inherited member list with the type's own members: a derived type
+     * may redeclare a base member (same CSDL name), in which case the OWN
+     * declaration wins and appears exactly once. The collision check tolerates
+     * exact same-name redeclaration, so without this merge both copies would flow
+     * into Filterable/Builder/with* emission as duplicates. First-seen position
+     * is kept (base-chain order), so member ordering is stable.
+     */
+    protected static List<PropertyModel> mergeOwnWinsProps(List<PropertyModel> inherited,
+                                                           List<PropertyModel> own) {
+        java.util.LinkedHashMap<String, PropertyModel> merged = new java.util.LinkedHashMap<>();
+        for (PropertyModel p : inherited) {
+            merged.putIfAbsent(p.name(), p);
+        }
+        for (PropertyModel p : own) {
+            merged.put(p.name(), p);
+        }
+        return List.copyOf(merged.values());
+    }
+
+    /**
+     * Navigation-property counterpart of {@link #mergeOwnWinsProps}: own navs win
+     * over same-named inherited navs, each name emitted exactly once.
+     */
+    protected static List<NavigationPropertyModel> mergeOwnWinsNavs(List<NavigationPropertyModel> inherited,
+                                                                    List<NavigationPropertyModel> own) {
+        java.util.LinkedHashMap<String, NavigationPropertyModel> merged = new java.util.LinkedHashMap<>();
+        for (NavigationPropertyModel n : inherited) {
+            merged.putIfAbsent(n.name(), n);
+        }
+        for (NavigationPropertyModel n : own) {
+            merged.put(n.name(), n);
+        }
+        return List.copyOf(merged.values());
+    }
+
+    /**
+     * Fails loudly when an own member redeclares an inherited member with an
+     * INCOMPATIBLE shape. Same-name same-shape redeclaration merges silently via
+     * {@link #mergeOwnWinsProps} (harmless shadowing), but anything else is
+     * rejected for two independent reasons. First, CSDL permits a same-name
+     * redeclare only as a narrowing to a <em>derived subtype</em> (and 4.0
+     * responses forbid it entirely) — a type change like {@code Edm.String} to
+     * {@code Edm.Int32} is a spec violation. Second, the generated code cannot
+     * represent even facet-only differences: nullability changes the getter
+     * signature ({@code Optional<String>} vs {@code String}, verified by compiling
+     * the unchecked output), and nav differences break the request methods.
+     * Deliberately conservative: legal narrowings (e.g. a nav narrowed to a
+     * subtype entity) also fail loudly until narrowing is a supported feature —
+     * a loud decision beats silently mis-shaping the hierarchy. Request-side
+     * generation tolerates these deterministically (single merged method), so the
+     * model-side throw covers the normal pipeline; standalone request generation
+     * is the only path that stays lenient. Fail here naming both sides instead of
+     * emitting output that does not compile.
+     */
+    protected void checkRedeclarationConflicts(String className,
+                                               List<PropertyModel> inheritedProps,
+                                               List<PropertyModel> ownProps,
+                                               List<NavigationPropertyModel> inheritedNavs,
+                                               List<NavigationPropertyModel> ownNavs,
+                                               SchemaModel schema) {
+        Map<String, PropertyModel> inheritedByName = new HashMap<>();
+        for (PropertyModel p : inheritedProps) {
+            inheritedByName.putIfAbsent(p.name(), p);
+        }
+        for (PropertyModel p : ownProps) {
+            PropertyModel base = inheritedByName.get(p.name());
+            if (base == null) {
+                continue;
+            }
+            String baseType = resolveTypeDefinition(base.edmType(), schema);
+            String ownType = resolveTypeDefinition(p.edmType(), schema);
+            if (!baseType.equals(ownType) || base.nullable() != p.nullable()) {
+                throw new IllegalStateException("Cannot generate " + className + ": property '" + p.name()
+                        + "' redeclares an inherited property with an incompatible type (base: " + base.edmType()
+                        + (base.nullable() ? " nullable" : "") + ", derived: " + p.edmType()
+                        + (p.nullable() ? " nullable" : "") + "). CSDL permits same-name redeclaration only "
+                        + "for narrowing to a derived subtype, and the generated subclass getter cannot "
+                        + "compatibly override the base getter — rename one of them in the metadata.");
+            }
+        }
+        Map<String, NavigationPropertyModel> inheritedNavByName = new HashMap<>();
+        for (NavigationPropertyModel n : inheritedNavs) {
+            inheritedNavByName.putIfAbsent(n.name(), n);
+        }
+        for (NavigationPropertyModel n : ownNavs) {
+            NavigationPropertyModel base = inheritedNavByName.get(n.name());
+            if (base == null) {
+                continue;
+            }
+            String baseTarget = resolveTypeDefinition(Names.unwrapCollectionType(base.type()), schema);
+            String ownTarget = resolveTypeDefinition(Names.unwrapCollectionType(n.type()), schema);
+            if (!baseTarget.equals(ownTarget)
+                    || Names.isCollectionType(base.type()) != Names.isCollectionType(n.type())) {
+                throw new IllegalStateException("Cannot generate " + className + ": navigation property '"
+                        + n.name() + "' redeclares an inherited navigation with an incompatible type (base: "
+                        + base.type() + ", derived: " + n.type() + "). CSDL permits same-name redeclaration "
+                        + "only for narrowing to a derived entity subtype, and the generated subclass request "
+                        + "methods cannot overload the base methods — rename one of them in the metadata.");
+            }
         }
     }
 
