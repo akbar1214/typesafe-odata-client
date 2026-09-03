@@ -78,8 +78,15 @@ class EntityGeneratorMemberNameTest {
         String code = generateEntity("Filterable");
         assertTrue(code.contains("protected String _2FA;"),
                 "property '2FA' must become field _2FA (cannot start with a digit)");
-        assertTrue(code.contains("public static final StringProperty<Filterable_> _2FA"),
-                "constant for '2FA' must be a valid Java identifier (_2FA)");
+        // The constant is _2FA_2, NOT _2FA: constant allocation dodges the generated
+        // FIELD names — pre-fix output declared BOTH `protected String _2FA;` and
+        // `public static final StringProperty<…> _2FA` (a javac duplicate) and simply
+        // never compiled; no working code can depend on the old constant name.
+        // Exact pin (with the assignment) so a substring of _2FA_2 cannot pass vacuously.
+        assertTrue(code.contains("public static final StringProperty<Filterable_> _2FA_2 ="),
+                "constant for '2FA' must dodge the field name: expected _2FA_2:\n" + code);
+        assertFalse(code.contains(" StringProperty<Filterable_> _2FA ="),
+                "the colliding constant name must be gone:\n" + code);
     }
 
     @Test

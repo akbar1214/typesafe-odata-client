@@ -179,7 +179,7 @@ public class ComplexTypeGenerator extends AbstractTypeGenerator {
         for (PropertyModel prop : ownProps) {
             String javaType = resolvePropertyJavaType(prop, schema);
             String fn = Names.toJavaFieldName(prop.name());
-            sb.append("    @com.fasterxml.jackson.annotation.JsonProperty(\"").append(prop.name()).append("\")\n");
+            sb.append("    @com.fasterxml.jackson.annotation.JsonProperty(\"").append(Names.escapeJavaString(prop.name())).append("\")\n");
             sb.append("    public void set").append(Names.capitalize(fn)).append("(").append(javaType).append(" value) {\n");
             sb.append("        this.").append(fn).append(" = value;\n");
             sb.append("    }\n\n");
@@ -187,7 +187,7 @@ public class ComplexTypeGenerator extends AbstractTypeGenerator {
         for (NavigationPropertyModel nav : ownNavs) {
             String javaType = navJavaType(nav, schema);
             String fn = Names.toJavaFieldName(nav.name());
-            sb.append("    @com.fasterxml.jackson.annotation.JsonProperty(\"").append(nav.name()).append("\")\n");
+            sb.append("    @com.fasterxml.jackson.annotation.JsonProperty(\"").append(Names.escapeJavaString(nav.name())).append("\")\n");
             sb.append("    public void set").append(Names.capitalize(fn)).append("(").append(javaType).append(" value) {\n");
             sb.append("        this.").append(fn).append(" = value;\n");
             sb.append("    }\n\n");
@@ -241,7 +241,7 @@ public class ComplexTypeGenerator extends AbstractTypeGenerator {
         // ODataType interface
         sb.append("    @Override\n");
         sb.append("    public String odataTypeName() {\n");
-        sb.append("        return \"").append(schema.namespace()).append(".").append(complexType.name()).append("\";\n");
+        sb.append("        return \"").append(Names.escapeJavaString(schema.namespace())).append(".").append(Names.escapeJavaString(complexType.name())).append("\";\n");
         sb.append("    }\n\n");
 
         if (openType) {
@@ -287,7 +287,7 @@ public class ComplexTypeGenerator extends AbstractTypeGenerator {
             String fn = Names.toJavaFieldName(prop.name());
             if (!first) sb.append("            \", ");
             else sb.append("            \"");
-            sb.append(prop.name()).append("=\" + ").append(fn).append(" +\n");
+            sb.append(Names.escapeJavaString(prop.name())).append("=\" + ").append(fn).append(" +\n");
             first = false;
         }
         sb.append("            \"}\";\n");

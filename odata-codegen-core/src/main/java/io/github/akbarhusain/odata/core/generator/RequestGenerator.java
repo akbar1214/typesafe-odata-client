@@ -201,11 +201,11 @@ public class RequestGenerator extends AbstractTypeGenerator {
             if (Names.isCollectionType(nav.type())) {
                 String refBase = Names.toJavaFieldName(nav.name());
                 sb.append("    public void add").append(Names.capitalize(refBase)).append("Ref(String targetEntityUrl) {\n");
-                sb.append("        EntityOperations.addRef(context, contextPath.addSegment(\"").append(nav.name()).append("\"), targetEntityUrl);\n");
+                sb.append("        EntityOperations.addRef(context, contextPath.addSegment(\"").append(Names.escapeJavaString(nav.name())).append("\"), targetEntityUrl);\n");
                 sb.append("    }\n\n");
 
                 sb.append("    public void remove").append(Names.capitalize(refBase)).append("Ref(String targetKey) {\n");
-                sb.append("        EntityOperations.removeRef(context, contextPath.addSegment(\"").append(nav.name()).append("\"), targetKey);\n");
+                sb.append("        EntityOperations.removeRef(context, contextPath.addSegment(\"").append(Names.escapeJavaString(nav.name())).append("\"), targetKey);\n");
                 sb.append("    }\n\n");
             }
         }
@@ -271,7 +271,7 @@ public class RequestGenerator extends AbstractTypeGenerator {
                 String setMethod = Names.toJavaMethodName(prop.name(), "set");
                 sb.append("    public java.io.InputStream ").append(streamMethod).append("() {\n");
                 sb.append("        return EntityOperations.streamMedia(context, contextPath.addSegment(\"")
-                  .append(prop.name()).append("\"));\n");
+                  .append(Names.escapeJavaString(prop.name())).append("\"));\n");
                 sb.append("    }\n\n");
 
                 sb.append("    public void ").append(setMethod).append("(java.io.InputStream content) {\n");
@@ -282,7 +282,7 @@ public class RequestGenerator extends AbstractTypeGenerator {
                 sb.append("        try {\n");
                 sb.append("            byte[] bytes = content.readAllBytes();\n");
                 sb.append("            EntityOperations.putMedia(context, contextPath.addSegment(\"")
-                  .append(prop.name()).append("\"), bytes, \"application/octet-stream\", etag);\n");
+                  .append(Names.escapeJavaString(prop.name())).append("\"), bytes, \"application/octet-stream\", etag);\n");
                 sb.append("        } catch (java.io.IOException e) {\n");
                 sb.append("            throw new io.github.akbarhusain.odata.runtime.exception.ODataException(\"Failed to read media stream: \" + e.getMessage(), e);\n");
                 sb.append("        }\n");
@@ -723,7 +723,7 @@ public class RequestGenerator extends AbstractTypeGenerator {
         if (isCollection) {
             sb.append(collRef).append(" ").append(methodName).append("() {\n");
             sb.append("        return new ").append(collRef)
-              .append("(context, contextPath.addSegment(\"").append(nav.name()).append("\"));\n");
+              .append("(context, contextPath.addSegment(\"").append(Names.escapeJavaString(nav.name())).append("\"));\n");
             sb.append("    }\n\n");
 
             // Keyed nav overload (decision 95): person.trips(2) renders
@@ -743,7 +743,7 @@ public class RequestGenerator extends AbstractTypeGenerator {
         } else {
             sb.append(entRef).append(" ").append(methodName).append("() {\n");
             sb.append("        return new ").append(entRef)
-              .append("(context, contextPath.addSegment(\"").append(nav.name()).append("\"));\n");
+              .append("(context, contextPath.addSegment(\"").append(Names.escapeJavaString(nav.name())).append("\"));\n");
         }
         sb.append("    }\n\n");
         return sb.toString();
@@ -753,12 +753,12 @@ public class RequestGenerator extends AbstractTypeGenerator {
                                                String entityReqClass,
                                                java.util.List<KeyParamSpec> keySpecs) {
         StringBuilder params = new StringBuilder();
-        StringBuilder args = new StringBuilder("contextPath.addSegment(\"").append(rawNavName).append("\")");
+        StringBuilder args = new StringBuilder("contextPath.addSegment(\"").append(Names.escapeJavaString(rawNavName)).append("\")");
         for (KeyParamSpec k : keySpecs) {
             if (params.length() > 0) params.append(", ");
             params.append(k.javaType()).append(' ').append(k.javaParamName());
-            args.append(".addKey(\"").append(k.csdlName()).append("\", ")
-                .append(k.javaParamName()).append(", \"").append(k.edmType()).append("\")");
+            args.append(".addKey(\"").append(Names.escapeJavaString(k.csdlName())).append("\", ")
+                .append(k.javaParamName()).append(", \"").append(Names.escapeJavaString(k.edmType())).append("\")");
         }
         sb.append("    public ").append(entityReqClass).append(' ').append(methodName)
           .append('(').append(params).append(") {\n");

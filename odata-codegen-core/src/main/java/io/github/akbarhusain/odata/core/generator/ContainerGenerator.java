@@ -187,7 +187,7 @@ public class ContainerGenerator {
 
             sb.append("    public ").append(collReqClassName).append(" ").append(methodName).append("() {\n");
             sb.append("        return new ").append(collReqClassName)
-              .append("(context, context.basePath().addSegment(\"").append(es.name()).append("\"));\n");
+              .append("(context, context.basePath().addSegment(\"").append(Names.escapeJavaString(es.name())).append("\"));\n");
             sb.append("    }\n\n");
 
             // Keyed overload (decision 95): <set>(key...) → entity request, so
@@ -214,7 +214,7 @@ public class ContainerGenerator {
 
             sb.append("    public ").append(entityReqClassName).append(" ").append(methodName).append("() {\n");
             sb.append("        return new ").append(entityReqClassName)
-              .append("(context, context.basePath().addSegment(\"").append(singleton.name()).append("\"));\n");
+              .append("(context, context.basePath().addSegment(\"").append(Names.escapeJavaString(singleton.name())).append("\"));\n");
             sb.append("    }\n\n");
         }
 
@@ -241,8 +241,8 @@ public class ContainerGenerator {
         for (RequestGenerator.KeyParamSpec k : keySpecs) {
             if (params.length() > 0) params.append(", ");
             params.append(k.javaType()).append(' ').append(k.javaParamName());
-            args.append(".addKey(\"").append(k.csdlName()).append("\", ")
-                .append(k.javaParamName()).append(", \"").append(k.edmType()).append("\")");
+            args.append(".addKey(\"").append(Names.escapeJavaString(k.csdlName())).append("\", ")
+                .append(k.javaParamName()).append(", \"").append(Names.escapeJavaString(k.edmType())).append("\")");
         }
         sb.append("    public ").append(entityReqClass).append(' ').append(methodName)
           .append('(').append(params).append(") {\n");

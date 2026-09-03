@@ -764,7 +764,11 @@ public class OperationGenerator extends AbstractTypeGenerator {
      */
     private String constructorBody(String pathBaseExpr, String castSegment, String opSegmentName,
                                    ResolvedOp op, boolean isAction) {
-        String base = pathBaseExpr + (castSegment == null ? "" : ".addSegment(\"" + castSegment + "\")");
+        // import/operation/cast names are metadata strings — escape them for the
+        // generated string literals (hostile names must not break compilation)
+        String base = pathBaseExpr + (castSegment == null
+                ? "" : ".addSegment(\"" + Names.escapeJavaString(castSegment) + "\")");
+        String segmentLiteral = Names.escapeJavaString(opSegmentName);
         StringBuilder b = new StringBuilder();
         if (!isAction) {
             // Non-inlineable parameters ride parameter aliases: the segment pair references
@@ -794,12 +798,12 @@ public class OperationGenerator extends AbstractTypeGenerator {
                                     + qualifiedEdmName(resolvedElement, op.owner()) + "\")";
                     if (p.nullable()) {
                         b.append("        if (").append(field).append(" != null) {\n")
-                         .append("            __pairs.add(\"").append(p.name()).append('=')
+                         .append("            __pairs.add(\"").append(Names.escapeJavaString(p.name())).append('=')
                          .append(alias).append("\");\n")
                          .append("        }\n");
                     } else {
                         appendRequiredGuard(b, p, field, op);
-                        b.append("        __pairs.add(\"").append(p.name()).append('=')
+                        b.append("        __pairs.add(\"").append(Names.escapeJavaString(p.name())).append('=')
                          .append(alias).append("\");\n");
                     }
                     aliases.add(new AliasEmission(alias, field, valueExpr, p.nullable()));
@@ -817,11 +821,11 @@ public class OperationGenerator extends AbstractTypeGenerator {
             }
             if (aliases.isEmpty()) {
                 b.append("        this.contextPath = " + base + ".addSegment(OperationPath.segment(\"")
-                  .append(opSegmentName).append("\", __pairs.toArray(new String[0])));\n");
+                  .append(segmentLiteral).append("\", __pairs.toArray(new String[0])));\n");
                 return b.toString();
             }
             b.append("        ContextPath __path = " + base + ".addSegment(OperationPath.segment(\"")
-              .append(opSegmentName).append("\", __pairs.toArray(new String[0])));\n");
+              .append(segmentLiteral).append("\", __pairs.toArray(new String[0])));\n");
             for (AliasEmission a : aliases) {
                 String add = "__path = __path.addQuery(\"" + a.alias() + "\", "
                         + a.valueExpr() + ");\n";
@@ -841,16 +845,16 @@ public class OperationGenerator extends AbstractTypeGenerator {
             appendRequiredGuard(b, p, Names.toJavaFieldName(p.name()), op);
         }
         b.append("        this.contextPath = " + base + ".addSegment(\"")
-          .append(opSegmentName).append("\");\n");
+          .append(segmentLiteral).append("\");\n");
         b.append("        java.util.Map<String, Object> __params = new java.util.LinkedHashMap<>();\n");
         for (ParameterModel p : op.parameters()) {
             String field = Names.toJavaFieldName(p.name());
             if (p.nullable()) {
                 b.append("        if (").append(field).append(" != null) {\n")
-                 .append("            __params.put(\"").append(p.name()).append("\", ").append(field).append(");\n")
+                 .append("            __params.put(\"").append(Names.escapeJavaString(p.name())).append("\", ").append(field).append(");\n")
                  .append("        }\n");
             } else {
-                b.append("        __params.put(\"").append(p.name()).append("\", ").append(field).append(");\n");
+                b.append("        __params.put(\"").append(Names.escapeJavaString(p.name())).append("\", ").append(field).append(");\n");
             }
         }
         if (op.parameters().isEmpty()) {
@@ -875,7 +879,7 @@ public class OperationGenerator extends AbstractTypeGenerator {
             b.append("        if (").append(field)
              .append(" == null) {\n")
              .append("            throw new IllegalArgumentException(\"Parameter '")
-             .append(p.name()).append("' is non-nullable and must not be null\");\n")
+             .append(Names.escapeJavaString(p.name())).append("' is non-nullable and must not be null\");\n")
              .append("        }\n");
         }
     }

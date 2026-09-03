@@ -28,6 +28,11 @@ public final class Names {
         if (result.isEmpty() || !Character.isJavaIdentifierStart(result.charAt(0))) {
             result = "_" + result;
         }
+        // HARD keywords only: contextual keywords are legal package segments
+        // ('package com.record;' compiles) and must keep their derived name
+        if (isHardJavaKeyword(result)) {
+            result = result + "_";
+        }
         return result;
     }
 
@@ -121,9 +126,6 @@ public final class Names {
 
     public static String toJavaFieldName(String edmName) {
         String name = sanitizeIdentifier(edmName);
-        if (name.equals("_")) {
-            return "_";
-        }
         String result = Character.toLowerCase(name.charAt(0)) + name.substring(1);
         if (isReservedWord(result) || RESERVED_MEMBER_NAMES.contains(result)) result = result + "_";
         return result;
@@ -151,6 +153,11 @@ public final class Names {
         String result = sb.toString();
         if (result.isEmpty() || !Character.isJavaIdentifierStart(result.charAt(0))) {
             result = "_" + result;
+        }
+        // upper-case words are never reserved, but a name folding to a lone '_' is a
+        // hard keyword since Java 9 — rename like the empty-name case above
+        if (isHardJavaKeyword(result)) {
+            result = result + "_";
         }
         return result;
     }
@@ -342,8 +349,11 @@ public final class Names {
 
     private static boolean isReservedWord(String word) {
         return switch (word) {
-            case "abstract", "assert", "boolean", "break", "byte", "case", "catch",
-                 "char", "class", "const", "default", "do", "double", "else",
+            // '_' is a reserved keyword since Java 9 (JLS 3.9) — a lone underscore
+            // cannot be an identifier, so a hostile/empty name sanitizing to '_' must
+            // become '__' like any other reserved word
+            case "_", "abstract", "assert", "boolean", "break", "byte", "case", "catch",
+                 "char", "class", "const", "continue", "default", "do", "double", "else",
                  "enum", "extends", "final", "finally", "float", "for", "goto",
                  "if", "implements", "import", "instanceof", "int", "interface",
                  "long", "native", "new", "package", "private", "protected",
@@ -360,6 +370,62 @@ public final class Names {
     /** Public view of {@link #isReservedWord} for generators that must validate raw CSDL names. */
     public static boolean isJavaKeyword(String word) {
         return isReservedWord(word);
+    }
+
+    /**
+     * TRUE Java keywords only (JLS §3.9 plus the literals {@code true}/{@code false}/
+     * {@code null}) — the words that are illegal as identifiers or package segments.
+     * Contextual keywords ({@code record}, {@code var}, {@code to}, {@code open},
+     * module-system directives, {@code when}...) are deliberately EXCLUDED: they are
+     * legal identifiers and legal package segments ({@code package com.record;} compiles),
+     * and {@link #toPackageName} lowercases schema namespaces, so rejecting them would
+     * break legal metadata. Use this — not {@link #isJavaKeyword} — when validating
+     * USER-SUPPLIED package names; use {@link #isReservedWord} when SANITIZING generated
+     * identifiers (where shadowing a contextual keyword is confusing even when legal).
+     */
+    public static boolean isHardJavaKeyword(String word) {
+        return switch (word) {
+            case "_", "abstract", "assert", "boolean", "break", "byte", "case", "catch",
+                 "char", "class", "const", "continue", "default", "do", "double",
+                 "else", "enum", "extends", "final", "finally", "float", "for",
+                 "goto", "if", "implements", "import", "instanceof", "int",
+                 "interface", "long", "native", "new", "package", "private",
+                 "protected", "public", "return", "short", "static", "strictfp",
+                 "super", "switch", "synchronized", "this", "throw", "throws",
+                 "transient", "try", "void", "volatile", "while",
+                 // literals — reserved, cannot be identifiers or package segments
+                 "true", "false", "null" -> true;
+            default -> false;
+        };
+    }
+
+    /**
+     * Escapes a CSDL/metadata name for embedding in a Java string literal in
+     * generated source. CSDL NCNames cannot legally contain quotes or backslashes,
+     * but defensive escaping keeps hostile or non-conformant metadata from breaking
+     * compilation of the generated file (unclosed string literal) or silently
+     * changing the wire value.
+     */
+    public static String escapeJavaString(String s) {
+        StringBuilder sb = new StringBuilder(s.length());
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            switch (c) {
+                case '\\' -> sb.append("\\\\");
+                case '"' -> sb.append("\\\"");
+                case '\n' -> sb.append("\\n");
+                case '\r' -> sb.append("\\r");
+                case '\t' -> sb.append("\\t");
+                default -> {
+                    if (c < 0x20) {
+                        sb.append(String.format("\\u%04x", (int) c));
+                    } else {
+                        sb.append(c);
+                    }
+                }
+            }
+        }
+        return sb.toString();
     }
 
     // Object methods that cannot be overridden (final) or would break identity contracts.

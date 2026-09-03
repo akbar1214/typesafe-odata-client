@@ -243,7 +243,7 @@ public class EntityGenerator extends AbstractTypeGenerator {
         for (PropertyModel prop : ownProps) {
             String javaType = resolvePropertyJavaType(prop, schema, true);
             String fn = Names.toJavaFieldName(prop.name());
-            sb.append("    @com.fasterxml.jackson.annotation.JsonProperty(\"").append(prop.name()).append("\")\n");
+            sb.append("    @com.fasterxml.jackson.annotation.JsonProperty(\"").append(Names.escapeJavaString(prop.name())).append("\")\n");
             sb.append("    public void set").append(Names.capitalize(fn)).append("(").append(javaType).append(" value) {\n");
             sb.append("        this.").append(fn).append(" = value;\n");
             sb.append("    }\n\n");
@@ -251,7 +251,7 @@ public class EntityGenerator extends AbstractTypeGenerator {
         for (NavigationPropertyModel nav : ownNavs) {
             String javaType = navJavaType(nav, schema);
             String fn = Names.toJavaFieldName(nav.name());
-            sb.append("    @com.fasterxml.jackson.annotation.JsonProperty(\"").append(nav.name()).append("\")\n");
+            sb.append("    @com.fasterxml.jackson.annotation.JsonProperty(\"").append(Names.escapeJavaString(nav.name())).append("\")\n");
             sb.append("    public void set").append(Names.capitalize(fn)).append("(").append(javaType).append(" value) {\n");
             sb.append("        this.").append(fn).append(" = value;\n");
             sb.append("    }\n\n");
@@ -292,7 +292,7 @@ public class EntityGenerator extends AbstractTypeGenerator {
 
         // Interface methods
         sb.append("    @Override\n    public String odataTypeName() {\n");
-        sb.append("        return \"").append(schema.namespace()).append(".").append(entityType.name()).append("\";\n");
+        sb.append("        return \"").append(Names.escapeJavaString(schema.namespace())).append(".").append(Names.escapeJavaString(entityType.name())).append("\";\n");
         sb.append("    }\n\n");
 
         sb.append("    @Override\n    public Optional<String> getETag() {\n");
@@ -353,7 +353,7 @@ public class EntityGenerator extends AbstractTypeGenerator {
                 // HashMap (not Map.of) so a null key field doesn't throw NPE at runtime
                 sb.append("        java.util.Map<String, Object> key = new java.util.HashMap<>();\n");
                 for (String ref : refs) {
-                    sb.append("        key.put(\"").append(ref).append("\", ")
+                    sb.append("        key.put(\"").append(Names.escapeJavaString(ref)).append("\", ")
                       .append(getterCall(ref, allProps)).append(");\n");
                 }
                 sb.append("        return java.util.Collections.unmodifiableMap(key);\n");
@@ -369,7 +369,7 @@ public class EntityGenerator extends AbstractTypeGenerator {
         boolean first = true;
         for (PropertyModel prop : allProps) {
             String fn = Names.toJavaFieldName(prop.name());
-            sb.append("            ").append(first ? "\"" : "\", ").append(prop.name()).append("=\" + ").append(fn).append(" +\n");
+            sb.append("            ").append(first ? "\"" : "\", ").append(Names.escapeJavaString(prop.name())).append("=\" + ").append(fn).append(" +\n");
             first = false;
         }
         sb.append("            \"}\";\n");
@@ -597,12 +597,12 @@ public class EntityGenerator extends AbstractTypeGenerator {
             if (kind == Names.TypeKind.ENTITY || kind == Names.TypeKind.COMPLEX) {
                 return "    public static final CollectionProperty<" + className + ", " + elementClassName
                         + ", " + elementClassName + ".Filterable> " + constantName
-                        + " = new CollectionProperty<>(\"" + prop.name() + "\", " + className + ".class, "
+                        + " = new CollectionProperty<>(\"" + Names.escapeJavaString(prop.name()) + "\", " + className + ".class, "
                         + elementClassName + ".class, " + elementClassName + ".Filterable::new);\n";
             } else {
                 return "    public static final CollectionProperty<" + className + ", " + elementClassName
                         + ", CollectionProperty.FilterableElement<" + elementClassName + ">> " + constantName
-                        + " = new CollectionProperty<>(\"" + prop.name() + "\", " + className + ".class, "
+                        + " = new CollectionProperty<>(\"" + Names.escapeJavaString(prop.name()) + "\", " + className + ".class, "
                         + elementClassName + ".class, CollectionProperty.FilterableElement::new);\n";
             }
         }
@@ -619,13 +619,13 @@ public class EntityGenerator extends AbstractTypeGenerator {
 
         String extra = "";
         if (constantType.equals("EnumProperty")) {
-            extra = ", " + resolveClassNameForConstant(edmType, schema) + ".class, \"" + qualifiedEdmName(resolveTypeDefinition(edmType, schema), schema) + "\"";
+            extra = ", " + resolveClassNameForConstant(edmType, schema) + ".class, \"" + Names.escapeJavaString(qualifiedEdmName(resolveTypeDefinition(edmType, schema), schema)) + "\"";
         } else if (constantType.equals("NumberProperty")) {
-            extra = ", \"" + resolveTypeDefinition(edmType, schema) + "\"";
+            extra = ", \"" + Names.escapeJavaString(resolveTypeDefinition(edmType, schema)) + "\"";
         }
         return "    public static final " + constantType + typeParams + " "
                 + constantName
-                + " = new " + constantType + "<>(\"" + prop.name() + "\", " + className + ".class"
+                + " = new " + constantType + "<>(\"" + Names.escapeJavaString(prop.name()) + "\", " + className + ".class"
                 + extra
                 + ");\n";
     }
@@ -639,12 +639,12 @@ public class EntityGenerator extends AbstractTypeGenerator {
         if (isCollection) {
             return "    public static final CollectionProperty<" + className + ", "
                     + elementClassName + ", " + elementClassName + ".Filterable> " + constantName
-                    + " = new CollectionProperty<>(\"" + nav.name() + "\", " + className + ".class, "
+                    + " = new CollectionProperty<>(\"" + Names.escapeJavaString(nav.name()) + "\", " + className + ".class, "
                     + elementClassName + ".class, " + elementClassName + ".Filterable::new);\n";
         } else {
             return "    public static final NavProperty<" + className + ", "
                     + elementClassName + "> " + constantName
-                    + " = new NavProperty<>(\"" + nav.name() + "\", " + className + ".class, "
+                    + " = new NavProperty<>(\"" + Names.escapeJavaString(nav.name()) + "\", " + className + ".class, "
                     + elementClassName + ".class);\n";
         }
     }
@@ -654,7 +654,7 @@ public class EntityGenerator extends AbstractTypeGenerator {
                                                        String constantName, String javaRef) {
         return "    public static final NavProperty.NavQuery<" + className + ", "
                 + javaRef + "> " + constantName + " = "
-                + constantNameFor(nav.name()) + ".as(\"" + subtype.qualifiedName() + "\", "
+                + constantNameFor(nav.name()) + ".as(\"" + Names.escapeJavaString(subtype.qualifiedName()) + "\", "
                 + javaRef + ".class);\n";
     }
 
@@ -813,7 +813,7 @@ public class EntityGenerator extends AbstractTypeGenerator {
             }
         }
         sb.append("        e.unmappedFields = unmappedFields == null ? null : new java.util.HashMap<>(unmappedFields);\n");
-        sb.append("        e.changedFields = EntityUtil.mergeChanged(changedFields, \"").append(nav.name()).append("\");\n");
+        sb.append("        e.changedFields = EntityUtil.mergeChanged(changedFields, \"").append(Names.escapeJavaString(nav.name())).append("\");\n");
         sb.append("        return e;\n");
         sb.append("    }\n\n");
         return sb.toString();
@@ -853,7 +853,7 @@ public class EntityGenerator extends AbstractTypeGenerator {
             String fn = Names.toJavaFieldName(prop.name());
             sb.append("        public Builder ").append(fn).append("(").append(javaType).append(" value) {\n");
             sb.append("            this.").append(fn).append(" = value;\n");
-            sb.append("            changed.add(\"").append(prop.name()).append("\");\n");
+            sb.append("            changed.add(\"").append(Names.escapeJavaString(prop.name())).append("\");\n");
             sb.append("            return this;\n");
             sb.append("        }\n\n");
         }
@@ -864,7 +864,7 @@ public class EntityGenerator extends AbstractTypeGenerator {
             sb.append("        public Builder ").append(fn).append("(").append(javaType).append(" value) {\n");
             sb.append("            this.").append(fn).append(" = value;\n");
             // nav changes must be tracked like property changes, or partial PATCH drops them
-            sb.append("            changed.add(\"").append(nav.name()).append("\");\n");
+            sb.append("            changed.add(\"").append(Names.escapeJavaString(nav.name())).append("\");\n");
             sb.append("            return this;\n");
             sb.append("        }\n\n");
         }
@@ -873,7 +873,7 @@ public class EntityGenerator extends AbstractTypeGenerator {
         for (var key : keys) {
             for (String keyProp : key.propertyRefs()) {
                 sb.append("            Objects.requireNonNull(").append(Names.toJavaFieldName(keyProp))
-                  .append(", \"").append(keyProp).append(" is required (key)\");\n");
+                  .append(", \"").append(Names.escapeJavaString(keyProp)).append(" is required (key)\");\n");
             }
         }
         sb.append("            ").append(className).append(" e = new ").append(className).append("();\n");
@@ -927,7 +927,7 @@ public class EntityGenerator extends AbstractTypeGenerator {
             }
         }
         sb.append("        e.unmappedFields = unmappedFields == null ? null : new java.util.HashMap<>(unmappedFields);\n");
-        sb.append("        e.changedFields = EntityUtil.mergeChanged(changedFields, \"").append(prop.name()).append("\");\n");
+        sb.append("        e.changedFields = EntityUtil.mergeChanged(changedFields, \"").append(Names.escapeJavaString(prop.name())).append("\");\n");
         sb.append("        return e;\n");
         sb.append("    }\n\n");
 
