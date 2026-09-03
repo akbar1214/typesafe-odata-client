@@ -28,6 +28,11 @@ public final class Names {
         if (result.isEmpty() || !Character.isJavaIdentifierStart(result.charAt(0))) {
             result = "_" + result;
         }
+        // HARD keywords only: contextual keywords are legal package segments
+        // ('package com.record;' compiles) and must keep their derived name
+        if (isHardJavaKeyword(result)) {
+            result = result + "_";
+        }
         return result;
     }
 
@@ -121,9 +126,6 @@ public final class Names {
 
     public static String toJavaFieldName(String edmName) {
         String name = sanitizeIdentifier(edmName);
-        if (name.equals("_")) {
-            return "_";
-        }
         String result = Character.toLowerCase(name.charAt(0)) + name.substring(1);
         if (isReservedWord(result) || RESERVED_MEMBER_NAMES.contains(result)) result = result + "_";
         return result;
@@ -151,6 +153,11 @@ public final class Names {
         String result = sb.toString();
         if (result.isEmpty() || !Character.isJavaIdentifierStart(result.charAt(0))) {
             result = "_" + result;
+        }
+        // upper-case words are never reserved, but a name folding to a lone '_' is a
+        // hard keyword since Java 9 — rename like the empty-name case above
+        if (isHardJavaKeyword(result)) {
+            result = result + "_";
         }
         return result;
     }
@@ -342,7 +349,10 @@ public final class Names {
 
     private static boolean isReservedWord(String word) {
         return switch (word) {
-            case "abstract", "assert", "boolean", "break", "byte", "case", "catch",
+            // '_' is a reserved keyword since Java 9 (JLS 3.9) — a lone underscore
+            // cannot be an identifier, so a hostile/empty name sanitizing to '_' must
+            // become '__' like any other reserved word
+            case "_", "abstract", "assert", "boolean", "break", "byte", "case", "catch",
                  "char", "class", "const", "continue", "default", "do", "double", "else",
                  "enum", "extends", "final", "finally", "float", "for", "goto",
                  "if", "implements", "import", "instanceof", "int", "interface",
@@ -375,7 +385,7 @@ public final class Names {
      */
     public static boolean isHardJavaKeyword(String word) {
         return switch (word) {
-            case "abstract", "assert", "boolean", "break", "byte", "case", "catch",
+            case "_", "abstract", "assert", "boolean", "break", "byte", "case", "catch",
                  "char", "class", "const", "continue", "default", "do", "double",
                  "else", "enum", "extends", "final", "finally", "float", "for",
                  "goto", "if", "implements", "import", "instanceof", "int",

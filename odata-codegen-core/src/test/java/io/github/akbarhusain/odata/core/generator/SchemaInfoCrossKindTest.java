@@ -4,18 +4,10 @@ import io.github.akbarhusain.odata.core.model.CsdlModel;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import javax.tools.JavaCompiler;
-import javax.tools.StandardJavaFileManager;
-import javax.tools.ToolProvider;
-import java.io.File;
-import java.io.PrintWriter;
-import java.io.StringWriter;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -89,73 +81,7 @@ class SchemaInfoCrossKindTest {
                         && code.contains("com.example.complex.Foo.class"),
                 "contested registry references must be fully-qualified:\n" + code);
 
-        assertTrue(compiles(out), "legal cross-schema same-name registry must compile");
-    }
-
-    private boolean compiles(Path out) throws Exception {
-        List<File> javaFiles = new ArrayList<>();
-        try (Stream<Path> paths = Files.walk(out)) {
-            paths.filter(p -> p.toString().endsWith(".java")).forEach(p -> javaFiles.add(p.toFile()));
-        }
-        assertFalse(javaFiles.isEmpty());
-        JavaCompiler compiler = ToolProvider.getSystemJavaCompiler();
-        assertNotNull(compiler);
-        StringWriter compilerOutput = new StringWriter();
-        StandardJavaFileManager fileManager = compiler.getStandardFileManager(null, null, null);
-        List<File> classpath = findClasspathJars();
-        fileManager.setLocation(javax.tools.StandardLocation.CLASS_PATH, classpath);
-        Iterable<? extends javax.tools.JavaFileObject> units =
-                fileManager.getJavaFileObjects(javaFiles.toArray(new File[0]));
-        JavaCompiler.CompilationTask task = compiler.getTask(
-                new PrintWriter(compilerOutput), fileManager, null, List.of(
-                        "-classpath", classpath.stream().map(File::getAbsolutePath)
-                                .collect(java.util.stream.Collectors.joining(File.pathSeparator))),
-                null, units);
-        boolean success = task.call();
-        if (!success) {
-            System.out.println("Compilation failed:\n" + compilerOutput);
-        }
-        return success;
-    }
-
-    private List<File> findClasspathJars() {
-        Path mavenRepo = Path.of(System.getProperty("user.home"), ".m2", "repository");
-        List<String> artifactIds = List.of(
-                "odata-codegen-runtime",
-                "jackson-databind",
-                "jackson-core",
-                "jackson-annotations",
-                "jackson-datatype-jdk8",
-                "jackson-datatype-jsr310",
-                "jackson-module-parameter-names",
-                "slf4j-api");
-        List<File> classpath = new ArrayList<>();
-        for (String id : artifactIds) {
-            Path jar = findJar(mavenRepo, id);
-            if (jar != null) {
-                classpath.add(jar.toFile());
-            }
-        }
-        Path siblingClasses = Path.of("..", "odata-codegen-runtime", "target", "classes");
-        if (Files.isReadable(siblingClasses)) {
-            classpath.add(0, siblingClasses.toFile());
-        }
-        return classpath;
-    }
-
-    private Path findJar(Path mavenRepo, String artifactId) {
-        try (Stream<Path> paths = Files.walk(mavenRepo)) {
-            return paths
-                    .filter(p -> p.getFileName().toString().contains(artifactId))
-                    .filter(p -> p.toString().endsWith(".jar"))
-                    .filter(p -> !p.toString().contains("-sources"))
-                    .filter(p -> !p.toString().contains("-javadoc"))
-                    .filter(p -> p.toString().contains("0.1.0-SNAPSHOT")
-                            || !artifactId.equals("odata-codegen-runtime"))
-                    .findFirst()
-                    .orElse(null);
-        } catch (Exception e) {
-            return null;
-        }
+        String errors = CompilationHarness.compileAll(out);
+        assertNull(errors, "legal cross-schema same-name registry must compile. Errors:\n" + errors);
     }
 }

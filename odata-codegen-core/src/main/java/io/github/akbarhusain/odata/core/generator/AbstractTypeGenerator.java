@@ -92,6 +92,17 @@ public abstract class AbstractTypeGenerator {
 
     protected void allocateConstantNames(List<PropertyModel> props, List<NavigationPropertyModel> navs) {
         java.util.Set<String> used = new java.util.HashSet<>();
+        // Constants must also dodge the generated FIELD names: case-less CSDL names
+        // (a member named '_') fold field and constant onto the SAME identifier
+        // ('__'), which javac rejects as a duplicate — so fields seed the used set.
+        // For ordinary corpora constants are upper-case and fields camel-case, so
+        // seeding changes no existing allocation.
+        for (PropertyModel prop : props) {
+            used.add(Names.toJavaFieldName(prop.name()));
+        }
+        for (NavigationPropertyModel nav : navs) {
+            used.add(Names.toJavaFieldName(nav.name()));
+        }
         for (PropertyModel prop : props) {
             allocateConstantName(prop.name(), used);
         }

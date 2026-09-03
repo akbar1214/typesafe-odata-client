@@ -47,4 +47,20 @@ class NamesLowTest {
         assertEquals("XML", Names.toConstantName("XML"));
         assertEquals("FOO_BAR", Names.toConstantName("FooBar"));
     }
+
+    @Test
+    void underscoreIsHardKeywordAndReservedWord() {
+        // '_' is a reserved keyword since Java 9 (JLS 3.9): neither a legal package
+        // segment nor a legal identifier
+        assertTrue(Names.isHardJavaKeyword("_"), "'_' must be a hard keyword");
+        assertTrue(Names.isJavaKeyword("_"), "'_' must be in the sanitization set");
+    }
+
+    @Test
+    void underscoreFieldRenamesLikeAnyReservedWord() {
+        // a CSDL member named '_' (or a name sanitizing to empty) must NOT emit the
+        // illegal lone-underscore identifier — it renames like any other reserved word
+        assertEquals("__", Names.toJavaFieldName("_"));
+        assertEquals("__", Names.toJavaFieldName("!"));
+    }
 }

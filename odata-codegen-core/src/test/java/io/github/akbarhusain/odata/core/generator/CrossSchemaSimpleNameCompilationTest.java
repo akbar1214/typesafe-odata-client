@@ -4,18 +4,10 @@ import io.github.akbarhusain.odata.core.model.CsdlModel;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import javax.tools.JavaCompiler;
-import javax.tools.StandardJavaFileManager;
-import javax.tools.ToolProvider;
-import java.io.File;
-import java.io.PrintWriter;
-import java.io.StringWriter;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -92,12 +84,6 @@ class CrossSchemaSimpleNameCompilationTest {
                 .withGenerateWithMethods(true)
                 .generate(model);
 
-        List<File> javaFiles = new ArrayList<>();
-        try (Stream<Path> paths = Files.walk(out)) {
-            paths.filter(p -> p.toString().endsWith(".java")).forEach(p -> javaFiles.add(p.toFile()));
-        }
-        assertFalse(javaFiles.isEmpty());
-
         String oneASource = Files.readString(out.resolve("com/p1/entity/A.java"));
         // self-reference must not be imported; the foreign same-name subtype must be
         // referenced by its fully-qualified name, never imported
@@ -148,60 +134,8 @@ class CrossSchemaSimpleNameCompilationTest {
         assertTrue(infoSource.contains("com.p2.entity.A"),
                 "the contested Filterable/nav reference is fully qualified:\n" + infoSource);
 
-        JavaCompiler compiler = ToolProvider.getSystemJavaCompiler();
-        assertNotNull(compiler);
-        StringWriter compilerOutput = new StringWriter();
-        StandardJavaFileManager fileManager = compiler.getStandardFileManager(null, null, null);
-        List<File> classpath = findClasspathJars();
-        fileManager.setLocation(javax.tools.StandardLocation.CLASS_PATH, classpath);
-        Iterable<? extends javax.tools.JavaFileObject> units =
-                fileManager.getJavaFileObjects(javaFiles.toArray(new File[0]));
-        JavaCompiler.CompilationTask task = compiler.getTask(
-                new PrintWriter(compilerOutput), fileManager, null, List.of(
-                        "-classpath", classpath.stream().map(File::getAbsolutePath)
-                                .collect(java.util.stream.Collectors.joining(File.pathSeparator))),
-                null, units);
-        boolean success = task.call();
-        assertTrue(success, "generated cross-schema same-name client must compile. Errors:\n"
-                + compilerOutput);
-    }
-
-    private List<File> findClasspathJars() {
-        String userHome = System.getProperty("user.home");
-        Path mavenRepo = Path.of(userHome, ".m2", "repository");
-        List<String> artifactIds = List.of(
-                "odata-codegen-runtime",
-                "jackson-databind",
-                "jackson-core",
-                "jackson-annotations",
-                "jackson-datatype-jdk8",
-                "jackson-datatype-jsr310",
-                "jackson-module-parameter-names",
-                "slf4j-api");
-        List<File> classpath = artifactIds.stream()
-                .map(id -> findJar(mavenRepo, id))
-                .filter(p -> p != null)
-                .map(Path::toFile)
-                .collect(java.util.ArrayList::new, java.util.ArrayList::add, java.util.ArrayList::addAll);
-        Path siblingClasses = Path.of("..", "odata-codegen-runtime", "target", "classes");
-        if (Files.isReadable(siblingClasses)) {
-            classpath.add(0, siblingClasses.toFile());
-        }
-        return classpath;
-    }
-
-    private Path findJar(Path mavenRepo, String artifactId) {
-        try (Stream<Path> paths = Files.walk(mavenRepo)) {
-            return paths
-                    .filter(p -> p.getFileName().toString().contains(artifactId))
-                    .filter(p -> p.toString().endsWith(".jar"))
-                    .filter(p -> !p.toString().contains("-sources"))
-                    .filter(p -> !p.toString().contains("-javadoc"))
-                    .filter(p -> p.toString().contains("0.1.0-SNAPSHOT") || !artifactId.equals("odata-codegen-runtime"))
-                    .findFirst()
-                    .orElse(null);
-        } catch (Exception e) {
-            return null;
-        }
+        String errors = CompilationHarness.compileAll(out);
+        assertNull(errors, "generated cross-schema same-name client must compile. Errors:\n"
+                + errors);
     }
 }

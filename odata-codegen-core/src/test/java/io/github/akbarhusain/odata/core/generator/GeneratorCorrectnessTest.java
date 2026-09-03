@@ -49,6 +49,43 @@ class GeneratorCorrectnessTest {
     }
 
     @Test
+    void packageSegmentThatIsUnderscoreIsRejected() {
+        // '_' is a reserved keyword since Java 9 — 'package com._;' does not compile
+        assertThrows(IllegalArgumentException.class,
+                () -> Generator.validatePackage("com._"),
+                "'_' is a hard keyword (Java 9+)");
+        assertThrows(IllegalArgumentException.class,
+                () -> Generator.validatePackage("_"));
+    }
+
+    @Test
+    void underscoreNamedPropertyGeneratesCompilableIdentifier(@TempDir Path tmp) throws Exception {
+        // a CSDL property named '_' must rename to '__' (the lone underscore is an
+        // illegal identifier since Java 9) — and the output must compile
+        CsdlModel.EntityTypeModel entity = new CsdlModel.EntityTypeModel("Foo", null,
+                false, false, false,
+                List.of(new CsdlModel.KeyModel(List.of("Id"))),
+                List.of(
+                        new CsdlModel.PropertyModel("Id", "Edm.Int32", false, null, List.of()),
+                        new CsdlModel.PropertyModel("_", "Edm.String", true, null, List.of())),
+                List.of());
+        CsdlModel.SchemaModel schema = new CsdlModel.SchemaModel("NS", null,
+                List.of(entity), List.of(), List.of(), List.of(), List.of(), List.of(), List.of());
+
+        Path out = tmp.resolve("out");
+        new Generator(out, Map.of(), "com.example").generate(new CsdlModel(List.of(schema), List.of()));
+
+        String code = Files.readString(out.resolve("com/example/entity/Foo.java"));
+        assertFalse(code.contains(" String _;") && !code.contains(" String __;"),
+                "the lone-underscore field is illegal since Java 9:\n" + code);
+        assertTrue(code.contains(" String __;"),
+                "the '_' member must rename to '__' like any reserved word:\n" + code);
+
+        String errors = CompilationHarness.compileAll(out);
+        assertNull(errors, "entity with a '_' property must compile. Errors:\n" + errors);
+    }
+
+    @Test
     void contextualKeywordPackageSegmentsAreAccepted() {
         // record/to/open/yield/when are CONTEXTUAL keywords: "package com.record;"
         // compiles (javac-verified). Rejecting them regressed legal metadata —
