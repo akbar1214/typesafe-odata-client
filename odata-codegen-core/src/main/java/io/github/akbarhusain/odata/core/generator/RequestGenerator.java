@@ -19,6 +19,15 @@ public class RequestGenerator extends AbstractTypeGenerator {
 
     private Map<String, EntityTypeModel> entityTypeMap;
     private Map<String, EntityTypeModel> entityTypeByQualifiedName;
+    /**
+     * Shared bound-operation resolver: boundOperationsFor caches per instance
+     * (ancestor chains, bound index, entity index), so constructing one per
+     * entity request rebuilds them per entity — O(entities) redundant work that
+     * profiling put near the top of generation cost. Reused only when this
+     * generator was constructed with the full schema list (constant across
+     * calls); single-schema test constructions keep per-call behavior.
+     */
+    private OperationGenerator sharedBoundGen;
 
     public RequestGenerator(String basePackage) {
         this(basePackage, Map.of());
@@ -103,9 +112,7 @@ public class RequestGenerator extends AbstractTypeGenerator {
 
         // Bound operations (decision 96): accessors embed on the entity request; the op
         // request classes live in the owning schema's .operation package
-        OperationGenerator boundGen = new OperationGenerator(basePackage, schemaPackages,
-                defaultBasePackage, allSchemas == null || allSchemas.isEmpty()
-                        ? List.of(schema) : allSchemas);
+        OperationGenerator boundGen = boundGeneratorFor(schema);
         List<OperationGenerator.BoundOp> boundOps = boundGen.boundOperationsFor(entityType, schema);
         List<String> boundAccessors = new ArrayList<>();
         for (OperationGenerator.BoundOp b : boundOps) {
@@ -704,6 +711,18 @@ public class RequestGenerator extends AbstractTypeGenerator {
         }
         // Own-wins merge: a redeclared stream prop shadows the inherited one
         return mergeOwnWinsProps(inherited, own);
+    }
+
+    private OperationGenerator boundGeneratorFor(SchemaModel schema) {
+        if (allSchemas == null || allSchemas.isEmpty()) {
+            return new OperationGenerator(basePackage, schemaPackages,
+                    defaultBasePackage, List.of(schema));
+        }
+        if (sharedBoundGen == null) {
+            sharedBoundGen = new OperationGenerator(basePackage, schemaPackages,
+                    defaultBasePackage, allSchemas);
+        }
+        return sharedBoundGen;
     }
 
     private EntityTypeModel findBase(EntityTypeModel entityType) {
