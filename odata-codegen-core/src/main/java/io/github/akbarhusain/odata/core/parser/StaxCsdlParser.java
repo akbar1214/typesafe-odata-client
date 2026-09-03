@@ -361,6 +361,10 @@ public class StaxCsdlParser {
                         "PropertyRef in <Key> of EntityType '" + entityName + "'"));
                 String alias = getAttr(event.asStartElement(), "Alias");
                 aliases.add(alias != null ? alias : "");
+            } else if (event.isStartElement()) {
+                warnIgnored("Key of EntityType '" + entityName + "'",
+                        event.asStartElement().getName().getLocalPart());
+                skipElement(reader);
             } else if (event.isEndElement() && isEdmElement(event.asEndElement(), "Key")) {
                 return new KeyModel(propertyRefs, aliases);
             }
@@ -394,6 +398,10 @@ public class StaxCsdlParser {
             if (event.isStartElement() && "ReferentialConstraint".equals(
                     event.asStartElement().getName().getLocalPart())) {
                 constraints.addAll(parseReferentialConstraint(reader, event.asStartElement()));
+            } else if (event.isStartElement()) {
+                warnIgnored("NavigationProperty '" + name + "'",
+                        event.asStartElement().getName().getLocalPart());
+                skipElement(reader);
             } else if (event.isEndElement() && isEdmElement(event.asEndElement(), "NavigationProperty")) {
                 return new NavigationPropertyModel(name, type, partner, containsTarget,
                         nullable, constraints, List.of());
@@ -494,6 +502,10 @@ public class StaxCsdlParser {
                 }
                 lastValue = value;
                 members.add(new EnumMemberModel(memberName, value));
+            } else if (event.isStartElement()) {
+                warnIgnored("EnumType '" + name + "'",
+                        event.asStartElement().getName().getLocalPart());
+                skipElement(reader);
             } else if (event.isEndElement() && isEdmElement(event.asEndElement(), "EnumType")) {
                 return new EnumTypeModel(name, underlyingType, isFlags, members);
             }

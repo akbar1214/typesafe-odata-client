@@ -101,9 +101,13 @@ public class EntityOperations {
                         return (T) context.serializer().deserialize(body, actual);
                     }
                     LOG.log(System.Logger.Level.DEBUG,
-                            "Ignoring unresolvable @odata.type '" + typeName
-                                    + "' for declared type " + declaredType.getName()
-                                    + "; deserializing as declared");
+                            actual == null
+                                    ? "Ignoring unresolvable @odata.type '" + typeName
+                                            + "' for declared type " + declaredType.getName()
+                                            + "; deserializing as declared"
+                                    : "@odata.type '" + typeName + "' resolves to " + actual.getName()
+                                            + ", which is not a " + declaredType.getName()
+                                            + "; deserializing as declared");
                 }
             }
         } catch (IOException e) {

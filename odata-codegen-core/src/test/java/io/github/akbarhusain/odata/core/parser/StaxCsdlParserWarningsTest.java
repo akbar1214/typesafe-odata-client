@@ -69,6 +69,61 @@ class StaxCsdlParserWarningsTest {
     }
 
     @Test
+    void typoInKeyWarns() throws Exception {
+        // A typo'd <PropertyReff> silently loses the key, making the entity
+        // keyless downstream — the worst instance of the typo class.
+        CsdlModel model = parse(HEADER + """
+                <Schema Namespace="NS.Test" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+                  <EntityType Name="Foo">
+                    <Key><PropertyReff Name="Id"/></Key>
+                    <Property Name="Id" Type="Edm.Int32" Nullable="false"/>
+                  </EntityType>
+                </Schema>
+                """ + FOOTER);
+
+        assertTrue(model.warnings().stream().anyMatch(w -> w.contains("PropertyReff")),
+                "typo'd key member must be reported: " + model.warnings());
+    }
+
+    @Test
+    void typoInNavigationPropertyWarns() throws Exception {
+        CsdlModel model = parse(HEADER + """
+                <Schema Namespace="NS.Test" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+                  <EntityType Name="Foo">
+                    <Key><PropertyRef Name="Id"/></Key>
+                    <Property Name="Id" Type="Edm.Int32" Nullable="false"/>
+                    <NavigationProperty Name="BestFriend" Type="NS.Test.Foo">
+                      <ReferentialConstriant Property="Id" ReferencedProperty="Id"/>
+                    </NavigationProperty>
+                  </EntityType>
+                </Schema>
+                """ + FOOTER);
+
+        assertTrue(model.warnings().stream().anyMatch(w -> w.contains("ReferentialConstriant")),
+                "typo'd nav member must be reported: " + model.warnings());
+        assertEquals(1, model.schemas().get(0).entityTypes().get(0).navigationProperties().size(),
+                "the nav itself must still parse around the unknown child");
+    }
+
+    @Test
+    void typoInEnumTypeWarns() throws Exception {
+        CsdlModel model = parse(HEADER + """
+                <Schema Namespace="NS.Test" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+                  <EnumType Name="Kind">
+                    <Member Name="Alpha" Value="0"/>
+                    <Membr Name="Beta" Value="1"/>
+                    <Member Name="Gamma" Value="2"/>
+                  </EnumType>
+                </Schema>
+                """ + FOOTER);
+
+        assertTrue(model.warnings().stream().anyMatch(w -> w.contains("Membr")),
+                "typo'd enum member must be reported: " + model.warnings());
+        assertEquals(2, model.schemas().get(0).enumTypes().get(0).members().size(),
+                "known members must still parse around the unknown one");
+    }
+
+    @Test
     void inlineAnnotationsStaySilent() throws Exception {
         // TripPin nests vocabulary annotations inside EntityType/EntityContainer
         // bodies — legal CSDL the parser discards by design, not a typo signal.
