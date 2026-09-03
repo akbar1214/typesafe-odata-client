@@ -10,6 +10,7 @@ import io.github.akbarhusain.odata.core.model.CsdlModel.FunctionImportModel;
 import io.github.akbarhusain.odata.core.model.CsdlModel.FunctionModel;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -514,7 +515,8 @@ public class OperationGenerator extends AbstractTypeGenerator {
     // Per-instance caches: bound resolution runs once per entity type on large
     // metadata — without them ancestor walking is O(entities × chain × allTypes)
     private final Map<String, List<String>> ancestorCache = new java.util.HashMap<>();
-    private final Map<String, EntityTypeModel> entityTypeByQualifiedNameCache = new java.util.HashMap<>();
+    private Map<String, EntityTypeModel> entityIndex;
+    private Map<String, List<EntityTypeModel>> entitySimpleNameIndex;
     private Map<String, List<BoundCand>> boundIndex;
     private List<String> invalidBindings = List.of();
 
@@ -593,36 +595,38 @@ public class OperationGenerator extends AbstractTypeGenerator {
         return out;
     }
 
-    /** Finds an entity type by qualified name; unqualified refs fall back to a unique simple-name match. */
-    private EntityTypeModel findEntityType(String qualified, String originalRef) {
-        EntityTypeModel cached = entityTypeByQualifiedNameCache.get(qualified);
-        if (cached != null) {
-            return cached;
+    /**
+     * Entity-type index over all schemas, built once per generator instance: the
+     * previous linear scan concatenated {@code namespace + "." + name} per
+     * comparison, costing O(allTypes) per distinct ancestor link (profiling put
+     * ancestor resolution at ~half of all generation allocation on 15k entities).
+     */
+    private void ensureEntityIndex() {
+        if (entityIndex != null) {
+            return;
         }
-        EntityTypeModel found = scanEntityType(qualified, originalRef);
-        if (found != null) {
-            entityTypeByQualifiedNameCache.put(qualified, found);
-        }
-        return found;
-    }
-
-    private EntityTypeModel scanEntityType(String qualified, String originalRef) {
+        Map<String, EntityTypeModel> byQualified = new HashMap<>();
+        Map<String, List<EntityTypeModel>> bySimple = new HashMap<>();
         for (SchemaModel s : effectiveSchemas) {
             for (EntityTypeModel e : s.entityTypes()) {
-                if ((s.namespace() + "." + e.name()).equals(qualified)) {
-                    return e;
-                }
+                byQualified.putIfAbsent(s.namespace() + "." + e.name(), e);
+                bySimple.computeIfAbsent(e.name(), k -> new ArrayList<>()).add(e);
             }
         }
+        entityIndex = byQualified;
+        entitySimpleNameIndex = bySimple;
+    }
+
+    /** Finds an entity type by qualified name; unqualified refs fall back to a unique simple-name match. */
+    private EntityTypeModel findEntityType(String qualified, String originalRef) {
+        ensureEntityIndex();
+        EntityTypeModel found = entityIndex.get(qualified);
+        if (found != null) {
+            return found;
+        }
         if (!originalRef.contains(".")) {
-            List<EntityTypeModel> hits = new ArrayList<>();
-            for (SchemaModel s : effectiveSchemas) {
-                for (EntityTypeModel e : s.entityTypes()) {
-                    if (e.name().equals(originalRef)) {
-                        hits.add(e);
-                    }
-                }
-            }
+            List<EntityTypeModel> hits =
+                    entitySimpleNameIndex.getOrDefault(originalRef, List.of());
             if (hits.size() > 1) {
                 throw new IllegalStateException("Ambiguous unqualified base type '" + originalRef
                         + "' — use the namespace-qualified form");
