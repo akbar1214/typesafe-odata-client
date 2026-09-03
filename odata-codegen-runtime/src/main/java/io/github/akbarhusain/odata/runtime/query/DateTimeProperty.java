@@ -85,18 +85,30 @@ public final class DateTimeProperty<E> implements PropertyExpression<E, String> 
     }
 
     public FilterExpression<E> greaterThan(Object value) {
+        if (value == null) {
+            throw new IllegalArgumentException("greaterThan value must not be null");
+        }
         return new RawFilterExpression(edmName + " gt " + formatLiteral(value));
     }
 
     public FilterExpression<E> greaterThanOrEqualTo(Object value) {
+        if (value == null) {
+            throw new IllegalArgumentException("greaterThanOrEqualTo value must not be null");
+        }
         return new RawFilterExpression(edmName + " ge " + formatLiteral(value));
     }
 
     public FilterExpression<E> lessThan(Object value) {
+        if (value == null) {
+            throw new IllegalArgumentException("lessThan value must not be null");
+        }
         return new RawFilterExpression(edmName + " lt " + formatLiteral(value));
     }
 
     public FilterExpression<E> lessThanOrEqualTo(Object value) {
+        if (value == null) {
+            throw new IllegalArgumentException("lessThanOrEqualTo value must not be null");
+        }
         return new RawFilterExpression(edmName + " le " + formatLiteral(value));
     }
 

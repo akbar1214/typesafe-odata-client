@@ -34,6 +34,15 @@ public record ContextPath(
         if (segments.isEmpty()) {
             throw new IllegalStateException("Cannot add key without a segment");
         }
+        if (name == null) {
+            throw new IllegalArgumentException("key name must not be null");
+        }
+        if (value == null) {
+            throw new IllegalArgumentException("key '" + name + "' value must not be null");
+        }
+        if (edmType == null) {
+            throw new IllegalArgumentException("key '" + name + "' edmType must not be null");
+        }
         Segment last = segments.get(segments.size() - 1);
         Segment updated = new Segment(last.name(),
                 append(last.keys(), new KeyValuePair(name, new TypedValue(value, edmType))),
@@ -47,6 +56,12 @@ public record ContextPath(
         if (segments.isEmpty()) {
             throw new IllegalStateException("Cannot add key without a segment");
         }
+        if (name == null) {
+            throw new IllegalArgumentException("key name must not be null");
+        }
+        if (value == null) {
+            throw new IllegalArgumentException("key '" + name + "' value must not be null");
+        }
         Segment last = segments.get(segments.size() - 1);
         Segment updated = new Segment(last.name(), append(last.keys(), new KeyValuePair(name, value)), last.queries());
         List<Segment> newSegments = new ArrayList<>(segments);
@@ -55,6 +70,12 @@ public record ContextPath(
     }
 
     public ContextPath addQuery(String name, String value) {
+        if (name == null) {
+            throw new IllegalArgumentException("query parameter name must not be null");
+        }
+        if (value == null) {
+            throw new IllegalArgumentException("query parameter '" + name + "' value must not be null");
+        }
         if ("$search".equals(name)) {
             validateSearchTerm(value);
         }

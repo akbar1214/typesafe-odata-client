@@ -676,15 +676,16 @@ public class EntityOperations {
         for (var entry : context.authProvider().getHeaders().entrySet()) {
             headers.put(entry.getKey(), new ArrayList<>(List.of(entry.getValue())));
         }
-        // Request the raw media bytes, not JSON metadata
-        headers.put("Accept", new ArrayList<>(List.of("*/*")));
+        // Request the raw media bytes, not JSON metadata — overwrites any
+        // same-named header case-insensitively so exactly one Accept goes out
+        setHeaderCaseInsensitive(headers, "Accept", "*/*");
 
         HttpRequest request = HttpRequest.builder()
                 .method(HttpMethod.GET)
                 .url(url)
                 .headers(headers)
-                .connectTimeout(Duration.ofSeconds(30))
-                .readTimeout(Duration.ofSeconds(60))
+                .connectTimeout(context.connectTimeout())
+                .readTimeout(context.readTimeout())
                 .build();
 
         return buildTransportChain(context, context.transport()).stream(request);
@@ -744,6 +745,34 @@ public class EntityOperations {
         }
     }
 
+    /**
+     * Appends a value to the header entry whose name matches case-insensitively,
+     * creating it when absent. HTTP header names are case-insensitive (RFC 9110);
+     * exact-key merging would send "authorization" and "Authorization" as two
+     * headers. First-seen casing wins so output stays deterministic.
+     */
+    private static void putHeaderCaseInsensitive(Map<String, List<String>> headers,
+                                                 String name, String value) {
+        for (String key : headers.keySet()) {
+            if (key.equalsIgnoreCase(name)) {
+                headers.get(key).add(value);
+                return;
+            }
+        }
+        headers.put(name, new ArrayList<>(List.of(value)));
+    }
+
+    /**
+     * Sets a header, replacing any existing entry whose name matches
+     * case-insensitively. For protocol-framing headers the runtime owns
+     * (media Accept, batch Content-Type) the forced value must win exactly once.
+     */
+    private static void setHeaderCaseInsensitive(Map<String, List<String>> headers,
+                                                 String name, String value) {
+        headers.keySet().removeIf(key -> key.equalsIgnoreCase(name));
+        headers.put(name, new ArrayList<>(List.of(value)));
+    }
+
     // Internal helpers
 
     public static HttpResponse executeSync(Context context, HttpMethod method, ContextPath path,
@@ -787,7 +816,10 @@ public class EntityOperations {
 
         if (extraHeaders != null) {
             for (var entry : extraHeaders.entrySet()) {
-                headers.computeIfAbsent(entry.getKey(), k -> new ArrayList<>()).add(entry.getValue());
+                // Case-insensitive merge: auth "authorization" plus extra "Authorization"
+                // must become ONE header (the JDK joins duplicate keys "v1, v2" and
+                // breaks auth). First-seen casing wins; values append in order.
+                putHeaderCaseInsensitive(headers, entry.getKey(), entry.getValue());
             }
         }
 
@@ -796,8 +828,8 @@ public class EntityOperations {
                 .url(url)
                 .headers(headers)
                 .body(body)
-                .connectTimeout(Duration.ofSeconds(30))
-                .readTimeout(Duration.ofSeconds(60))
+                .connectTimeout(context.connectTimeout())
+                .readTimeout(context.readTimeout())
                 .build();
 
         HttpTransport transport = buildTransportChain(context, context.transport());

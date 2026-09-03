@@ -18,6 +18,9 @@ public final class NumberProperty<E, N extends Number> extends NumberExpression<
 
     @Override
     public NumberExpression<N, E> divide(N value) {
+        if (value == null) {
+            throw new IllegalArgumentException("divide value must not be null");
+        }
         // OData 'div' is truncating integer division; Double/Decimal/Single must use 'divby'
         // Heuristic must use property's Edm type, not just value type
         boolean floatingProperty = edmType != null && isFloatingEdmType(edmType);

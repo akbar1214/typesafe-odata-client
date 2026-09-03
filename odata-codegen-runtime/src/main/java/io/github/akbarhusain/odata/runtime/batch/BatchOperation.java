@@ -14,6 +14,7 @@ public record BatchOperation(
         // URLs and headers are written verbatim into multipart batch framing; CR/LF/NUL
         // would inject forged headers or whole requests (M5)
         Objects.requireNonNull(url, "url must not be null");
+        Objects.requireNonNull(headers, "headers must not be null");
         rejectLineBreaks("url", url);
         for (var entry : headers.entrySet()) {
             rejectLineBreaks("header name", entry.getKey());

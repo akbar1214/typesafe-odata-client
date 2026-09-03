@@ -49,34 +49,58 @@ public class NumberExpression<N, E> implements OrderExpression<E, N> {
     }
 
     public FilterExpression<E> greaterThan(N value) {
+        if (value == null) {
+            throw new IllegalArgumentException("greaterThan value must not be null");
+        }
         return new RawFilterExpression(expression + " gt " + formatValue(value));
     }
 
     public FilterExpression<E> greaterThanOrEqualTo(N value) {
+        if (value == null) {
+            throw new IllegalArgumentException("greaterThanOrEqualTo value must not be null");
+        }
         return new RawFilterExpression(expression + " ge " + formatValue(value));
     }
 
     public FilterExpression<E> lessThan(N value) {
+        if (value == null) {
+            throw new IllegalArgumentException("lessThan value must not be null");
+        }
         return new RawFilterExpression(expression + " lt " + formatValue(value));
     }
 
     public FilterExpression<E> lessThanOrEqualTo(N value) {
+        if (value == null) {
+            throw new IllegalArgumentException("lessThanOrEqualTo value must not be null");
+        }
         return new RawFilterExpression(expression + " le " + formatValue(value));
     }
 
     public NumberExpression<N, E> add(N value) {
+        if (value == null) {
+            throw new IllegalArgumentException("add value must not be null");
+        }
         return new NumberExpression<>("(" + expression + " add " + formatValue(value) + ")", entityType);
     }
 
     public NumberExpression<N, E> subtract(N value) {
+        if (value == null) {
+            throw new IllegalArgumentException("subtract value must not be null");
+        }
         return new NumberExpression<>("(" + expression + " sub " + formatValue(value) + ")", entityType);
     }
 
     public NumberExpression<N, E> multiply(N value) {
+        if (value == null) {
+            throw new IllegalArgumentException("multiply value must not be null");
+        }
         return new NumberExpression<>("(" + expression + " mul " + formatValue(value) + ")", entityType);
     }
 
     public NumberExpression<N, E> divide(N value) {
+        if (value == null) {
+            throw new IllegalArgumentException("divide value must not be null");
+        }
         // OData 'div' is truncating integer division; Double/Decimal/Single must use 'divby'
         String op = (value instanceof Integer || value instanceof Long
                 || value instanceof Short || value instanceof Byte) ? " div " : " divby ";
@@ -84,6 +108,9 @@ public class NumberExpression<N, E> implements OrderExpression<E, N> {
     }
 
     public NumberExpression<N, E> modulo(N value) {
+        if (value == null) {
+            throw new IllegalArgumentException("modulo value must not be null");
+        }
         return new NumberExpression<>("(" + expression + " mod " + formatValue(value) + ")", entityType);
     }
 
