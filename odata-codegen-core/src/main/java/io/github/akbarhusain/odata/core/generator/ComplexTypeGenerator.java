@@ -46,7 +46,6 @@ public class ComplexTypeGenerator extends AbstractTypeGenerator {
         String pkg = basePackage + Names.packageNameSuffixComplexType();
         String className = Names.complexTypeClassName(complexType.name());
         ComplexTypeModel base = findBase(complexType);
-        String baseSimpleName = base != null ? Names.complexTypeClassName(Names.simpleNameFromFullName(complexType.baseType())) : null;
 
         List<PropertyModel> ownProps = complexType.properties();
         List<PropertyModel> inheritedProps = inheritedProperties(complexType);
@@ -78,11 +77,31 @@ public class ComplexTypeGenerator extends AbstractTypeGenerator {
         imports.add("io.github.akbarhusain.odata.runtime.entity.ODataType");
         imports.add("io.github.akbarhusain.odata.runtime.entity.ContextPath");
         imports.add("io.github.akbarhusain.odata.runtime.query.*");
+        // Contested simple names (same-named types from different output packages, and
+        // the BASE type of the extends clause) must be referenced fully-qualified and
+        // never imported — resolve references before imports print. Nav targets resolve
+        // through the typedef chain so candidates key on the emitted underlying class.
+        String baseQualifiedName = base == null ? null
+                : baseQualifiedNameOf(base, complexType.baseType(), schema);
+        List<String> refCandidates = new ArrayList<>();
+        for (PropertyModel prop : allProps) {
+            collectPropertyTypeFqns(prop, schema, refCandidates);
+        }
+        for (NavigationPropertyModel nav : allNavs) {
+            String fqn = navTargetFqn(nav, schema);
+            if (fqn != null) {
+                refCandidates.add(fqn);
+            }
+        }
+        if (baseQualifiedName != null) {
+            refCandidates.add(typeFqnOf(baseQualifiedName, schema));
+        }
+        this.typeRefs = TypeRefs.resolve(refCandidates);
         if (openType) {
             imports.add("io.github.akbarhusain.odata.runtime.serialization.DynamicPropertyConverter");
         }
-        if (base != null) {
-            imports.add(basePackageForType(complexType.baseType(), schema) + Names.packageNameSuffixComplexType() + "." + baseSimpleName);
+        if (baseQualifiedName != null && !isContested(baseQualifiedName, schema)) {
+            imports.add(typeFqnOf(baseQualifiedName, schema));
         }
         for (PropertyModel prop : allProps) {
             addPropertyImports(prop, imports, schema);
@@ -92,13 +111,15 @@ public class ComplexTypeGenerator extends AbstractTypeGenerator {
         }
         for (NavigationPropertyModel nav : allNavs) {
             // Skip self-referencing navs: importing the class being generated is a compile error
-            String navElementType = Names.unwrapCollectionType(nav.type());
-            String navTargetClass = Names.resolvedClassName(navElementType, effectiveSchemas);
-            String navTargetPkg = basePackageForType(navElementType, schema) + Names.resolvedSuffix(navElementType, effectiveSchemas);
-            if (navTargetClass.equals(className) && navTargetPkg.equals(pkg)) {
+            String fqn = navTargetFqn(nav, schema);
+            if (fqn == null || fqn.equals(pkg + "." + className)) {
                 continue;
             }
-            addNavImports(nav, imports, schema);
+            String ref = typeRefs.get(fqn);
+            if (ref != null && ref.contains(".")) {
+                continue; // contested simple name — referenced fully-qualified, never imported
+            }
+            imports.add(fqn);
         }
         if (hasCollection || openType || !allNavs.isEmpty()) {
             imports.add("java.util.Collections");
@@ -118,7 +139,7 @@ public class ComplexTypeGenerator extends AbstractTypeGenerator {
             sb.append("public class ").append(className);
         }
         if (base != null) {
-            sb.append(" extends ").append(baseSimpleName);
+            sb.append(" extends ").append(refFor(baseQualifiedName, schema));
         }
         sb.append(" implements ODataType {\n\n");
 
@@ -427,6 +448,26 @@ public class ComplexTypeGenerator extends AbstractTypeGenerator {
         String ns = complexTypeNamespace.get(Names.complexTypeClassName(root.name()));
         if (ns == null) return false;
         return openRootNamesForSchema(ns).contains(Names.complexTypeClassName(root.name()));
+    }
+
+    /**
+     * The base type's authoritative qualified name: the written form when qualified
+     * (aliases are namespace-resolved at parse), else the owning schema found by
+     * IDENTITY — the simple-name-keyed namespace map cannot distinguish same-named
+     * bases from different schemas (exactly the split-merge case TypeRefs exists for).
+     */
+    private String baseQualifiedNameOf(ComplexTypeModel base, String baseType, SchemaModel schema) {
+        if (baseType != null && !Names.namespaceFromFullName(baseType).isEmpty()) {
+            return baseType;
+        }
+        for (SchemaModel s : effectiveSchemas) {
+            for (ComplexTypeModel ct : s.complexTypes()) {
+                if (ct == base) {
+                    return s.namespace() + "." + base.name();
+                }
+            }
+        }
+        return schema.namespace() + "." + base.name();
     }
 
     private ComplexTypeModel findBase(ComplexTypeModel complexType) {

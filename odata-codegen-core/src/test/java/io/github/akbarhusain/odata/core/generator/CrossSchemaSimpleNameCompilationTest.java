@@ -71,8 +71,17 @@ class CrossSchemaSimpleNameCompilationTest {
                         new CsdlModel.EntitySetModel("As2", "Two.A", List.of(), List.of()),
                         new CsdlModel.EntitySetModel("Holders", "One.Holder", List.of(), List.of())),
                 List.of(), List.of(), List.of());
+        // Complex type navigating to BOTH same-named A's — complex-type nav imports and
+        // Filterable collection-nav fields must resolve the contested name too
+        CsdlModel.ComplexTypeModel info = new CsdlModel.ComplexTypeModel("Info", null,
+                false, false,
+                List.of(),
+                List.of(new CsdlModel.NavigationPropertyModel("As1",
+                        "Collection(One.A)", null, false, false, List.of(), List.of()),
+                        new CsdlModel.NavigationPropertyModel("As2",
+                                "Collection(Two.A)", null, false, false, List.of(), List.of())));
         CsdlModel.SchemaModel one = new CsdlModel.SchemaModel("One", null,
-                List.of(base, oneA, holder), List.of(), List.of(), List.of(), List.of(), List.of(),
+                List.of(base, oneA, holder), List.of(info), List.of(), List.of(), List.of(), List.of(),
                 List.of(container));
         CsdlModel.SchemaModel two = new CsdlModel.SchemaModel("Two", null,
                 List.of(twoA), List.of(addr), List.of(), List.of(), List.of(), List.of(), List.of());
@@ -128,6 +137,16 @@ class CrossSchemaSimpleNameCompilationTest {
         assertTrue(aReqImports <= 2,
                 "collection+entity request imports for A must not exceed one package each:\n"
                         + containerSource);
+
+        // Complex types navigate to both same-named A's: nav imports AND Filterable
+        // collection-nav fields must resolve the contested name (FQN), never ambiguous
+        String infoSource = Files.readString(out.resolve("com/p1/complex/Info.java"));
+        long infoAImports = infoSource.lines().filter(l -> l.startsWith("import ")
+                && l.endsWith(".entity.A;")).count();
+        assertTrue(infoAImports <= 1, "complex nav imports must not claim simple name A twice:\n"
+                + infoSource);
+        assertTrue(infoSource.contains("com.p2.entity.A"),
+                "the contested Filterable/nav reference is fully qualified:\n" + infoSource);
 
         JavaCompiler compiler = ToolProvider.getSystemJavaCompiler();
         assertNotNull(compiler);

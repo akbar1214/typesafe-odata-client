@@ -133,6 +133,43 @@ class NavPropertyExpandTest {
     }
 
     @Test
+    void navQueryRawComposesWithOptions() {
+        NavProperty<Object, Object> abc = new NavProperty<>("abc", Object.class, Object.class);
+        NavProperty.NavQuery<Object, Object> query = NavProperty.NavQuery.<Object, Object>raw("Versions/ABC.Doc")
+                .expand(abc);
+        assertEquals("Versions/ABC.Doc($expand=abc)", query.toODataExpand(),
+                "raw is a root path; chained options must render, not be silently dropped");
+    }
+
+    @Test
+    void navQueryRawChainsIntoExistingOptionGroup() {
+        // a raw string that ALREADY carries an option group must merge chained options
+        // with ';' — appending a second paren group would emit invalid OData
+        NavProperty<Object, Object> abc2 = new NavProperty<>("abc2", Object.class, Object.class);
+        NavProperty.NavQuery<Object, Object> query = NavProperty.NavQuery
+                .<Object, Object>raw("Versions/ABC.Doc($expand=abc)")
+                .expand(abc2);
+        assertEquals("Versions/ABC.Doc($expand=abc;$expand=abc2)", query.toODataExpand());
+    }
+
+    @Test
+    void navQueryRawEmptyOptionGroupTakesChainedOptions() {
+        NavProperty.NavQuery<Object, Object> query =
+                NavProperty.NavQuery.<Object, Object>raw("A()").top(2);
+        assertEquals("A($top=2)", query.toODataExpand(),
+                "an empty trailing group is replaced by the chained options");
+    }
+
+    @Test
+    void navQueryRawNestedOptionGroupMergesAtTopLevel() {
+        // nested parens inside the existing group (a lambda) must not confuse the merge
+        NavProperty.NavQuery<Object, Object> query = NavProperty.NavQuery
+                .<Object, Object>raw("Trips($filter=Items/any(d: d/V eq 1))")
+                .top(1);
+        assertEquals("Trips($filter=Items/any(d: d/V eq 1);$top=1)", query.toODataExpand());
+    }
+
+    @Test
     void navPropertyAsRejectsBlankCast() {
         NavProperty<Object, Version> versions = new NavProperty<>("Versions", Object.class, Version.class);
 

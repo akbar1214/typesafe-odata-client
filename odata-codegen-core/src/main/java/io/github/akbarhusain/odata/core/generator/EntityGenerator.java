@@ -54,7 +54,6 @@ public class EntityGenerator extends AbstractTypeGenerator {
         String pkg = basePackage + Names.packageNameSuffixEntity();
         String className = Names.entityClassName(entityType.name());
         EntityTypeModel base = findBase(entityType);
-        String baseSimpleName = base != null ? Names.entityClassName(base.name()) : null;
 
         boolean isBase = extendedBasesForSchema(schema).contains(className);
 
@@ -96,20 +95,27 @@ public class EntityGenerator extends AbstractTypeGenerator {
         imports.add("io.github.akbarhusain.odata.runtime.query.*");
 
         // Reference resolution FIRST: two schemas may contribute the same simple name
-        // to this file (nav targets, property types, cast subtypes) — contested names
-        // are referenced fully-qualified and never imported
+        // to this file (nav targets, property types, cast subtypes, the BASE type of
+        // the extends clause) — contested names are referenced fully-qualified and
+        // never imported. Nav targets resolve through the typedef chain so candidates
+        // key on the class actually emitted (navJavaType/refFor), never the typedef name.
+        String baseQualifiedName = base == null ? null
+                : baseQualifiedNameOf(base, entityType.baseType(), schema);
         List<String> refCandidates = new ArrayList<>();
         for (NavigationPropertyModel nav : allNavs) {
-            String elementType = Names.unwrapCollectionType(nav.type());
-            String edmSimpleName = Names.simpleNameFromFullName(elementType);
-            if (!isBuiltinType(edmSimpleName)) {
-                refCandidates.add(basePackageForType(elementType, schema)
-                        + Names.resolvedSuffix(elementType, effectiveSchemas)
-                        + "." + Names.resolvedClassName(elementType, effectiveSchemas));
+            if (isBuiltinType(Names.simpleNameFromFullName(Names.unwrapCollectionType(nav.type())))) {
+                continue;
+            }
+            String fqn = navTargetFqn(nav, schema);
+            if (fqn != null) {
+                refCandidates.add(fqn);
             }
         }
         for (PropertyModel prop : allProps) {
             collectPropertyTypeFqns(prop, schema, refCandidates);
+        }
+        if (baseQualifiedName != null) {
+            refCandidates.add(typeFqnOf(baseQualifiedName, schema));
         }
         SubtypeRefs subtypeRefs = subtypeReferences(entityType, className, pkg, schema);
         for (NavigationPropertyModel nav : entityType.navigationProperties()) {
@@ -122,21 +128,19 @@ public class EntityGenerator extends AbstractTypeGenerator {
         this.typeRefs = TypeRefs.resolve(refCandidates);
 
         for (NavigationPropertyModel nav : allNavs) {
-            String elementType = Names.unwrapCollectionType(nav.type());
-            String edmSimpleName = Names.simpleNameFromFullName(elementType);
-            if (!isBuiltinType(edmSimpleName)) {
-                // Skip self-referencing navs: importing the class being generated is a compile error
-                String navTargetClass = Names.resolvedClassName(elementType, effectiveSchemas);
-                String suffix = Names.resolvedSuffix(elementType, effectiveSchemas);
-                if (navTargetClass.equals(className)
-                        && (basePackageForType(elementType, schema) + suffix).equals(pkg)) {
-                    continue;
-                }
-                if (isContested(elementType, schema)) {
-                    continue;
-                }
-                imports.add(basePackageForType(elementType, schema) + suffix + "." + navTargetClass);
+            if (isBuiltinType(Names.simpleNameFromFullName(Names.unwrapCollectionType(nav.type())))) {
+                continue;
             }
+            // Skip self-referencing navs: importing the class being generated is a compile error
+            String fqn = navTargetFqn(nav, schema);
+            if (fqn == null || fqn.equals(pkg + "." + className)) {
+                continue;
+            }
+            String ref = typeRefs.get(fqn);
+            if (ref != null && ref.contains(".")) {
+                continue; // contested simple name — referenced fully-qualified, never imported
+            }
+            imports.add(fqn);
         }
         // Cast-constant references (decision 18a): two schemas may declare entities with
         // the SAME simple name, and a subtype may collide with the generated class itself.
@@ -153,8 +157,8 @@ public class EntityGenerator extends AbstractTypeGenerator {
         for (PropertyModel prop : allProps) {
             addPropertyImports(prop, imports, schema);
         }
-        if (base != null) {
-            imports.add(basePackageForType(entityType.baseType(), schema) + Names.packageNameSuffixEntity() + "." + baseSimpleName);
+        if (baseQualifiedName != null && !isContested(baseQualifiedName, schema)) {
+            imports.add(typeFqnOf(baseQualifiedName, schema));
         }
 
         for (String imp : imports) {
@@ -171,7 +175,7 @@ public class EntityGenerator extends AbstractTypeGenerator {
             sb.append("public final class ").append(className);
         }
         if (base != null) {
-            sb.append(" extends ").append(baseSimpleName);
+            sb.append(" extends ").append(refFor(baseQualifiedName, schema));
         }
         sb.append(" implements ODataEntityType {\n\n");
 
@@ -404,14 +408,17 @@ public class EntityGenerator extends AbstractTypeGenerator {
                     String bt = et.baseType();
                     if (bt != null && !bt.isBlank()) {
                         EntityTypeModel base = findBaseGlobal(bt);
+                        // The base's namespace must be resolved EXACTLY (written qualified
+                        // form, else identity scan) — the simple-name-keyed entityNamespace
+                        // map returns ONE namespace when two schemas declare the same
+                        // simple-named base, registering the extends under the wrong schema
                         String baseNs;
                         if (base != null) {
-                            baseNs = entityNamespace.getOrDefault(Names.entityClassName(base.name()), Names.namespaceFromFullName(bt));
-                            if (baseNs == null || baseNs.isEmpty()) baseNs = s.namespace();
+                            baseNs = Names.namespaceFromFullName(baseQualifiedNameOf(base, bt, s));
                         } else {
                             baseNs = Names.namespaceFromFullName(bt);
-                            if (baseNs.isEmpty()) baseNs = s.namespace();
                         }
+                        if (baseNs == null || baseNs.isEmpty()) baseNs = s.namespace();
                         if (baseNs.equals(ns)) {
                             String baseName = base != null ? base.name() : Names.simpleNameFromFullName(bt);
                             bases.add(Names.entityClassName(baseName));
@@ -486,6 +493,26 @@ public class EntityGenerator extends AbstractTypeGenerator {
     // mutable unmappedFields map that @JsonAnySetter can populate for the open subtype).
     private boolean subtreeHasOpen(EntityTypeModel root) {
         return openRootNamesForSchema(entityNamespace.getOrDefault(Names.entityClassName(root.name()), "")).contains(Names.entityClassName(root.name()));
+    }
+
+    /**
+     * The base type's authoritative qualified name: the written form when qualified
+     * (aliases are namespace-resolved at parse), else the owning schema found by
+     * IDENTITY — the simple-name-keyed namespace map cannot distinguish same-named
+     * bases from different schemas (exactly the split-merge case TypeRefs exists for).
+     */
+    private String baseQualifiedNameOf(EntityTypeModel base, String baseType, SchemaModel schema) {
+        if (baseType != null && !Names.namespaceFromFullName(baseType).isEmpty()) {
+            return baseType;
+        }
+        for (SchemaModel s : effectiveSchemas) {
+            for (EntityTypeModel et : s.entityTypes()) {
+                if (et == base) {
+                    return s.namespace() + "." + base.name();
+                }
+            }
+        }
+        return schema.namespace() + "." + base.name();
     }
 
     private EntityTypeModel findBase(EntityTypeModel entityType) {
@@ -601,19 +628,6 @@ public class EntityGenerator extends AbstractTypeGenerator {
                 + " = new " + constantType + "<>(\"" + prop.name() + "\", " + className + ".class"
                 + extra
                 + ");\n";
-    }
-
-    /** Mirrors addPropertyImports: the generated-class FQNs a property contributes to the file. */
-    private void collectPropertyTypeFqns(PropertyModel prop, SchemaModel schema, List<String> out) {
-        String edmType = resolveTypeDefinition(prop.edmType(), schema);
-        if (Names.isCollectionType(edmType)) {
-            String resolvedElement = resolveTypeDefinition(Names.unwrapCollectionType(edmType), schema);
-            if (!Names.isPrimitiveType(resolvedElement)) {
-                out.add(typeFqnOf(resolvedElement, schema));
-            }
-        } else if (!Names.isPrimitiveType(edmType)) {
-            out.add(typeFqnOf(edmType, schema));
-        }
     }
 
     private String generateNavPropertyConstant(NavigationPropertyModel nav, String className, SchemaModel schema) {
