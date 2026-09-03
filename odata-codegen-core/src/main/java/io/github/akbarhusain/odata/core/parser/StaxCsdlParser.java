@@ -16,6 +16,7 @@ import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -55,9 +56,32 @@ public class StaxCsdlParser {
             }
         }
 
+        if (schemas.isEmpty()) {
+            // A document with no parsable Schema previously produced an empty model
+            // with no signal — wrong-namespace feeds and empty documents all looked
+            // like "success with zero types"
+            throw new IllegalArgumentException(
+                    "No OData Schema found in document (expected <Schema> under <edmx:DataServices>)");
+        }
         schemas = fixupCrossSchemaAliases(schemas);
 
         return new CsdlModel(mergeContainerInheritance(schemas), List.copyOf(warnings));
+    }
+
+    /**
+     * Records a skipped unknown element. Every silent drop is a potential typo'd
+     * member name (e.g. {@code <Proprety>}) — surfacing it beats debugging why a
+     * generated client is missing a property. Inline {@code <Annotation>} elements
+     * are exempt: they are legal CSDL that this parser discards by design
+     * (vocabulary annotations carry no codegen signal), and real feeds
+     * (TripPin, OData Demo) nest them inside EntityType/EntityContainer bodies —
+     * warning on them would be noise, not signal.
+     */
+    private void warnIgnored(String parent, String localName) {
+        if ("Annotation".equals(localName)) {
+            return;
+        }
+        warnings.add(parent + ": ignored unknown element <" + localName + ">");
     }
 
     private List<SchemaModel> fixupCrossSchemaAliases(List<SchemaModel> schemas) {
@@ -177,6 +201,20 @@ public class StaxCsdlParser {
                 schemas.add(parseSchema(reader, event.asStartElement()));
             } else if (event.isEndElement() && isEdmxElement(event.asEndElement(), "DataServices")) {
                 return;
+            } else if (event.isStartElement()) {
+                StartElement el = event.asStartElement();
+                String skipped = el.getName().getLocalPart();
+                if ("Schema".equals(skipped)) {
+                    // Right element, wrong namespace: name it, or the skip is a mystery
+                    // (a typo'd xmlns silently dropping a whole schema otherwise)
+                    String declared = getAttr(el, "Namespace");
+                    warnIgnored("DataServices", "Schema"
+                            + (declared != null ? " Namespace='" + declared + "'" : "")
+                            + " (namespace mismatch)");
+                } else {
+                    warnIgnored("DataServices", skipped);
+                }
+                skipElement(reader);
             }
         }
     }
@@ -254,7 +292,8 @@ public class StaxCsdlParser {
             XMLEvent event = reader.nextEvent();
             if (event.isStartElement()) {
                 StartElement child = event.asStartElement();
-                switch (child.getName().getLocalPart()) {
+                String localName = child.getName().getLocalPart();
+                switch (localName) {
                     case "Key" -> {
                         // CSDL allows at most one <Key> per entity type; accepting several
                         // produced per-key single-key accessors for a composite-key entity
@@ -266,7 +305,10 @@ public class StaxCsdlParser {
                     }
                     case "Property" -> properties.add(parseProperty(reader, child));
                     case "NavigationProperty" -> navProps.add(parseNavigationProperty(reader, child));
-                    default -> skipElement(reader);
+                    default -> {
+                        warnIgnored("EntityType '" + name + "'", localName);
+                        skipElement(reader);
+                    }
                 }
             } else if (event.isEndElement() && isEdmElement(event.asEndElement(), "EntityType")) {
                 return new EntityTypeModel(name, baseType, openType, abstractType, hasStream,
@@ -292,10 +334,14 @@ public class StaxCsdlParser {
             XMLEvent event = reader.nextEvent();
             if (event.isStartElement()) {
                 StartElement child = event.asStartElement();
-                switch (child.getName().getLocalPart()) {
+                String localName = child.getName().getLocalPart();
+                switch (localName) {
                     case "Property" -> properties.add(parseProperty(reader, child));
                     case "NavigationProperty" -> navProps.add(parseNavigationProperty(reader, child));
-                    default -> skipElement(reader);
+                    default -> {
+                        warnIgnored("ComplexType '" + name + "'", localName);
+                        skipElement(reader);
+                    }
                 }
             } else if (event.isEndElement() && isEdmElement(event.asEndElement(), "ComplexType")) {
                 return new ComplexTypeModel(name, baseType, openType, abstractType, properties, navProps);
@@ -382,7 +428,10 @@ public class StaxCsdlParser {
                         if ("P".equals(section)) principal.add(name);
                         else if ("D".equals(section)) dependent.add(name);
                     }
-                    default -> skipElement(reader);
+                    default -> {
+                        warnIgnored("ReferentialConstraint", localName);
+                        skipElement(reader);
+                    }
                 }
             } else if (event.isEndElement()) {
                 String localName = event.asEndElement().getName().getLocalPart();
@@ -476,12 +525,16 @@ public class StaxCsdlParser {
             XMLEvent event = reader.nextEvent();
             if (event.isStartElement()) {
                 StartElement child = event.asStartElement();
-                switch (child.getName().getLocalPart()) {
+                String localName = child.getName().getLocalPart();
+                switch (localName) {
                     case "Parameter" -> parameters.add(parseParameter(child));
                     case "ReturnType" -> returnType = new ReturnTypeModel(
                             resolveTypeRef(getAttr(child, "Type")),
                             !"false".equals(getAttr(child, "Nullable")));
-                    default -> skipElement(reader);
+                    default -> {
+                        warnIgnored("Function '" + name + "'", localName);
+                        skipElement(reader);
+                    }
                 }
             } else if (event.isEndElement() && isEdmElement(event.asEndElement(), "Function")) {
                 return new FunctionModel(name, isBound, isComposable, entitySetPath,
@@ -506,12 +559,16 @@ public class StaxCsdlParser {
             XMLEvent event = reader.nextEvent();
             if (event.isStartElement()) {
                 StartElement child = event.asStartElement();
-                switch (child.getName().getLocalPart()) {
+                String localName = child.getName().getLocalPart();
+                switch (localName) {
                     case "Parameter" -> parameters.add(parseParameter(child));
                     case "ReturnType" -> returnType = new ReturnTypeModel(
                             resolveTypeRef(getAttr(child, "Type")),
                             !"false".equals(getAttr(child, "Nullable")));
-                    default -> skipElement(reader);
+                    default -> {
+                        warnIgnored("Action '" + name + "'", localName);
+                        skipElement(reader);
+                    }
                 }
             } else if (event.isEndElement() && isEdmElement(event.asEndElement(), "Action")) {
                 return new ActionModel(name, isBound, entitySetPath, parameters, returnType);
@@ -542,12 +599,16 @@ public class StaxCsdlParser {
             XMLEvent event = reader.nextEvent();
             if (event.isStartElement()) {
                 StartElement child = event.asStartElement();
-                switch (child.getName().getLocalPart()) {
+                String localName = child.getName().getLocalPart();
+                switch (localName) {
                     case "EntitySet" -> entitySets.add(parseEntitySet(reader, child));
                     case "Singleton" -> singletons.add(parseSingleton(reader, child));
                     case "FunctionImport" -> functionImports.add(parseFunctionImport(child));
                     case "ActionImport" -> actionImports.add(parseActionImport(child));
-                    default -> skipElement(reader);
+                    default -> {
+                        warnIgnored("EntityContainer '" + name + "'", localName);
+                        skipElement(reader);
+                    }
                 }
             } else if (event.isEndElement() && isEdmElement(event.asEndElement(), "EntityContainer")) {
                 return new ContainerModel(name, extendsContainer, entitySets, singletons, functionImports, actionImports);
@@ -572,6 +633,10 @@ public class StaxCsdlParser {
                 bindings.add(new NavigationPropertyBindingModel(
                         getAttr(bindingEl, "Path"),
                         getAttr(bindingEl, "Target")));
+            } else if (event.isStartElement()) {
+                warnIgnored("EntitySet '" + name + "'",
+                        event.asStartElement().getName().getLocalPart());
+                skipElement(reader);
             } else if (event.isEndElement() && isEdmElement(event.asEndElement(), "EntitySet")) {
                 return new EntitySetModel(name, entityType, bindings, List.of());
             }
@@ -595,6 +660,10 @@ public class StaxCsdlParser {
                 bindings.add(new NavigationPropertyBindingModel(
                         getAttr(bindingEl, "Path"),
                         getAttr(bindingEl, "Target")));
+            } else if (event.isStartElement()) {
+                warnIgnored("Singleton '" + name + "'",
+                        event.asStartElement().getName().getLocalPart());
+                skipElement(reader);
             } else if (event.isEndElement() && isEdmElement(event.asEndElement(), "Singleton")) {
                 return new SingletonModel(name, type, bindings);
             }
@@ -707,7 +776,12 @@ public class StaxCsdlParser {
         }
 
         Map<String, ContainerModel> byQualifiedName = new HashMap<>();
-        Map<ContainerModel, String> namespaceOf = new HashMap<>();
+        // Identity-keyed: containers are records (value equality), so two
+        // identical-valued containers from different schemas would collapse
+        // last-wins under equals() — and an unqualified Extends would then
+        // resolve in the WRONG schema's namespace. (The `candidate != container`
+        // check below is already identity-based and stays as is.)
+        Map<ContainerModel, String> namespaceOf = new IdentityHashMap<>();
         for (SchemaModel schema : schemas) {
             for (ContainerModel container : schema.containers()) {
                 byQualifiedName.putIfAbsent(schema.namespace() + "." + container.name(), container);
