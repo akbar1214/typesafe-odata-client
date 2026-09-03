@@ -199,9 +199,19 @@ public class NavProperty<E, T> {
         }
 
         public String toODataExpand() {
-            StringBuilder sb = new StringBuilder(edmName);
+            String root = edmName;
             if (castSegment != null) {
-                sb.append('/').append(castSegment);
+                root = root + '/' + castSegment;
+            }
+            // A raw() root may already carry an option group, e.g. raw("A($expand=x)").
+            // Chained options must MERGE into that group with ';' — appending a second
+            // paren group would emit invalid OData: A($expand=x)($top=1).
+            String existingOptions = null;
+            int open = trailingOptionGroupOpen(root);
+            if (open >= 0) {
+                String inner = root.substring(open + 1, root.length() - 1).strip();
+                existingOptions = inner.isEmpty() ? null : inner;
+                root = root.substring(0, open);
             }
             List<String> options = new ArrayList<>();
             if (!selects.isEmpty()) {
@@ -232,10 +242,40 @@ public class NavProperty<E, T> {
             if (!expands.isEmpty()) {
                 options.add("$expand=" + String.join(",", expands));
             }
-            if (!options.isEmpty()) {
-                sb.append("(").append(String.join(";", options)).append(")");
+            if (options.isEmpty()) {
+                // no chained options: the root keeps its verbatim shape (with or
+                // without its existing option group)
+                return existingOptions == null ? root : root + "(" + existingOptions + ")";
             }
-            return sb.toString();
+            if (existingOptions != null) {
+                options.add(0, existingOptions);
+            }
+            return root + "(" + String.join(";", options) + ")";
+        }
+
+        /**
+         * Index of the '(' matching a trailing ')' at the top level of the path,
+         * or -1 when the path does not end in a parenthesized option group. Scanning
+         * backward from the end means nested groups (lambdas, casts) inside the
+         * trailing group do not confuse the match.
+         */
+        private static int trailingOptionGroupOpen(String path) {
+            if (!path.endsWith(")")) {
+                return -1;
+            }
+            int depth = 0;
+            for (int i = path.length() - 1; i >= 0; i--) {
+                char c = path.charAt(i);
+                if (c == ')') {
+                    depth++;
+                } else if (c == '(') {
+                    depth--;
+                    if (depth == 0) {
+                        return i;
+                    }
+                }
+            }
+            return -1;
         }
     }
 }

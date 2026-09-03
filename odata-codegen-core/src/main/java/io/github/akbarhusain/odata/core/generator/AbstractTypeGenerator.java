@@ -310,15 +310,30 @@ public abstract class AbstractTypeGenerator {
     }
 
     protected void addNavImports(NavigationPropertyModel nav, Set<String> imports, SchemaModel schema) {
-        String edmType = Names.unwrapCollectionType(nav.type());
-        String suffix = Names.resolvedSuffix(edmType, effectiveSchemas);
-        String className = Names.resolvedClassName(edmType, effectiveSchemas);
-        String fqn = basePackageForType(edmType, schema) + suffix + "." + className;
+        String fqn = navTargetFqn(nav, schema);
+        if (fqn == null) {
+            return;
+        }
         String ref = typeRefs.get(fqn);
         if (ref != null && ref.contains(".")) {
             return; // contested simple name — referenced fully-qualified, never imported
         }
         imports.add(fqn);
+    }
+
+    /**
+     * Import-candidate FQN for a navigation target — the typedef chain is RESOLVED
+     * first so the candidate keys match the {@code navJavaType()}/{@code refFor()}
+     * emission (a typedef has no generated class of its own; the file references the
+     * underlying entity/complex/enum). Null when the target resolves to an Edm
+     * primitive: no generated class, no import, no candidate.
+     */
+    protected String navTargetFqn(NavigationPropertyModel nav, SchemaModel schema) {
+        String resolved = resolveTypeDefinition(Names.unwrapCollectionType(nav.type()), schema);
+        if (Names.isPrimitiveType(resolved)) {
+            return null;
+        }
+        return typeFqnOf(resolved, schema);
     }
 
     /** Mirrors addPropertyImports: the generated-class FQNs a property contributes to the file. */
