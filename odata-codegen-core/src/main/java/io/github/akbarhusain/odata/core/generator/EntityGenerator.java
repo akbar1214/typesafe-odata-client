@@ -7,8 +7,10 @@ import io.github.akbarhusain.odata.core.model.CsdlModel.PropertyModel;
 import io.github.akbarhusain.odata.core.model.CsdlModel.SchemaModel;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -18,9 +20,11 @@ public class EntityGenerator extends AbstractTypeGenerator {
 
     private Map<String, EntityTypeModel> entityTypeMap;
     private Map<String, EntityTypeModel> entityTypeByQualifiedName;
-    // Keyed by entity class name (String, not EntityTypeModel record) to avoid
-    // expensive record hashCode() that iterates all properties.
-    private java.util.Map<String, String> entityNamespace;
+    // Keyed by model IDENTITY (not class name, not the record itself): two schemas
+    // may declare same-named types (split-merge) that a simple-name key collapses
+    // last-wins, and records have value equality (equal-valued distinct types would
+    // false-positive). IdentityHashMap lookups stay O(1).
+    private java.util.Map<EntityTypeModel, String> entityNamespaces;
     private java.util.Map<String, Set<String>> schemaExtendedBases;
     private java.util.Map<String, Set<String>> schemaOpenRootNames;
     private Map<String, List<EntitySubtype>> subtypesByBase;
@@ -59,12 +63,15 @@ public class EntityGenerator extends AbstractTypeGenerator {
 
         List<PropertyModel> ownProps = entityType.properties();
         List<PropertyModel> inheritedProps = inheritedProperties(entityType);
-        List<PropertyModel> allProps = new ArrayList<>(inheritedProps);
-        allProps.addAll(ownProps);
-
         List<NavigationPropertyModel> inheritedNavs = inheritedNavProperties(entityType);
-        List<NavigationPropertyModel> allNavs = new ArrayList<>(inheritedNavs);
-        allNavs.addAll(entityType.navigationProperties());
+        // Incompatible redeclaration (different type/nullability) is unrepresentable
+        // in Java inheritance — fail loudly before merging
+        checkRedeclarationConflicts(className, inheritedProps, ownProps,
+                inheritedNavs, entityType.navigationProperties(), schema);
+        // Own-wins merge: a compatible redeclared member shadows the inherited one (single copy)
+        List<PropertyModel> allProps = mergeOwnWinsProps(inheritedProps, ownProps);
+
+        List<NavigationPropertyModel> allNavs = mergeOwnWinsNavs(inheritedNavs, entityType.navigationProperties());
         List<NavigationPropertyModel> ownNavs = entityType.navigationProperties();
 
         allocateConstantNames(allProps, allNavs);
@@ -383,21 +390,31 @@ public class EntityGenerator extends AbstractTypeGenerator {
         if (entityTypeMap != null) return;
         entityTypeMap = new HashMap<>();
         Map<String, EntityTypeModel> crossSchemaMap = new HashMap<>();
-        java.util.Map<String, String> nsMap = new java.util.HashMap<>();
+        java.util.Map<EntityTypeModel, String> nsMap = new java.util.IdentityHashMap<>();
         for (SchemaModel s : effectiveSchemas) {
             for (EntityTypeModel et : s.entityTypes()) {
                 String qn = s.namespace() + "." + et.name();
                 crossSchemaMap.put(qn, et);
-                nsMap.put(Names.entityClassName(et.name()), s.namespace());
+                nsMap.put(et, s.namespace());
                 if (s.namespace().equals(schema.namespace())) {
                     entityTypeMap.put(Names.entityClassName(et.name()), et);
                 }
             }
         }
         entityTypeByQualifiedName = crossSchemaMap;
-        entityNamespace = nsMap;
+        entityNamespaces = nsMap;
         schemaExtendedBases = new java.util.HashMap<>();
         schemaOpenRootNames = new java.util.HashMap<>();
+    }
+
+    /**
+     * The EXACT owning namespace of a model object — never a simple-name-keyed
+     * lookup, which collapses same-named types from different schemas last-wins.
+     * Unknown models (not in the cached schemas) yield "" (treated as non-open).
+     */
+    private String namespaceOf(EntityTypeModel entityType) {
+        String ns = entityNamespaces.get(entityType);
+        return ns != null ? ns : "";
     }
 
     private Set<String> extendedBasesForSchema(SchemaModel schema) {
@@ -464,8 +481,7 @@ public class EntityGenerator extends AbstractTypeGenerator {
                 for (EntityTypeModel et : s.entityTypes()) {
                     if (openTypeResolved(et)) {
                         EntityTypeModel root = rootOf(et);
-                        String rootNs = entityNamespace.get(Names.entityClassName(root.name()));
-                        if (rootNs != null && rootNs.equals(ns)) {
+                        if (namespaceOf(root).equals(ns)) {
                             roots.add(Names.entityClassName(root.name()));
                         }
                     }
@@ -477,22 +493,51 @@ public class EntityGenerator extends AbstractTypeGenerator {
 
     // True if this type or any ancestor declares OpenType="true" (OpenType propagates to subtypes).
     private boolean openTypeResolved(EntityTypeModel entityType) {
+        return openTypeResolved(entityType, newVisiting());
+    }
+
+    private boolean openTypeResolved(EntityTypeModel entityType, Set<EntityTypeModel> visiting) {
+        checkBaseCycle(visiting, entityType);
         if (entityType.openType()) {
             return true;
         }
         EntityTypeModel base = findBase(entityType);
-        return base != null && openTypeResolved(base);
+        return base != null && openTypeResolved(base, visiting);
     }
 
     private EntityTypeModel rootOf(EntityTypeModel entityType) {
-        EntityTypeModel base = findBase(entityType);
-        return base == null ? entityType : rootOf(base);
+        EntityTypeModel current = entityType;
+        Set<EntityTypeModel> visiting = newVisiting();
+        while (true) {
+            checkBaseCycle(visiting, current);
+            EntityTypeModel base = findBase(current);
+            if (base == null) {
+                return current;
+            }
+            current = base;
+        }
+    }
+
+    /**
+     * Identity-keyed visiting set for base-chain walks: models are records (value
+     * equality), so two distinct but equal-valued types must NOT compare equal
+     * here — only revisiting the SAME object is a cycle.
+     */
+    private static Set<EntityTypeModel> newVisiting() {
+        return Collections.newSetFromMap(new IdentityHashMap<>());
+    }
+
+    private static void checkBaseCycle(Set<EntityTypeModel> visiting, EntityTypeModel current) {
+        if (!visiting.add(current)) {
+            throw new IllegalStateException("Circular BaseType chain detected involving entity type: "
+                    + current.name() + " (BaseType '" + current.baseType() + "')");
+        }
     }
 
     // True if any type in the hierarchy rooted at this type is open (so the root must hold a
     // mutable unmappedFields map that @JsonAnySetter can populate for the open subtype).
     private boolean subtreeHasOpen(EntityTypeModel root) {
-        return openRootNamesForSchema(entityNamespace.getOrDefault(Names.entityClassName(root.name()), "")).contains(Names.entityClassName(root.name()));
+        return openRootNamesForSchema(namespaceOf(root)).contains(Names.entityClassName(root.name()));
     }
 
     /**
@@ -531,11 +576,16 @@ public class EntityGenerator extends AbstractTypeGenerator {
     }
 
     private List<PropertyModel> inheritedProperties(EntityTypeModel entityType) {
+        return inheritedProperties(entityType, newVisiting());
+    }
+
+    private List<PropertyModel> inheritedProperties(EntityTypeModel entityType, Set<EntityTypeModel> visiting) {
+        checkBaseCycle(visiting, entityType);
         EntityTypeModel base = findBase(entityType);
         if (base == null) {
             return List.of();
         }
-        List<PropertyModel> result = new ArrayList<>(inheritedProperties(base));
+        List<PropertyModel> result = new ArrayList<>(inheritedProperties(base, visiting));
         Set<String> seen = new HashSet<>();
         for (PropertyModel p : result) {
             seen.add(p.name());
@@ -549,11 +599,16 @@ public class EntityGenerator extends AbstractTypeGenerator {
     }
 
     private List<NavigationPropertyModel> inheritedNavProperties(EntityTypeModel entityType) {
+        return inheritedNavProperties(entityType, newVisiting());
+    }
+
+    private List<NavigationPropertyModel> inheritedNavProperties(EntityTypeModel entityType, Set<EntityTypeModel> visiting) {
+        checkBaseCycle(visiting, entityType);
         EntityTypeModel base = findBase(entityType);
         if (base == null) {
             return List.of();
         }
-        List<NavigationPropertyModel> result = new ArrayList<>(inheritedNavProperties(base));
+        List<NavigationPropertyModel> result = new ArrayList<>(inheritedNavProperties(base, visiting));
         Set<String> seen = new HashSet<>();
         for (NavigationPropertyModel n : result) {
             seen.add(n.name());
@@ -567,6 +622,11 @@ public class EntityGenerator extends AbstractTypeGenerator {
     }
 
     private List<KeyModel> resolvedKeys(EntityTypeModel entityType) {
+        return resolvedKeys(entityType, newVisiting());
+    }
+
+    private List<KeyModel> resolvedKeys(EntityTypeModel entityType, Set<EntityTypeModel> visiting) {
+        checkBaseCycle(visiting, entityType);
         if (!entityType.keys().isEmpty()) {
             return entityType.keys();
         }
@@ -574,7 +634,7 @@ public class EntityGenerator extends AbstractTypeGenerator {
         if (base == null) {
             return List.of();
         }
-        return resolvedKeys(base);
+        return resolvedKeys(base, visiting);
     }
 
     private String getterCall(String propName, List<PropertyModel> props) {

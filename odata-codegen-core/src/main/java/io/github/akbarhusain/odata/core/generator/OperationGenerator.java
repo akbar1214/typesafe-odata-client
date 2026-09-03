@@ -572,10 +572,17 @@ public class OperationGenerator extends AbstractTypeGenerator {
     /** Qualified names of the base-type chain (nearest first), unresolvable links ignored. */
     private List<String> ancestorQualifiedNames(EntityTypeModel type, SchemaModel schema) {
         List<String> out = new ArrayList<>();
+        // A BaseType cycle would loop forever appending — fail loudly like the
+        // recursive walkers (revisiting a qualified link IS the cycle: the walk is linear).
+        java.util.Set<String> visiting = new java.util.HashSet<>();
         String baseRef = type.baseType();
         while (baseRef != null) {
             String qualified = baseRef.contains(".") ? baseRef
                     : schema.namespace() + "." + baseRef;
+            if (!visiting.add(qualified)) {
+                throw new IllegalStateException("Circular BaseType chain detected involving entity type: "
+                        + qualified);
+            }
             EntityTypeModel model = findEntityType(qualified, baseRef);
             if (model == null) {
                 break;
