@@ -88,6 +88,11 @@ class OperationImportsHostileParamsCompilationTest {
               <Action Name="Rename">
                 <Parameter Name="new-name" Type="Edm.String" Nullable="false"/>
               </Action>
+              <Function Name="Zap">
+                <Parameter Name="q" Type="Edm.String" Nullable="false"/>
+                <ReturnType Type="Edm.Int32" Nullable="false"/>
+              </Function>
+              <Action Name="ZapAction"/>
               <EntityContainer Name="DefaultContainer">
                 <EntitySet Name="People" EntityType="NS.Person"/>
                 <FunctionImport Name="pickColor" Function="NS.PickColor"/>
@@ -97,6 +102,10 @@ class OperationImportsHostileParamsCompilationTest {
                 <FunctionImport Name="byScores" Function="NS.ByScores"/>
                 <FunctionImport Name="nearAddresses" Function="NS.NearAddresses"/>
                 <FunctionImport Name="visitAll" Function="NS.VisitAll"/>
+                <!-- hostile IMPORT names (quote + backslash, illegal in Java literals but
+                     parseable XML attributes): the invocation segment must be escaped -->
+                <FunctionImport Name='A"B\\C' Function="NS.Zap"/>
+                <ActionImport Name='D"E\\F' Action="NS.ZapAction"/>
                 <ActionImport Name="shipTo" Action="NS.ShipTo"/>
                 <ActionImport Name="addTags" Action="NS.AddTags"/>
                 <ActionImport Name="rename" Action="NS.Rename"/>
@@ -166,6 +175,16 @@ class OperationImportsHostileParamsCompilationTest {
                 "public VisitAllFunctionRequest(Context context, List<Address> addrs)"));
         assertTrue(visitAll.contains("addQuery(\"@p0\", EntityOperations.jsonParameter(addrs))"),
                 "a structured collection serializes as one JSON array literal");
+        // hostile IMPORT names must be escaped in the invocation-segment literals —
+        // raw embedding produces an unclosed string literal (compile referee below)
+        String hostileFn = Files.readString(tempDir.resolve(
+                "com/example/ops/operation/A_B_CFunctionRequest.java"));
+        assertTrue(hostileFn.contains("OperationPath.segment(\"A\\\"B\\\\C\""),
+                "function import segment must be Java-escaped:\n" + hostileFn);
+        String hostileAction = Files.readString(tempDir.resolve(
+                "com/example/ops/operation/D_E_FActionRequest.java"));
+        assertTrue(hostileAction.contains(".addSegment(\"D\\\"E\\\\F\")"),
+                "action import segment must be Java-escaped:\n" + hostileAction);
         String container = Files.readString(tempDir.resolve(
                 "com/example/ops/container/DefaultContainer.java"));
         assertTrue(container.contains("import com.example.ops.enums.Color;"),

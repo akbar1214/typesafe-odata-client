@@ -165,7 +165,10 @@ public class Generator {
             if (part.isEmpty()) {
                 throw new IllegalArgumentException("Invalid package name '" + packageName + "': empty segment");
             }
-            if (Names.isJavaKeyword(part)) {
+            // HARD keywords only: contextual keywords (record, to, open, ...) are legal
+            // package segments, and toPackageName lowercases namespaces — rejecting them
+            // would abort generation of legal metadata
+            if (Names.isHardJavaKeyword(part)) {
                 throw new IllegalArgumentException("Invalid package name '" + packageName + "': segment '" + part + "' is a Java keyword");
             }
             if (!Character.isJavaIdentifierStart(part.charAt(0))) {

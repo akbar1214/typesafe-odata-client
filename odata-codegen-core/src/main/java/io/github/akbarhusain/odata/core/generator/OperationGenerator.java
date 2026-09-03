@@ -764,7 +764,11 @@ public class OperationGenerator extends AbstractTypeGenerator {
      */
     private String constructorBody(String pathBaseExpr, String castSegment, String opSegmentName,
                                    ResolvedOp op, boolean isAction) {
-        String base = pathBaseExpr + (castSegment == null ? "" : ".addSegment(\"" + castSegment + "\")");
+        // import/operation/cast names are metadata strings — escape them for the
+        // generated string literals (hostile names must not break compilation)
+        String base = pathBaseExpr + (castSegment == null
+                ? "" : ".addSegment(\"" + Names.escapeJavaString(castSegment) + "\")");
+        String segmentLiteral = Names.escapeJavaString(opSegmentName);
         StringBuilder b = new StringBuilder();
         if (!isAction) {
             // Non-inlineable parameters ride parameter aliases: the segment pair references
@@ -817,11 +821,11 @@ public class OperationGenerator extends AbstractTypeGenerator {
             }
             if (aliases.isEmpty()) {
                 b.append("        this.contextPath = " + base + ".addSegment(OperationPath.segment(\"")
-                  .append(opSegmentName).append("\", __pairs.toArray(new String[0])));\n");
+                  .append(segmentLiteral).append("\", __pairs.toArray(new String[0])));\n");
                 return b.toString();
             }
             b.append("        ContextPath __path = " + base + ".addSegment(OperationPath.segment(\"")
-              .append(opSegmentName).append("\", __pairs.toArray(new String[0])));\n");
+              .append(segmentLiteral).append("\", __pairs.toArray(new String[0])));\n");
             for (AliasEmission a : aliases) {
                 String add = "__path = __path.addQuery(\"" + a.alias() + "\", "
                         + a.valueExpr() + ");\n";
@@ -841,7 +845,7 @@ public class OperationGenerator extends AbstractTypeGenerator {
             appendRequiredGuard(b, p, Names.toJavaFieldName(p.name()), op);
         }
         b.append("        this.contextPath = " + base + ".addSegment(\"")
-          .append(opSegmentName).append("\");\n");
+          .append(segmentLiteral).append("\");\n");
         b.append("        java.util.Map<String, Object> __params = new java.util.LinkedHashMap<>();\n");
         for (ParameterModel p : op.parameters()) {
             String field = Names.toJavaFieldName(p.name());

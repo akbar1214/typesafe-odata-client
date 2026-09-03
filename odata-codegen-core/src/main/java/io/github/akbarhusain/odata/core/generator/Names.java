@@ -343,7 +343,7 @@ public final class Names {
     private static boolean isReservedWord(String word) {
         return switch (word) {
             case "abstract", "assert", "boolean", "break", "byte", "case", "catch",
-                 "char", "class", "const", "default", "do", "double", "else",
+                 "char", "class", "const", "continue", "default", "do", "double", "else",
                  "enum", "extends", "final", "finally", "float", "for", "goto",
                  "if", "implements", "import", "instanceof", "int", "interface",
                  "long", "native", "new", "package", "private", "protected",
@@ -360,6 +360,33 @@ public final class Names {
     /** Public view of {@link #isReservedWord} for generators that must validate raw CSDL names. */
     public static boolean isJavaKeyword(String word) {
         return isReservedWord(word);
+    }
+
+    /**
+     * TRUE Java keywords only (JLS §3.9 plus the literals {@code true}/{@code false}/
+     * {@code null}) — the words that are illegal as identifiers or package segments.
+     * Contextual keywords ({@code record}, {@code var}, {@code to}, {@code open},
+     * module-system directives, {@code when}...) are deliberately EXCLUDED: they are
+     * legal identifiers and legal package segments ({@code package com.record;} compiles),
+     * and {@link #toPackageName} lowercases schema namespaces, so rejecting them would
+     * break legal metadata. Use this — not {@link #isJavaKeyword} — when validating
+     * USER-SUPPLIED package names; use {@link #isReservedWord} when SANITIZING generated
+     * identifiers (where shadowing a contextual keyword is confusing even when legal).
+     */
+    public static boolean isHardJavaKeyword(String word) {
+        return switch (word) {
+            case "abstract", "assert", "boolean", "break", "byte", "case", "catch",
+                 "char", "class", "const", "continue", "default", "do", "double",
+                 "else", "enum", "extends", "final", "finally", "float", "for",
+                 "goto", "if", "implements", "import", "instanceof", "int",
+                 "interface", "long", "native", "new", "package", "private",
+                 "protected", "public", "return", "short", "static", "strictfp",
+                 "super", "switch", "synchronized", "this", "throw", "throws",
+                 "transient", "try", "void", "volatile", "while",
+                 // literals — reserved, cannot be identifiers or package segments
+                 "true", "false", "null" -> true;
+            default -> false;
+        };
     }
 
     /**

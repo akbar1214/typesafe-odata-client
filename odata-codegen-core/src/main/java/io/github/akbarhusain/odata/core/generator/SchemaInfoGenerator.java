@@ -73,19 +73,27 @@ public class SchemaInfoGenerator {
         sb.append("    private final Map<String, Class<?>> classes = new HashMap<>();\n\n");
 
         sb.append("    private ").append(className).append("() {\n");
+        // The registry is keyed by QUALIFIED CSDL name; the same key declared by more
+        // than one kind (entity Foo + complex Foo + enum Foo in one namespace — the
+        // lenient parser tolerates it) would emit duplicate puts whose HashMap silently
+        // keeps the LAST, misrouting polymorphic deserialization. Fail loudly instead.
+        Set<String> registryKeys = new java.util.HashSet<>();
         for (SchemaModel schema : schemas) {
             for (var entityType : schema.entityTypes()) {
                 String fqn = schema.namespace() + "." + entityType.name();
+                checkRegistryKey(registryKeys, fqn, className);
                 String generatedFqn = basePackage + Names.packageNameSuffixEntity() + "." + Names.entityClassName(entityType.name());
                 sb.append("        classes.put(\"").append(Names.escapeJavaString(fqn)).append("\", ").append(refs.get(generatedFqn)).append(".class);\n");
             }
             for (var complexType : schema.complexTypes()) {
                 String fqn = schema.namespace() + "." + complexType.name();
+                checkRegistryKey(registryKeys, fqn, className);
                 String generatedFqn = basePackage + Names.packageNameSuffixComplexType() + "." + Names.complexTypeClassName(complexType.name());
                 sb.append("        classes.put(\"").append(Names.escapeJavaString(fqn)).append("\", ").append(refs.get(generatedFqn)).append(".class);\n");
             }
             for (var enumType : schema.enumTypes()) {
                 String fqn = schema.namespace() + "." + enumType.name();
+                checkRegistryKey(registryKeys, fqn, className);
                 String generatedFqn = basePackage + Names.packageNameSuffixEnum() + "." + Names.enumClassName(enumType.name());
                 sb.append("        classes.put(\"").append(Names.escapeJavaString(fqn)).append("\", ").append(refs.get(generatedFqn)).append(".class);\n");
             }
@@ -99,5 +107,14 @@ public class SchemaInfoGenerator {
 
         sb.append("}\n");
         return sb.toString();
+    }
+
+    private static void checkRegistryKey(Set<String> seen, String qualifiedName, String className) {
+        if (!seen.add(qualifiedName)) {
+            throw new IllegalStateException("Cannot generate " + className + ": qualified name '"
+                    + qualifiedName + "' is declared by more than one type (entity/complex/enum "
+                    + "sharing one namespace and name). The runtime type registry cannot "
+                    + "distinguish them — rename one of the types in the metadata.");
+        }
     }
 }
