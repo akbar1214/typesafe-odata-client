@@ -201,19 +201,34 @@ public class EntityGenerator extends AbstractTypeGenerator {
         for (NavigationPropertyModel nav : allNavs) {
             usedConstantNames.add(constantNameFor(nav.name()));
         }
+        List<CastConstantRef> castConstants = new ArrayList<>();
         for (NavigationPropertyModel nav : entityType.navigationProperties()) {
             sb.append(generateNavPropertyConstant(nav, className, schema));
             for (EntitySubtype subtype : subtypesFor(nav, schema)) {
                 String constantName = uniqueSubtypeConstantName(
                         constantNameFor(nav.name()), subtype.model().name(), usedConstantNames);
+                String javaRef = subtypeRefs.refs().get(subtype.qualifiedName());
                 sb.append(generateSubtypeNavPropertyConstant(nav, className, schema, subtype,
-                        constantName, subtypeRefs.refs().get(subtype.qualifiedName())));
+                        constantName, javaRef));
+                castConstants.add(new CastConstantRef(constantName, javaRef));
             }
         }
         if (!entityType.navigationProperties().isEmpty()) sb.append("\n");
 
         // Typed filterable for collection lambda operators (any/all)
         sb.append(generateFilterableClass(allProps, allNavs, className, schema));
+
+        // Typed selector for the request-level lambda overloads (select/orderBy/expand/filter)
+        Set<String> ownPropNames = new HashSet<>();
+        for (PropertyModel prop : ownProps) {
+            ownPropNames.add(prop.name());
+        }
+        Set<String> ownNavNames = new HashSet<>();
+        for (NavigationPropertyModel nav : ownNavs) {
+            ownNavNames.add(nav.name());
+        }
+        sb.append(generateSelectorClass(allProps, allNavs, ownPropNames, ownNavNames,
+                castConstants, className, schema));
 
         for (PropertyModel prop : ownProps) {
             String javaType = resolvePropertyJavaType(prop, schema, true);
@@ -681,14 +696,20 @@ public class EntityGenerator extends AbstractTypeGenerator {
             String elementType = Names.unwrapCollectionType(edmType);
             String elementClassName = resolveClassNameForConstant(elementType, schema);
             Names.TypeKind kind = Names.resolveTypeKind(elementType, effectiveSchemas);
-            if (kind == Names.TypeKind.ENTITY || kind == Names.TypeKind.COMPLEX) {
+            if (kind == Names.TypeKind.ENTITY) {
                 return "    public static final CollectionProperty<" + className + ", " + elementClassName
-                        + ", " + elementClassName + ".Filterable> " + constantName
+                        + ", " + elementClassName + ".Filterable, " + elementClassName + ".Selector> " + constantName
+                        + " = new CollectionProperty<>(\"" + Names.escapeJavaString(prop.name()) + "\", " + className + ".class, "
+                        + elementClassName + ".class, " + elementClassName + ".Filterable::new, " + elementClassName + ".Selector::new);\n";
+            } else if (kind == Names.TypeKind.COMPLEX) {
+                // complex elements have no Selector (no request class targets them) — wildcard
+                return "    public static final CollectionProperty<" + className + ", " + elementClassName
+                        + ", " + elementClassName + ".Filterable, ?> " + constantName
                         + " = new CollectionProperty<>(\"" + Names.escapeJavaString(prop.name()) + "\", " + className + ".class, "
                         + elementClassName + ".class, " + elementClassName + ".Filterable::new);\n";
             } else {
                 return "    public static final CollectionProperty<" + className + ", " + elementClassName
-                        + ", CollectionProperty.FilterableElement<" + elementClassName + ">> " + constantName
+                        + ", CollectionProperty.FilterableElement<" + elementClassName + ">, ?> " + constantName
                         + " = new CollectionProperty<>(\"" + Names.escapeJavaString(prop.name()) + "\", " + className + ".class, "
                         + elementClassName + ".class, CollectionProperty.FilterableElement::new);\n";
             }
@@ -720,29 +741,148 @@ public class EntityGenerator extends AbstractTypeGenerator {
     private String generateNavPropertyConstant(NavigationPropertyModel nav, String className, SchemaModel schema) {
         boolean isCollection = Names.isCollectionType(nav.type());
         String unwrapped = Names.unwrapCollectionType(nav.type());
+        // Complex-target navs (possible through TypeDefinition chains) are skipped:
+        // complex types have no Selector, so the constants could not compile. Valid
+        // CSDL navigations always target entity types.
+        if (Names.resolveTypeKind(resolveTypeDefinition(unwrapped, schema), effectiveSchemas)
+                != Names.TypeKind.ENTITY) {
+            return "";
+        }
         String elementClassName = refFor(resolveTypeDefinition(unwrapped, schema), schema);
         String constantName = constantNameFor(nav.name());
 
         if (isCollection) {
             return "    public static final CollectionProperty<" + className + ", "
-                    + elementClassName + ", " + elementClassName + ".Filterable> " + constantName
+                    + elementClassName + ", " + elementClassName + ".Filterable, " + elementClassName + ".Selector> " + constantName
                     + " = new CollectionProperty<>(\"" + Names.escapeJavaString(nav.name()) + "\", " + className + ".class, "
-                    + elementClassName + ".class, " + elementClassName + ".Filterable::new);\n";
+                    + elementClassName + ".class, " + elementClassName + ".Filterable::new, " + elementClassName + ".Selector::new);\n";
         } else {
-            return "    public static final NavProperty<" + className + ", "
-                    + elementClassName + "> " + constantName
-                    + " = new NavProperty<>(\"" + Names.escapeJavaString(nav.name()) + "\", " + className + ".class, "
-                    + elementClassName + ".class);\n";
+            return "    public static final NavQuery<" + className + ", "
+                    + elementClassName + ", " + elementClassName + ".Selector> " + constantName
+                    + " = NavQuery.of(\"" + Names.escapeJavaString(nav.name()) + "\", "
+                    + elementClassName + ".Selector::new);\n";
         }
     }
 
     private String generateSubtypeNavPropertyConstant(NavigationPropertyModel nav, String className,
                                                        SchemaModel schema, EntitySubtype subtype,
                                                        String constantName, String javaRef) {
-        return "    public static final NavProperty.NavQuery<" + className + ", "
-                + javaRef + "> " + constantName + " = "
+        return "    public static final NavQuery<" + className + ", "
+                + javaRef + ", " + javaRef + ".Selector> " + constantName + " = "
                 + constantNameFor(nav.name()) + ".as(\"" + Names.escapeJavaString(subtype.qualifiedName()) + "\", "
-                + javaRef + ".class);\n";
+                + javaRef + ".class, " + javaRef + ".Selector::new);\n";
+    }
+
+    /** A generated {@code <NAV>_AS_<TYPE>} cast constant, mirrored into the Selector. */
+    private record CastConstantRef(String constantName, String javaRef) {}
+
+    /**
+     * Typed selector view for the request-level lambda overloads (select / orderBy /
+     * expand / filter). Fields share the entity's constant instances; inherited
+     * properties are constructed inline because their constants live on the declaring
+     * base class. Complex types get no Selector (no request class targets them), so
+     * complex-target navigations are skipped here as well.
+     */
+    private String generateSelectorClass(List<PropertyModel> allProps,
+                                         List<NavigationPropertyModel> allNavs,
+                                         Set<String> ownPropNames,
+                                         Set<String> ownNavNames,
+                                         List<CastConstantRef> castConstants,
+                                         String className,
+                                         SchemaModel schema) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("    public static class Selector {\n");
+        for (PropertyModel prop : allProps) {
+            sb.append(generateSelectorPropertyField(prop, ownPropNames.contains(prop.name()),
+                    className, schema));
+        }
+        for (NavigationPropertyModel nav : allNavs) {
+            if (Names.resolveTypeKind(resolveTypeDefinition(Names.unwrapCollectionType(nav.type()), schema),
+                    effectiveSchemas) != Names.TypeKind.ENTITY) {
+                continue;
+            }
+            sb.append(generateSelectorNavField(nav, ownNavNames.contains(nav.name()),
+                    className, schema));
+        }
+        for (CastConstantRef cast : castConstants) {
+            sb.append("    public final NavQuery<").append(className).append(", ")
+                    .append(cast.javaRef()).append(", ").append(cast.javaRef()).append(".Selector> ")
+                    .append(cast.constantName()).append(" = ").append(className).append(".")
+                    .append(cast.constantName()).append(";\n");
+        }
+        sb.append("    }\n\n");
+        return sb.toString();
+    }
+
+    private String generateSelectorPropertyField(PropertyModel prop, boolean own,
+                                                 String className, SchemaModel schema) {
+        String edmType = prop.edmType();
+        String constantName = constantNameFor(prop.name());
+        String shared = className + "." + constantName;
+        if (Names.isCollectionType(edmType)) {
+            String elementType = Names.unwrapCollectionType(edmType);
+            String elementClassName = resolveClassNameForConstant(elementType, schema);
+            Names.TypeKind kind = Names.resolveTypeKind(elementType, effectiveSchemas);
+            if (kind == Names.TypeKind.ENTITY) {
+                return "    public final CollectionProperty<" + className + ", " + elementClassName
+                        + ", " + elementClassName + ".Filterable, " + elementClassName + ".Selector> " + constantName
+                        + " = " + (own ? shared
+                        : "new CollectionProperty<>(\"" + Names.escapeJavaString(prop.name()) + "\", " + className + ".class, "
+                        + elementClassName + ".class, " + elementClassName + ".Filterable::new, " + elementClassName + ".Selector::new)") + ";\n";
+            } else if (kind == Names.TypeKind.COMPLEX) {
+                return "    public final CollectionProperty<" + className + ", " + elementClassName
+                        + ", " + elementClassName + ".Filterable, ?> " + constantName
+                        + " = " + (own ? shared
+                        : "new CollectionProperty<>(\"" + Names.escapeJavaString(prop.name()) + "\", " + className + ".class, "
+                        + elementClassName + ".class, " + elementClassName + ".Filterable::new)") + ";\n";
+            } else {
+                return "    public final CollectionProperty<" + className + ", " + elementClassName
+                        + ", CollectionProperty.FilterableElement<" + elementClassName + ">, ?> " + constantName
+                        + " = " + (own ? shared
+                        : "new CollectionProperty<>(\"" + Names.escapeJavaString(prop.name()) + "\", " + className + ".class, "
+                        + elementClassName + ".class, CollectionProperty.FilterableElement::new)") + ";\n";
+            }
+        }
+
+        String constantType = getPropertyConstantType(edmType, schema);
+        if (constantType == null) {
+            return ""; // Binary, Stream, Geography, Geometry — not filterable, no constant
+        }
+        String typeParams = switch (constantType) {
+            case "EnumProperty" -> "<" + className + ", " + resolveClassNameForConstant(edmType, schema) + ">";
+            case "NumberProperty" -> "<" + className + ", " + getNumberJavaType(resolveTypeDefinition(edmType, schema)) + ">";
+            default -> "<" + className + ">";
+        };
+        String extra = "";
+        if (constantType.equals("EnumProperty")) {
+            extra = ", " + resolveClassNameForConstant(edmType, schema) + ".class, \"" + Names.escapeJavaString(qualifiedEdmName(resolveTypeDefinition(edmType, schema), schema)) + "\"";
+        } else if (constantType.equals("NumberProperty")) {
+            extra = ", \"" + Names.escapeJavaString(resolveTypeDefinition(edmType, schema)) + "\"";
+        }
+        return "    public final " + constantType + typeParams + " " + constantName
+                + " = " + (own ? shared
+                : "new " + constantType + "<>(\"" + Names.escapeJavaString(prop.name()) + "\", " + className + ".class"
+                + extra + ")") + ";\n";
+    }
+
+    private String generateSelectorNavField(NavigationPropertyModel nav, boolean own,
+                                            String className, SchemaModel schema) {
+        String unwrapped = Names.unwrapCollectionType(nav.type());
+        String elementClassName = refFor(resolveTypeDefinition(unwrapped, schema), schema);
+        String constantName = constantNameFor(nav.name());
+        String shared = className + "." + constantName;
+        if (Names.isCollectionType(nav.type())) {
+            return "    public final CollectionProperty<" + className + ", "
+                    + elementClassName + ", " + elementClassName + ".Filterable, " + elementClassName + ".Selector> " + constantName
+                    + " = " + (own ? shared
+                    : "new CollectionProperty<>(\"" + Names.escapeJavaString(nav.name()) + "\", " + className + ".class, "
+                    + elementClassName + ".class, " + elementClassName + ".Filterable::new, " + elementClassName + ".Selector::new)") + ";\n";
+        }
+        return "    public final NavQuery<" + className + ", "
+                + elementClassName + ", " + elementClassName + ".Selector> " + constantName
+                + " = " + (own ? shared
+                : "NavQuery.of(\"" + Names.escapeJavaString(nav.name()) + "\", "
+                + elementClassName + ".Selector::new)") + ";\n";
     }
 
     private record SubtypeRefs(java.util.Map<String, String> refs, java.util.Set<String> importNames) {}

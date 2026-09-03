@@ -309,7 +309,7 @@ public final class Names {
             // runtime query classes: generated types import runtime.query.* on demand, so a
             // same-named generated class would silently shadow them within the file
             "StringProperty", "NumberProperty", "BooleanProperty", "DateTimeProperty",
-            "GuidProperty", "EnumProperty", "CollectionProperty", "NavProperty",
+            "GuidProperty", "EnumProperty", "CollectionProperty", "NavQuery", "Expandable",
             "NumberExpression", "FilterExpression", "RawFilterExpression",
             "PropertyExpression", "OrderExpression", "OrderedProperty", "ApplyBuilder"
     );

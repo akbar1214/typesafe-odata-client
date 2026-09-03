@@ -178,6 +178,37 @@ class QueryTypeSafetyCompilationTest {
         assertTrue(output.contains("as"), "Compiler errors should mention as(). Output:\n" + output);
     }
 
+    @Test
+    void crossEntityLambdaFailsToCompile(@TempDir Path tempDir) throws Exception {
+        String namespace = "Microsoft.OData.SampleService.Models.TripPin";
+        String basePackage = "com.example.trippin";
+
+        Generator generator = new Generator(tempDir, Map.of(namespace, basePackage));
+        generator.generate(trippinModel);
+
+        // The selector lambda cannot reach another entity's members: p is a
+        // Person.Selector, so Trip's constants are not in scope — a compile error,
+        // never a runtime 400
+        Path badSource = tempDir.resolve("BadLambdaQuery.java");
+        Files.writeString(badSource, """
+                import com.example.trippin.container.DefaultContainer;
+                import io.github.akbarhusain.odata.runtime.entity.Context;
+
+                public class BadLambdaQuery {
+                    public static void run(Context ctx) {
+                        DefaultContainer client = new DefaultContainer(ctx);
+                        client.people().expand(p -> p.FLIGHTS);
+                        client.people().select(p -> p.NOT_A_MEMBER);
+                    }
+                }
+                """);
+
+        String errors = io.github.akbarhusain.odata.core.generator.CompilationHarness.compileAll(tempDir);
+        assertNotNull(errors, "cross-entity lambda member access must fail to compile");
+        assertTrue(errors.contains("FLIGHTS") || errors.contains("NOT_A_MEMBER"),
+                "compiler errors should name the unknown selector members. Output:\n" + errors);
+    }
+
     private List<File> findClasspathJars() {
         String userHome = System.getProperty("user.home");
         Path mavenRepo = Path.of(userHome, ".m2", "repository");

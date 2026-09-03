@@ -4,7 +4,7 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-class NavPropertyExpandTest {
+class NavQueryExpandTest {
 
     private static class Version {}
 
@@ -13,56 +13,56 @@ class NavPropertyExpandTest {
 
     @Test
     void simpleExpand() {
-        NavProperty<Object, Object> nav = new NavProperty<>("Trips", Object.class, Object.class);
-        assertEquals("Trips", nav.getEdmName());
+        NavQuery<Object, Object, Object> nav = NavQuery.of("Trips");
+        assertEquals("Trips", nav.edmName());
     }
 
     @Test
     void navQuerySimple() {
-        NavProperty<Object, Object> nav = new NavProperty<>("Trips", Object.class, Object.class);
-        NavProperty.NavQuery<Object, Object> query = nav.select();
+        NavQuery<Object, Object, Object> nav = NavQuery.of("Trips");
+        NavQuery<Object, Object, Object> query = nav.select();
         assertEquals("Trips", query.toODataExpand());
     }
 
     @Test
     void navQueryWithSelect() {
-        NavProperty<Object, Object> nav = new NavProperty<>("Trips", Object.class, Object.class);
+        NavQuery<Object, Object, Object> nav = NavQuery.of("Trips");
         StringProperty<Object> name = new StringProperty<>("Name", null);
         StringProperty<Object> budget = new StringProperty<>("Budget", null);
-        NavProperty.NavQuery<Object, Object> query = nav.select(name, budget);
+        NavQuery<Object, Object, Object> query = nav.select(name, budget);
         assertEquals("Trips($select=Name,Budget)", query.toODataExpand());
     }
 
     @Test
     void navQueryWithFilter() {
-        NavProperty<Object, Object> nav = new NavProperty<>("Trips", Object.class, Object.class);
+        NavQuery<Object, Object, Object> nav = NavQuery.of("Trips");
         NumberProperty<Object, Integer> budget = new NumberProperty<>("Budget", null);
-        NavProperty.NavQuery<Object, Object> query = nav.filter(budget.greaterThan(5000));
+        NavQuery<Object, Object, Object> query = nav.filter(budget.greaterThan(5000));
         assertEquals("Trips($filter=Budget gt 5000)", query.toODataExpand());
     }
 
     @Test
     void navQueryWithOrderBy() {
-        NavProperty<Object, Object> nav = new NavProperty<>("Trips", Object.class, Object.class);
+        NavQuery<Object, Object, Object> nav = NavQuery.of("Trips");
         StringProperty<Object> name = new StringProperty<>("Name", null);
-        NavProperty.NavQuery<Object, Object> query = nav.orderBy(name);
+        NavQuery<Object, Object, Object> query = nav.orderBy(name);
         assertEquals("Trips($orderby=Name)", query.toODataExpand());
     }
 
     @Test
     void navQueryWithTop() {
-        NavProperty<Object, Object> nav = new NavProperty<>("Trips", Object.class, Object.class);
-        NavProperty.NavQuery<Object, Object> query = nav.top(5);
+        NavQuery<Object, Object, Object> nav = NavQuery.of("Trips");
+        NavQuery<Object, Object, Object> query = nav.top(5);
         assertEquals("Trips($top=5)", query.toODataExpand());
     }
 
     @Test
     void navQueryWithMultipleOptions() {
-        NavProperty<Object, Object> nav = new NavProperty<>("Trips", Object.class, Object.class);
+        NavQuery<Object, Object, Object> nav = NavQuery.of("Trips");
         StringProperty<Object> name = new StringProperty<>("Name", null);
         NumberProperty<Object, Integer> budget = new NumberProperty<>("Budget", null);
 
-        NavProperty.NavQuery<Object, Object> query = nav.select(name)
+        NavQuery<Object, Object, Object> query = nav.select(name)
                 .filter(budget.greaterThan(5000))
                 .orderBy(name)
                 .top(5);
@@ -71,71 +71,83 @@ class NavPropertyExpandTest {
 
     @Test
     void collectionPropertyAsExpandable() {
-        CollectionProperty<Object, Object, CollectionProperty.FilterableElement<Object>> col =
+        CollectionProperty<Object, Object, CollectionProperty.FilterableElement<Object>, ?> col =
                 new CollectionProperty<>("Friends", Object.class, Object.class, CollectionProperty.FilterableElement::new);
         assertEquals("Friends", col.getEdmName());
         assertEquals(Object.class, col.getEntityType());
         assertEquals(Object.class, col.getElementType());
+        // bare collection nav renders the plain segment (Expandable)
+        assertEquals("Friends", col.toODataExpand());
 
-        NavProperty.NavQuery<Object, Object> query = col.select();
+        NavQuery<Object, Object, ?> query = col.select();
         assertEquals("Friends", query.toODataExpand());
     }
 
     @Test
     void collectionPropertyExpandWithSelect() {
-        CollectionProperty<Object, Object, CollectionProperty.FilterableElement<Object>> col =
+        CollectionProperty<Object, Object, CollectionProperty.FilterableElement<Object>, ?> col =
                 new CollectionProperty<>("Friends", Object.class, Object.class, CollectionProperty.FilterableElement::new);
         StringProperty<Object> firstName = new StringProperty<>("FirstName", null);
-        NavProperty.NavQuery<Object, Object> query = col.select(firstName);
+        NavQuery<Object, Object, ?> query = col.select(firstName);
         assertEquals("Friends($select=FirstName)", query.toODataExpand());
     }
 
     @Test
     void navQueryWithOrderByDescending() {
-        NavProperty<Object, Object> nav = new NavProperty<>("Trips", Object.class, Object.class);
+        NavQuery<Object, Object, Object> nav = NavQuery.of("Trips");
         StringProperty<Object> name = new StringProperty<>("Name", null);
         // desc() returns an OrderExpression whose getODataPath() already includes " desc"
-        NavProperty.NavQuery<Object, Object> query = nav.orderBy(name.desc());
+        NavQuery<Object, Object, Object> query = nav.orderBy(name.desc());
         assertEquals("Trips($orderby=Name desc)", query.toODataExpand());
     }
 
     @Test
     void navQueryWithOrderByDescendingNavQuery() {
-        NavProperty<Object, Object> nav = new NavProperty<>("Trips", Object.class, Object.class);
+        NavQuery<Object, Object, Object> nav = NavQuery.of("Trips");
         StringProperty<Object> name = new StringProperty<>("Name", null);
-        // NavQuery.orderBy() should produce the same output as NavProperty.orderBy()
-        NavProperty.NavQuery<Object, Object> query = nav.select().orderBy(name.desc());
+        // NavQuery.orderBy() should produce the same output from a chained query
+        NavQuery<Object, Object, Object> query = nav.select().orderBy(name.desc());
         assertEquals("Trips($orderby=Name desc)", query.toODataExpand());
     }
 
     @Test
-    void navPropertyExpandWithNestedNavProperty() {
-        NavProperty<Object, Object> trips = new NavProperty<>("Trips", Object.class, Object.class);
-        NavProperty<Object, Object> planItems = new NavProperty<>("PlanItems", Object.class, Object.class);
-        NavProperty.NavQuery<Object, Object> query = trips.expand(planItems);
+    void navQueryExpandWithNestedNavQuery() {
+        NavQuery<Object, Object, Object> trips = NavQuery.of("Trips");
+        NavQuery<Object, Object, Object> planItems = NavQuery.of("PlanItems");
+        NavQuery<Object, Object, Object> query = trips.expand(planItems);
         assertEquals("Trips($expand=PlanItems)", query.toODataExpand());
     }
 
     @Test
-    void navPropertyAsRendersQualifiedCastAndKeepsSubtypeType() {
-        NavProperty<Object, Version> versions = new NavProperty<>("Versions", Object.class, Version.class);
-        NavProperty<Doc, Object> abc = new NavProperty<>("abc", Doc.class, Object.class);
+    void navQueryAsRendersQualifiedCastAndKeepsSubtypeType() {
+        NavQuery<Object, Version, ?> versions = NavQuery.of("Versions");
+        NavQuery<Doc, Object, Object> abc = NavQuery.of("abc");
 
-        NavProperty.NavQuery<Object, Doc> query = versions.as("ABC.Doc", Doc.class).expand(abc);
+        NavQuery<Object, Doc, ?> query = versions.as("ABC.Doc", Doc.class).expand(abc);
 
         assertEquals("Versions/ABC.Doc($expand=abc)", query.toODataExpand());
     }
 
     @Test
+    void navQueryExpandWithBareCollectionProperty() {
+        // Expandable accepts BOTH implementors: a bare collection nav renders its name
+        NavQuery<Object, Object, Object> trips = NavQuery.of("Trips");
+        CollectionProperty<Object, Object, CollectionProperty.FilterableElement<Object>, ?> friends =
+                new CollectionProperty<>("Friends", Object.class, Object.class, CollectionProperty.FilterableElement::new);
+        NavQuery<Object, Object, Object> query = trips.expand(friends);
+        assertEquals("Trips($expand=Friends)", query.toODataExpand());
+    }
+
+    @Test
     void navQueryRawRendersVerbatim() {
         assertEquals("Versions/ABC.Doc($expand=abc)",
-                NavProperty.NavQuery.raw("Versions/ABC.Doc($expand=abc)").toODataExpand());
+                NavQuery.raw("Versions/ABC.Doc($expand=abc)").toODataExpand());
     }
 
     @Test
     void navQueryRawComposesWithOptions() {
-        NavProperty<Object, Object> abc = new NavProperty<>("abc", Object.class, Object.class);
-        NavProperty.NavQuery<Object, Object> query = NavProperty.NavQuery.<Object, Object>raw("Versions/ABC.Doc")
+        NavQuery<Object, Object, Object> abc = NavQuery.of("abc");
+        NavQuery<Object, Object, Object> query = NavQuery.<Object, Object, Object>raw("Versions/ABC.Doc")
                 .expand(abc);
         assertEquals("Versions/ABC.Doc($expand=abc)", query.toODataExpand(),
                 "raw is a root path; chained options must render, not be silently dropped");
@@ -145,17 +157,17 @@ class NavPropertyExpandTest {
     void navQueryRawChainsIntoExistingOptionGroup() {
         // a raw string that ALREADY carries an option group must merge chained options
         // with ';' — appending a second paren group would emit invalid OData
-        NavProperty<Object, Object> abc2 = new NavProperty<>("abc2", Object.class, Object.class);
-        NavProperty.NavQuery<Object, Object> query = NavProperty.NavQuery
-                .<Object, Object>raw("Versions/ABC.Doc($expand=abc)")
+        NavQuery<Object, Object, Object> abc2 = NavQuery.of("abc2");
+        NavQuery<Object, Object, Object> query = NavQuery
+                .<Object, Object, Object>raw("Versions/ABC.Doc($expand=abc)")
                 .expand(abc2);
         assertEquals("Versions/ABC.Doc($expand=abc;$expand=abc2)", query.toODataExpand());
     }
 
     @Test
     void navQueryRawEmptyOptionGroupTakesChainedOptions() {
-        NavProperty.NavQuery<Object, Object> query =
-                NavProperty.NavQuery.<Object, Object>raw("A()").top(2);
+        NavQuery<Object, Object, Object> query =
+                NavQuery.<Object, Object, Object>raw("A()").top(2);
         assertEquals("A($top=2)", query.toODataExpand(),
                 "an empty trailing group is replaced by the chained options");
     }
@@ -163,15 +175,15 @@ class NavPropertyExpandTest {
     @Test
     void navQueryRawNestedOptionGroupMergesAtTopLevel() {
         // nested parens inside the existing group (a lambda) must not confuse the merge
-        NavProperty.NavQuery<Object, Object> query = NavProperty.NavQuery
-                .<Object, Object>raw("Trips($filter=Items/any(d: d/V eq 1))")
+        NavQuery<Object, Object, Object> query = NavQuery
+                .<Object, Object, Object>raw("Trips($filter=Items/any(d: d/V eq 1))")
                 .top(1);
         assertEquals("Trips($filter=Items/any(d: d/V eq 1);$top=1)", query.toODataExpand());
     }
 
     @Test
-    void navPropertyAsRejectsBlankCast() {
-        NavProperty<Object, Version> versions = new NavProperty<>("Versions", Object.class, Version.class);
+    void navQueryAsRejectsBlankCast() {
+        NavQuery<Object, Version, ?> versions = NavQuery.of("Versions");
 
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
                 () -> versions.as("  ", Doc.class));
@@ -180,49 +192,49 @@ class NavPropertyExpandTest {
     }
 
     @Test
-    void navPropertyExpandWithNestedNavQuery() {
-        NavProperty<Object, Object> trips = new NavProperty<>("Trips", Object.class, Object.class);
-        NavProperty<Object, Object> planItems = new NavProperty<>("PlanItems", Object.class, Object.class);
-        NavProperty.NavQuery<Object, Object> query = trips.expand(planItems.select());
+    void navQueryExpandWithNestedNavQueryChained() {
+        NavQuery<Object, Object, Object> trips = NavQuery.of("Trips");
+        NavQuery<Object, Object, Object> planItems = NavQuery.of("PlanItems");
+        NavQuery<Object, Object, Object> query = trips.expand(planItems.select());
         assertEquals("Trips($expand=PlanItems)", query.toODataExpand());
     }
 
     @Test
     void navQueryExpandChainsNested() {
-        NavProperty<Object, Object> trips = new NavProperty<>("Trips", Object.class, Object.class);
-        NavProperty<Object, Object> planItems = new NavProperty<>("PlanItems", Object.class, Object.class);
+        NavQuery<Object, Object, Object> trips = NavQuery.of("Trips");
+        NavQuery<Object, Object, Object> planItems = NavQuery.of("PlanItems");
         StringProperty<Object> name = new StringProperty<>("Name", null);
-        NavProperty.NavQuery<Object, Object> query = trips.select(name)
+        NavQuery<Object, Object, Object> query = trips.select(name)
                 .expand(planItems.select());
         assertEquals("Trips($select=Name;$expand=PlanItems)", query.toODataExpand());
     }
 
     @Test
     void navQueryExpandMultipleNested() {
-        NavProperty<Object, Object> trips = new NavProperty<>("Trips", Object.class, Object.class);
-        NavProperty<Object, Object> planItems = new NavProperty<>("PlanItems", Object.class, Object.class);
-        NavProperty<Object, Object> airline = new NavProperty<>("Airline", Object.class, Object.class);
-        NavProperty.NavQuery<Object, Object> query = trips.expand(planItems.select(), airline.select());
+        NavQuery<Object, Object, Object> trips = NavQuery.of("Trips");
+        NavQuery<Object, Object, Object> planItems = NavQuery.of("PlanItems");
+        NavQuery<Object, Object, Object> airline = NavQuery.of("Airline");
+        NavQuery<Object, Object, Object> query = trips.expand(planItems.select(), airline.select());
         assertEquals("Trips($expand=PlanItems,Airline)", query.toODataExpand());
     }
 
     @Test
     void navQueryExpandDeepMultiLevel() {
-        NavProperty<Object, Object> people = new NavProperty<>("People", Object.class, Object.class);
-        NavProperty<Object, Object> trips = new NavProperty<>("Trips", Object.class, Object.class);
-        NavProperty<Object, Object> planItems = new NavProperty<>("PlanItems", Object.class, Object.class);
-        NavProperty.NavQuery<Object, Object> query = people.expand(
+        NavQuery<Object, Object, Object> people = NavQuery.of("People");
+        NavQuery<Object, Object, Object> trips = NavQuery.of("Trips");
+        NavQuery<Object, Object, Object> planItems = NavQuery.of("PlanItems");
+        NavQuery<Object, Object, Object> query = people.expand(
                 trips.expand(planItems.select()));
         assertEquals("People($expand=Trips($expand=PlanItems))", query.toODataExpand());
     }
 
     @Test
     void navQueryExpandDeepWithNestedOptions() {
-        NavProperty<Object, Object> people = new NavProperty<>("People", Object.class, Object.class);
-        NavProperty<Object, Object> trips = new NavProperty<>("Trips", Object.class, Object.class);
-        NavProperty<Object, Object> planItems = new NavProperty<>("PlanItems", Object.class, Object.class);
+        NavQuery<Object, Object, Object> people = NavQuery.of("People");
+        NavQuery<Object, Object, Object> trips = NavQuery.of("Trips");
+        NavQuery<Object, Object, Object> planItems = NavQuery.of("PlanItems");
         StringProperty<Object> name = new StringProperty<>("Name", null);
-        NavProperty.NavQuery<Object, Object> query = people
+        NavQuery<Object, Object, Object> query = people
                 .expand(trips.select(name).expand(planItems.select(name)));
         assertEquals("People($expand=Trips($select=Name;$expand=PlanItems($select=Name)))",
                 query.toODataExpand());
@@ -230,10 +242,10 @@ class NavPropertyExpandTest {
 
     @Test
     void m7MultipleFiltersAreParenthesizedToPreservePrecedence() {
-        NavProperty<Object, Object> nav = new NavProperty<>("Trips", Object.class, Object.class);
+        NavQuery<Object, Object, Object> nav = NavQuery.of("Trips");
         NumberProperty<Object, Integer> budget = new NumberProperty<>("Budget", null);
         StringProperty<Object> name = new StringProperty<>("Name", null);
-        NavProperty.NavQuery<Object, Object> query = nav
+        NavQuery<Object, Object, Object> query = nav
                 .filter(budget.greaterThan(5000).or(budget.lessThan(100)))
                 .filter(name.contains("trip"));
         // RawFilterExpression.or() already parenthesizes its operands; the NavQuery join
@@ -246,19 +258,19 @@ class NavPropertyExpandTest {
 
     @Test
     void l10SkipAndCountOptionsRender() {
-        NavProperty<Object, Object> nav = new NavProperty<>("Trips", Object.class, Object.class);
+        NavQuery<Object, Object, Object> nav = NavQuery.of("Trips");
         assertEquals("Trips($skip=5)", nav.skip(5).toODataExpand());
         assertEquals("Trips($count=true)", nav.count().toODataExpand());
 
-        NavProperty.NavQuery<Object, Object> query = nav.top(2).skip(4).count();
+        NavQuery<Object, Object, Object> query = nav.top(2).skip(4).count();
         assertEquals("Trips($top=2;$skip=4;$count=true)", query.toODataExpand());
     }
 
     @Test
     void l10NavQueryListsAreImmutable() {
-        NavProperty<Object, Object> nav = new NavProperty<>("Trips", Object.class, Object.class);
+        NavQuery<Object, Object, Object> nav = NavQuery.of("Trips");
         NumberProperty<Object, Integer> budget = new NumberProperty<>("Budget", null);
-        NavProperty.NavQuery<Object, Object> query = nav.filter(budget.greaterThan(100));
+        NavQuery<Object, Object, Object> query = nav.filter(budget.greaterThan(100));
 
         assertThrows(UnsupportedOperationException.class,
                 () -> query.filters().add("injected eq true"),
@@ -269,7 +281,7 @@ class NavPropertyExpandTest {
 
     @Test
     void l12SelectRejectsFunctionTransformations() {
-        NavProperty<Object, Object> nav = new NavProperty<>("Trips", Object.class, Object.class);
+        NavQuery<Object, Object, Object> nav = NavQuery.of("Trips");
         StringProperty<Object> name = new StringProperty<>("Name", null);
         DateTimeProperty<Object> startsAt = new DateTimeProperty<>("StartsAt", null);
 
@@ -282,5 +294,28 @@ class NavPropertyExpandTest {
                 () -> nav.select(name).select(name.toUpper()),
                 "NavQuery.select must reject them too");
         assertDoesNotThrow(() -> nav.select(name), "plain properties stay selectable");
+    }
+
+    @Test
+    void ofWithFactoryKeepsFactoryThroughChaining() {
+        NavQuery<Object, Object, SelectorFixture> nav = NavQuery.of("Trips", SelectorFixture::new);
+        NavQuery<Object, Object, SelectorFixture> query = nav.top(2);
+        assertEquals("Trips($top=2)", query.toODataExpand());
+        assertNotNull(query.selectorFactory(), "chaining must propagate the selector factory");
+    }
+
+    @Test
+    void zeroArgOrderByBridgeStaysLegalOnBothImplementors() {
+        // a single varargs overload made zero-arg orderBy() legal before the lambda
+        // overloads existed; without the bridge it would match BOTH varargs overloads
+        // and be ambiguous — same hazard the select()/expand() bridges cover
+        assertEquals("Trips", NavQuery.<Object, Object, Object>of("Trips").orderBy().toODataExpand());
+        CollectionProperty<Object, Object, CollectionProperty.FilterableElement<Object>, ?> col =
+                new CollectionProperty<>("Friends", Object.class, Object.class, CollectionProperty.FilterableElement::new);
+        assertEquals("Friends", col.orderBy().toODataExpand());
+    }
+
+    /** Minimal selector fixture for factory wiring tests. */
+    static final class SelectorFixture {
     }
 }

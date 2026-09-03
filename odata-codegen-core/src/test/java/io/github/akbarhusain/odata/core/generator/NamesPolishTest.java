@@ -41,7 +41,11 @@ class NamesPolishTest {
     @Test
     void l21RuntimeQueryClassNamesAreShadowed() {
         assertEquals("StringProperty_", Names.entityClassName("StringProperty"));
-        assertEquals("NavProperty_", Names.complexTypeClassName("NavProperty"));
+        assertEquals("NavProperty", Names.complexTypeClassName("NavProperty"));
+        // NavProperty was removed from the runtime (lambda-query API): the class no longer
+        // exists, so an entity named NavProperty is legal again; NavQuery/Expandable joined the list
+        assertEquals("NavQuery_", Names.complexTypeClassName("NavQuery"));
+        assertEquals("Expandable_", Names.complexTypeClassName("Expandable"));
         assertEquals("EnumProperty_", Names.enumClassName("EnumProperty"));
         assertEquals("Person", Names.entityClassName("Person"), "normal names unchanged");
     }

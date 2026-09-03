@@ -9,7 +9,6 @@ import com.example.trippin.enums.PersonGender;
 import io.github.akbarhusain.odata.runtime.entity.Context;
 import io.github.akbarhusain.odata.runtime.http.JdkHttpTransport;
 import io.github.akbarhusain.odata.runtime.paging.CollectionPage;
-import io.github.akbarhusain.odata.runtime.query.NavProperty;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;

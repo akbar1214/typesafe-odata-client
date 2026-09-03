@@ -156,18 +156,34 @@ public class RequestGenerator extends AbstractTypeGenerator {
         sb.append("        return next;\n");
         sb.append("    }\n\n");
 
+        sb.append("    @SuppressWarnings(\"unchecked\")\n");
         sb.append("    @SafeVarargs\n");
-        sb.append("    public final ").append(className).append(" expand(NavProperty<? super ").append(entityClassName).append(", ?>... properties) {\n");
-        sb.append("        ").append(className).append(" next = copy();\n");
-        sb.append("        for (var p : properties) next.expands.add(p.getEdmName());\n");
-        sb.append("        return next;\n");
+        sb.append("    public final ").append(className).append(" select(java.util.function.Function<").append(entityClassName).append(".Selector, ? extends PropertyExpression<? super ").append(entityClassName).append(", ?>>... selectors) {\n");
+        sb.append("        ").append(entityClassName).append(".Selector s = new ").append(entityClassName).append(".Selector();\n");
+        sb.append("        PropertyExpression<? super ").append(entityClassName).append(", ?>[] resolved = new PropertyExpression[selectors.length];\n");
+        sb.append("        for (int i = 0; i < selectors.length; i++) {\n");
+        sb.append("            resolved[i] = selectors[i].apply(s);\n");
+        sb.append("        }\n");
+        sb.append("        return select(resolved);\n");
+        sb.append("    }\n\n");
+
+        // zero-arg bridge: select() matched one varargs overload before the lambda form
+        // existed; with both present it would be ambiguous
+        sb.append("    @SuppressWarnings(\"unchecked\")\n");
+        sb.append("    public final ").append(className).append(" select() {\n");
+        sb.append("        return select(new PropertyExpression[0]);\n");
         sb.append("    }\n\n");
 
         sb.append("    @SafeVarargs\n");
-        sb.append("    public final ").append(className).append(" expand(NavProperty.NavQuery<? super ").append(entityClassName).append(", ?>... queries) {\n");
+        sb.append("    public final ").append(className).append(" expand(Expandable<? super ").append(entityClassName).append(">... expandables) {\n");
         sb.append("        ").append(className).append(" next = copy();\n");
-        sb.append("        for (var q : queries) next.expands.add(q.toODataExpand());\n");
+        sb.append("        for (var e : expandables) next.expands.add(e.toODataExpand());\n");
         sb.append("        return next;\n");
+        sb.append("    }\n\n");
+
+        sb.append("    public final ").append(className).append(" expand(java.util.function.Function<").append(entityClassName).append(".Selector, ? extends Expandable<? super ").append(entityClassName).append(">> query) {\n");
+        sb.append("        ").append(entityClassName).append(".Selector s = new ").append(entityClassName).append(".Selector();\n");
+        sb.append("        return expand(query.apply(s));\n");
         sb.append("    }\n\n");
 
         sb.append("    public ContextPath buildContext() {\n");
@@ -370,6 +386,11 @@ public class RequestGenerator extends AbstractTypeGenerator {
         sb.append("        return next;\n");
         sb.append("    }\n\n");
 
+        sb.append("    public ").append(className).append(" filter(java.util.function.Function<").append(entityClassName).append(".Selector, ? extends FilterExpression<? super ").append(entityClassName).append(">> predicate) {\n");
+        sb.append("        ").append(entityClassName).append(".Selector s = new ").append(entityClassName).append(".Selector();\n");
+        sb.append("        return filter(predicate.apply(s));\n");
+        sb.append("    }\n\n");
+
         // Type-safe select
         sb.append("    @SafeVarargs\n");
         sb.append("    public final ").append(className).append(" select(PropertyExpression<? super ").append(entityClassName).append(", ?>... properties) {\n");
@@ -385,20 +406,36 @@ public class RequestGenerator extends AbstractTypeGenerator {
         sb.append("        return next;\n");
         sb.append("    }\n\n");
 
-        // Type-safe expand
+        sb.append("    @SuppressWarnings(\"unchecked\")\n");
         sb.append("    @SafeVarargs\n");
-        sb.append("    public final ").append(className).append(" expand(NavProperty<? super ").append(entityClassName).append(", ?>... properties) {\n");
+        sb.append("    public final ").append(className).append(" select(java.util.function.Function<").append(entityClassName).append(".Selector, ? extends PropertyExpression<? super ").append(entityClassName).append(", ?>>... selectors) {\n");
+        sb.append("        ").append(entityClassName).append(".Selector s = new ").append(entityClassName).append(".Selector();\n");
+        sb.append("        PropertyExpression<? super ").append(entityClassName).append(", ?>[] resolved = new PropertyExpression[selectors.length];\n");
+        sb.append("        for (int i = 0; i < selectors.length; i++) {\n");
+        sb.append("            resolved[i] = selectors[i].apply(s);\n");
+        sb.append("        }\n");
+        sb.append("        return select(resolved);\n");
+        sb.append("    }\n\n");
+
+        // zero-arg bridge: select() matched one varargs overload before the lambda form
+        // existed; with both present it would be ambiguous
+        sb.append("    @SuppressWarnings(\"unchecked\")\n");
+        sb.append("    public final ").append(className).append(" select() {\n");
+        sb.append("        return select(new PropertyExpression[0]);\n");
+        sb.append("    }\n\n");
+
+        // Type-safe expand: one constant form over the sealed Expandable set
+        // (bare navigations render the plain segment, queries render their options)
+        sb.append("    @SafeVarargs\n");
+        sb.append("    public final ").append(className).append(" expand(Expandable<? super ").append(entityClassName).append(">... expandables) {\n");
         sb.append("        ").append(className).append(" next = copy();\n");
-        sb.append("        for (var p : properties) next.expands.add(p.getEdmName());\n");
+        sb.append("        for (var e : expandables) next.expands.add(e.toODataExpand());\n");
         sb.append("        return next;\n");
         sb.append("    }\n\n");
 
-        // Expand with nested options (select, filter, orderby, top)
-        sb.append("    @SafeVarargs\n");
-        sb.append("    public final ").append(className).append(" expand(NavProperty.NavQuery<? super ").append(entityClassName).append(", ?>... queries) {\n");
-        sb.append("        ").append(className).append(" next = copy();\n");
-        sb.append("        for (var q : queries) next.expands.add(q.toODataExpand());\n");
-        sb.append("        return next;\n");
+        sb.append("    public final ").append(className).append(" expand(java.util.function.Function<").append(entityClassName).append(".Selector, ? extends Expandable<? super ").append(entityClassName).append(">> query) {\n");
+        sb.append("        ").append(entityClassName).append(".Selector s = new ").append(entityClassName).append(".Selector();\n");
+        sb.append("        return expand(query.apply(s));\n");
         sb.append("    }\n\n");
 
         // Type-safe orderBy
@@ -407,6 +444,23 @@ public class RequestGenerator extends AbstractTypeGenerator {
         sb.append("        ").append(className).append(" next = copy();\n");
         sb.append("        for (var e : expressions) next.orderings.add(e.getODataPath());\n");
         sb.append("        return next;\n");
+        sb.append("    }\n\n");
+
+        sb.append("    @SuppressWarnings(\"unchecked\")\n");
+        sb.append("    @SafeVarargs\n");
+        sb.append("    public final ").append(className).append(" orderBy(java.util.function.Function<").append(entityClassName).append(".Selector, ? extends OrderExpression<? super ").append(entityClassName).append(", ?>>... expressions) {\n");
+        sb.append("        ").append(entityClassName).append(".Selector s = new ").append(entityClassName).append(".Selector();\n");
+        sb.append("        OrderExpression<? super ").append(entityClassName).append(", ?>[] resolved = new OrderExpression[expressions.length];\n");
+        sb.append("        for (int i = 0; i < expressions.length; i++) {\n");
+        sb.append("            resolved[i] = expressions[i].apply(s);\n");
+        sb.append("        }\n");
+        sb.append("        return orderBy(resolved);\n");
+        sb.append("    }\n\n");
+
+        // zero-arg bridge (same rationale as select())
+        sb.append("    @SuppressWarnings(\"unchecked\")\n");
+        sb.append("    public final ").append(className).append(" orderBy() {\n");
+        sb.append("        return orderBy(new OrderExpression[0]);\n");
         sb.append("    }\n\n");
 
         // top, skip, count, search

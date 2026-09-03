@@ -14,6 +14,22 @@ client.people()
 
 Only `FirstName` and `LastName` are included in the response.
 
+### Selector-Lambda Spelling
+
+Every constant-based example has a lambda form: apply the lambda to a
+`Selector` view of the entity's properties. Both render the identical URL —
+pick one style and stay consistent:
+
+```java
+client.people()
+    .select(p -> p.FIRST_NAME, p -> p.LAST_NAME)
+    .orderBy(x -> x.LAST_NAME.asc())
+    .get();
+```
+
+Cross-entity mistakes are compile errors in both spellings: `Trip.NAME` is not a
+member of `Person.Selector`, so `select(p -> p.NAME)` does not compile.
+
 ### Select with Star
 
 ```java

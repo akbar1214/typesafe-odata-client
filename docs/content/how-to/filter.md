@@ -15,6 +15,20 @@ to. This gives two compile-time guarantees:
   `PlanItem`) is accepted when filtering a subtype (`Flight`). This is what makes
   entity inheritance useful in queries.
 
+Filter predicates also accept a **selector-lambda** spelling — the lambda
+receives a `Selector` view of the entity's properties, so a foreign property is
+a compile error (`p` is a `Person.Selector`, and `NAME` is not one of its
+members):
+
+```java
+client.people()
+    .filter(p -> p.FIRST_NAME.equalTo("Scott"))
+    .get();
+```
+
+Collection lambdas (`any`/`all`) are unchanged — see
+[Collection Filters](#collection-filters) below.
+
 Use `FilterExpression.of("raw odata")` only when you need an expression the
 builder doesn't cover.
 

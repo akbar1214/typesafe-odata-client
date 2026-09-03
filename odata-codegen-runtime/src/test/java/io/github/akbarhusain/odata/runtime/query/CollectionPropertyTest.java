@@ -8,7 +8,7 @@ class CollectionPropertyTest {
 
     @Test
     void anyProducesCorrectODataWithSubstitutedPredicate() {
-        CollectionProperty<Object, String, CollectionProperty.FilterableElement<String>> prop =
+        CollectionProperty<Object, String, CollectionProperty.FilterableElement<String>, ?> prop =
                 new CollectionProperty<>("Emails", Object.class, String.class, CollectionProperty.FilterableElement::new);
 
         FilterExpression expr = prop.any(e -> e.stringField("Value").equalTo("a"));
@@ -18,7 +18,7 @@ class CollectionPropertyTest {
 
     @Test
     void allProducesCorrectODataWithSubstitutedPredicate() {
-        CollectionProperty<Object, String, CollectionProperty.FilterableElement<String>> prop =
+        CollectionProperty<Object, String, CollectionProperty.FilterableElement<String>, ?> prop =
                 new CollectionProperty<>("Emails", Object.class, String.class, CollectionProperty.FilterableElement::new);
 
         FilterExpression expr = prop.all(e -> e.stringField("Value").equalTo("a"));
@@ -28,7 +28,7 @@ class CollectionPropertyTest {
 
     @Test
     void containsString() {
-        CollectionProperty<Object, String, CollectionProperty.FilterableElement<String>> prop =
+        CollectionProperty<Object, String, CollectionProperty.FilterableElement<String>, ?> prop =
                 new CollectionProperty<>("Emails", Object.class, String.class, CollectionProperty.FilterableElement::new);
 
         FilterExpression<Object> expr = prop.contains("scott@example.com");
@@ -37,7 +37,7 @@ class CollectionPropertyTest {
 
     @Test
     void containsNumber() {
-        CollectionProperty<Object, Integer, CollectionProperty.FilterableElement<Integer>> prop =
+        CollectionProperty<Object, Integer, CollectionProperty.FilterableElement<Integer>, ?> prop =
                 new CollectionProperty<>("Scores", Object.class, Integer.class, CollectionProperty.FilterableElement::new);
 
         FilterExpression<Object> expr = prop.contains(42);
@@ -46,7 +46,7 @@ class CollectionPropertyTest {
 
     @Test
     void length() {
-        CollectionProperty<Object, String, CollectionProperty.FilterableElement<String>> prop =
+        CollectionProperty<Object, String, CollectionProperty.FilterableElement<String>, ?> prop =
                 new CollectionProperty<>("Emails", Object.class, String.class, CollectionProperty.FilterableElement::new);
 
         NumberExpression<Integer, Object> expr = prop.length();
@@ -55,7 +55,7 @@ class CollectionPropertyTest {
 
     @Test
     void l13MissingFilterableFactoryThrowsClearError() {
-        CollectionProperty<Object, Object, Object> prop =
+        CollectionProperty<Object, Object, Object, ?> prop =
                 new CollectionProperty<>("Tags", Object.class, Object.class);
         IllegalStateException ex = assertThrows(IllegalStateException.class,
                 () -> prop.any(el -> new RawFilterExpression<>("true")),
@@ -65,7 +65,7 @@ class CollectionPropertyTest {
 
     @Test
     void l13LambdaAliasFollowsFilterableElementPrefix() {
-        CollectionProperty<Object, String, CollectionProperty.FilterableElement<String>> prop =
+        CollectionProperty<Object, String, CollectionProperty.FilterableElement<String>, ?> prop =
                 new CollectionProperty<>("Tags", Object.class, String.class,
                         () -> new CollectionProperty.FilterableElement<>("d"));
 
@@ -77,7 +77,7 @@ class CollectionPropertyTest {
 
     @Test
     void l13InvalidLambdaAliasIsRejected() {
-        CollectionProperty<Object, String, CollectionProperty.FilterableElement<String>> prop =
+        CollectionProperty<Object, String, CollectionProperty.FilterableElement<String>, ?> prop =
                 new CollectionProperty<>("Tags", Object.class, String.class,
                         () -> new CollectionProperty.FilterableElement<>("bad alias"));
         assertThrows(IllegalArgumentException.class,

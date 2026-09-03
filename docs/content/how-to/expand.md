@@ -23,6 +23,39 @@ client.people()
     .get();
 ```
 
+## Selector Lambdas
+
+Every `expand` example below has a lambda spelling: apply the lambda to a
+`Selector` view of the entity's properties. Constants are the short form; lambdas
+give one consistent mental model across `select`, `orderBy`, `expand`, and
+`filter`, and compose at unlimited nesting depth:
+
+```java
+client.people()
+    .expand(p -> p.TRIPS)                                   // bare nav
+    .expand(p -> p.TRIPS.select(t -> t.NAME))               // nav + options
+    .expand(p -> p.TRIPS
+        .select(t -> t.NAME)
+        .filter(t -> t.BUDGET.greaterThan(500f))
+        .top(2))                                            // chained options
+    .get();
+```
+
+Nested expands take lambdas at every hop — each hop's selector arrives with the
+value, so the chain composes recursively:
+
+```java
+client.people()
+    .expand(p -> p.TRIPS.select(t -> t.NAME)
+        .expand(u -> u.PLAN_ITEMS.select(v -> v.PLAN_ITEM_ID)))
+    .get();
+// $expand=Trips($select=Name;$expand=PlanItems($select=PlanItemId))
+```
+
+Cross-entity mistakes stay compile errors in both spellings: `FLIGHTS` is a `Trip`
+constant, not a member of `Person.Selector`, so `expand(p -> p.FLIGHTS)` does not
+compile.
+
 ## Nested Expand Options (NavQuery)
 
 A navigation property exposes `select`, `filter`, `orderBy`, `top`, `skip`, and `count`
@@ -46,6 +79,19 @@ This produces (roughly):
 
 ```text
 $expand=Trips($select=TripId,Budget;$filter=Budget gt 500.0;$orderby=StartsAt desc;$top=5)
+```
+
+The same chain written with lambdas:
+
+```java
+client.people()
+    .expand(p -> p.TRIPS
+        .select(t -> t.TRIP_ID, t -> t.BUDGET)
+        .filter(t -> t.BUDGET.greaterThan(500.0f))
+        .orderBy(t -> t.STARTS_AT.desc())
+        .top(5)
+        .count())
+    .get();
 ```
 
 ### Select within Expand
@@ -121,8 +167,8 @@ var brief = client.containers(id)
 ## Deep / Multi-Level Nested Expand
 
 You can expand a navigation-of-a-navigation by calling `expand(...)` on a
-`NavProperty` (or a `NavQuery`) inside another `expand(...)`. This renders
-OData's multi-level `$expand` — for example
+`NavQuery` (opened from a collection navigation constant) inside another
+`expand(...)`. This renders OData's multi-level `$expand` — for example
 `$expand=Trips($expand=PlanItems)`:
 
 ```java
@@ -131,8 +177,8 @@ client.people()
     .get();
 ```
 
-A bare `NavProperty` passed to `expand(...)` expands the nav with no options. To
-nest options on the inner nav, pass a `NavQuery` instead:
+A bare navigation constant passed to `expand(...)` expands the nav with no
+options. To nest options on the inner nav, chain them (constants or lambdas):
 
 ```java
 client.people()
@@ -170,6 +216,14 @@ var containers = client.containers(id)
   (`select`/`filter`/`expand`/`top`/`count`) are type-checked against `Doc` — its own
   constants and inherited base constants both work
 - Casting to an unrelated type is a compile error (`<S extends T>` bound)
+- Lambda spelling (the 3-arg `as()` also wires the subtype's selector):
+
+```java
+client.versions()
+    .expand(v -> v.VERSIONS.as("NS.Doc", Doc.class, Doc.Selector::new).select(d -> d.TITLE))
+    .get();
+```
+
 - For subtypes the generator doesn't know (or quick experiments), the escape hatch:
 
 ```java
