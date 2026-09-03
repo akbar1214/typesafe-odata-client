@@ -101,6 +101,66 @@ class RedeclaredMemberTest {
     }
 
     @Test
+    void midChainConflictFailsLoudly() {
+        // Base1(Label: String) <- Base2(Label: Int32) <- Derived: the merged
+        // inherited list hides the Base1/Base2 pair, so a leaf-only check never
+        // fires. The chain must be checked pairwise at every level.
+        CsdlModel.EntityTypeModel base1 = new CsdlModel.EntityTypeModel("Base1", null,
+                false, false, false,
+                List.of(new CsdlModel.KeyModel(List.of("Id"))),
+                List.of(
+                        new CsdlModel.PropertyModel("Id", "Edm.Int32", false, null, List.of()),
+                        new CsdlModel.PropertyModel("Label", "Edm.String", true, null, List.of())),
+                List.of());
+        CsdlModel.EntityTypeModel base2 = new CsdlModel.EntityTypeModel("Base2", "NS.Base1",
+                false, false, false,
+                List.of(),
+                List.of(new CsdlModel.PropertyModel("Label", "Edm.Int32", true, null, List.of())),
+                List.of());
+        CsdlModel.EntityTypeModel derived = new CsdlModel.EntityTypeModel("Derived", "NS.Base2",
+                false, false, false,
+                List.of(),
+                List.of(),
+                List.of());
+        CsdlModel.SchemaModel schema = new CsdlModel.SchemaModel("NS", null,
+                List.of(base1, base2, derived), List.of(), List.of(),
+                List.of(), List.of(), List.of(), List.of());
+
+        IllegalStateException ex = assertThrows(IllegalStateException.class,
+                () -> new EntityGenerator("com.example", Map.of(), null, List.of(schema), true)
+                        .generate(derived, schema),
+                "mid-chain conflicting redeclare must fail loudly, not merge silently");
+        assertTrue(ex.getMessage().contains("Label")
+                        && ex.getMessage().contains("Edm.String")
+                        && ex.getMessage().contains("Edm.Int32"),
+                "the failure must name the member and both types: " + ex.getMessage());
+    }
+
+    @Test
+    void midChainConflictFailsLoudlyForComplexTypes() {
+        CsdlModel.ComplexTypeModel base1 = new CsdlModel.ComplexTypeModel("Base1", null,
+                false, false,
+                List.of(new CsdlModel.PropertyModel("Label", "Edm.String", true, null, List.of())),
+                List.of());
+        CsdlModel.ComplexTypeModel base2 = new CsdlModel.ComplexTypeModel("Base2", "NS.Base1",
+                false, false,
+                List.of(new CsdlModel.PropertyModel("Label", "Edm.Int32", true, null, List.of())),
+                List.of());
+        CsdlModel.ComplexTypeModel derived = new CsdlModel.ComplexTypeModel("Derived", "NS.Base2",
+                false, false, List.of(), List.of());
+        CsdlModel.SchemaModel schema = new CsdlModel.SchemaModel("NS", null,
+                List.of(), List.of(base1, base2, derived), List.of(),
+                List.of(), List.of(), List.of(), List.of());
+
+        IllegalStateException ex = assertThrows(IllegalStateException.class,
+                () -> new ComplexTypeGenerator("com.example", Map.of(), null, List.of(schema), true)
+                        .generate(derived, schema),
+                "mid-chain conflicting redeclare must fail loudly for complex types too");
+        assertTrue(ex.getMessage().contains("Label"),
+                "the failure must name the member: " + ex.getMessage());
+    }
+
+    @Test
     void conflictingNavRedeclarationFailsLoudly() {
         CsdlModel.EntityTypeModel other = new CsdlModel.EntityTypeModel("Other", null,
                 false, false, false,

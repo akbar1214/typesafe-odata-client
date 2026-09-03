@@ -186,11 +186,21 @@ public abstract class AbstractTypeGenerator {
     /**
      * Fails loudly when an own member redeclares an inherited member with an
      * INCOMPATIBLE shape. Same-name same-shape redeclaration merges silently via
-     * {@link #mergeOwnWinsProps} (harmless shadowing), but a different type (or,
-     * for properties, different nullability — both change the getter signature)
-     * is unrepresentable in Java inheritance: the subclass getter cannot override
-     * the base getter, and request methods cannot overload. Fail here naming both
-     * sides instead of emitting output that does not compile.
+     * {@link #mergeOwnWinsProps} (harmless shadowing), but anything else is
+     * rejected for two independent reasons. First, CSDL permits a same-name
+     * redeclare only as a narrowing to a <em>derived subtype</em> (and 4.0
+     * responses forbid it entirely) — a type change like {@code Edm.String} to
+     * {@code Edm.Int32} is a spec violation. Second, the generated code cannot
+     * represent even facet-only differences: nullability changes the getter
+     * signature ({@code Optional<String>} vs {@code String}, verified by compiling
+     * the unchecked output), and nav differences break the request methods.
+     * Deliberately conservative: legal narrowings (e.g. a nav narrowed to a
+     * subtype entity) also fail loudly until narrowing is a supported feature —
+     * a loud decision beats silently mis-shaping the hierarchy. Request-side
+     * generation tolerates these deterministically (single merged method), so the
+     * model-side throw covers the normal pipeline; standalone request generation
+     * is the only path that stays lenient. Fail here naming both sides instead of
+     * emitting output that does not compile.
      */
     protected void checkRedeclarationConflicts(String className,
                                                List<PropertyModel> inheritedProps,
@@ -211,10 +221,11 @@ public abstract class AbstractTypeGenerator {
             String ownType = resolveTypeDefinition(p.edmType(), schema);
             if (!baseType.equals(ownType) || base.nullable() != p.nullable()) {
                 throw new IllegalStateException("Cannot generate " + className + ": property '" + p.name()
-                        + "' redeclares an inherited property with a different type (base: " + base.edmType()
+                        + "' redeclares an inherited property with an incompatible type (base: " + base.edmType()
                         + (base.nullable() ? " nullable" : "") + ", derived: " + p.edmType()
-                        + (p.nullable() ? " nullable" : "") + "). The subclass getter cannot override "
-                        + "the base getter — rename one of them in the metadata.");
+                        + (p.nullable() ? " nullable" : "") + "). CSDL permits same-name redeclaration only "
+                        + "for narrowing to a derived subtype, and the generated subclass getter cannot "
+                        + "compatibly override the base getter — rename one of them in the metadata.");
             }
         }
         Map<String, NavigationPropertyModel> inheritedNavByName = new HashMap<>();
@@ -231,9 +242,10 @@ public abstract class AbstractTypeGenerator {
             if (!baseTarget.equals(ownTarget)
                     || Names.isCollectionType(base.type()) != Names.isCollectionType(n.type())) {
                 throw new IllegalStateException("Cannot generate " + className + ": navigation property '"
-                        + n.name() + "' redeclares an inherited navigation with a different type (base: "
-                        + base.type() + ", derived: " + n.type() + "). The subclass request methods cannot "
-                        + "overload the base methods — rename one of them in the metadata.");
+                        + n.name() + "' redeclares an inherited navigation with an incompatible type (base: "
+                        + base.type() + ", derived: " + n.type() + "). CSDL permits same-name redeclaration "
+                        + "only for narrowing to a derived entity subtype, and the generated subclass request "
+                        + "methods cannot overload the base methods — rename one of them in the metadata.");
             }
         }
     }

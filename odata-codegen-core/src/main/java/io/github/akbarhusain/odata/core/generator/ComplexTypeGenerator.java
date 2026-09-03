@@ -56,10 +56,11 @@ public class ComplexTypeGenerator extends AbstractTypeGenerator {
         List<PropertyModel> inheritedProps = inheritedProperties(complexType);
         List<NavigationPropertyModel> ownNavs = complexType.navigationProperties();
         List<NavigationPropertyModel> inheritedNavs = inheritedNavProperties(complexType);
-        // Incompatible redeclaration (different type/nullability) is unrepresentable
-        // in Java inheritance — fail loudly before merging
-        checkRedeclarationConflicts(className, inheritedProps, ownProps,
-                inheritedNavs, ownNavs, schema);
+        // Pairwise chain check (root-down, subsumes the leaf-vs-inherited case):
+        // the merged inherited list hides mid-chain pairs, so every level's own
+        // members are compared against all ancestors. Incompatible redeclaration
+        // is unrepresentable in Java inheritance — fail loudly before merging.
+        checkChainConflicts(className, complexType, schema);
         // Own-wins merge: a compatible redeclared member shadows the inherited one (single copy)
         List<PropertyModel> allProps = mergeOwnWinsProps(inheritedProps, ownProps);
 
@@ -512,6 +513,32 @@ public class ComplexTypeGenerator extends AbstractTypeGenerator {
             }
         }
         return schema.namespace() + "." + base.name();
+    }
+
+    /**
+     * Walks the base chain root-down, comparing every level's own members against
+     * all of its ancestors. A leaf-only check against the merged inherited list
+     * cannot see mid-chain pairs (the merge already collapsed them rootmost-wins),
+     * so e.g. Base1(Label: String) &lt;- Base2(Label: Int32) would merge silently.
+     */
+    private void checkChainConflicts(String className, ComplexTypeModel complexType, SchemaModel schema) {
+        List<ComplexTypeModel> chain = new ArrayList<>();
+        Set<ComplexTypeModel> visiting = newVisiting();
+        ComplexTypeModel cursor = complexType;
+        while (cursor != null) {
+            checkBaseCycle(visiting, cursor);
+            chain.add(cursor);
+            cursor = findBase(cursor);
+        }
+        java.util.Collections.reverse(chain);
+        List<PropertyModel> ancestors = new ArrayList<>();
+        List<NavigationPropertyModel> ancestorNavs = new ArrayList<>();
+        for (ComplexTypeModel level : chain) {
+            checkRedeclarationConflicts(className, ancestors, level.properties(),
+                    ancestorNavs, level.navigationProperties(), schema);
+            ancestors = mergeOwnWinsProps(ancestors, level.properties());
+            ancestorNavs = mergeOwnWinsNavs(ancestorNavs, level.navigationProperties());
+        }
     }
 
     private ComplexTypeModel findBase(ComplexTypeModel complexType) {
