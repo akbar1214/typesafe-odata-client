@@ -48,6 +48,12 @@ public final class CompilationHarness {
         try (StandardJavaFileManager fileManager = compiler.getStandardFileManager(null, null, null)) {
             List<File> classpath = findClasspathJars();
             fileManager.setLocation(javax.tools.StandardLocation.CLASS_PATH, classpath);
+            // Pin class output under the generation root: javac's unpinned default is
+            // compiler/CWD-dependent, and stray .class trees must never land in the repo.
+            // Lives inside the caller's @TempDir so JUnit cleans it up.
+            Path classes = root.resolve(".classes");
+            Files.createDirectories(classes);
+            fileManager.setLocation(javax.tools.StandardLocation.CLASS_OUTPUT, List.of(classes.toFile()));
             Iterable<? extends javax.tools.JavaFileObject> units =
                     fileManager.getJavaFileObjects(javaFiles.toArray(new File[0]));
             JavaCompiler.CompilationTask task = compiler.getTask(
@@ -72,6 +78,12 @@ public final class CompilationHarness {
     private static final java.util.concurrent.ConcurrentHashMap<String, File> JAR_CACHE =
             new java.util.concurrent.ConcurrentHashMap<>();
 
+    /** Sentinel for a not-found artifact: ConcurrentHashMap rejects null values, and a
+     *  miss must be cacheable or every referee test re-walks ~/.m2 (the sentinel is
+     *  never a real path). Absent artifacts are EXPECTED — e.g. the runtime snapshot
+     *  on a fresh checkout, where the sibling target/classes entry carries the load. */
+    private static final File MISSING = new File("<absent-artifact>");
+
     private static List<File> findClasspathJars() {
         Path mavenRepo = Path.of(System.getProperty("user.home"), ".m2", "repository");
         List<String> artifactIds = List.of(
@@ -85,18 +97,14 @@ public final class CompilationHarness {
                 "slf4j-api");
         List<File> classpath = new ArrayList<>();
         for (String id : artifactIds) {
-            if (JAR_CACHE.containsKey(id)) {
-                File cached = JAR_CACHE.get(id);
-                if (cached != null) {
-                    classpath.add(cached);
-                }
-                continue;
+            File cached = JAR_CACHE.get(id);
+            if (cached == null) {
+                Path jar = findJar(mavenRepo, id);
+                cached = jar != null ? jar.toFile() : MISSING;
+                JAR_CACHE.put(id, cached);
             }
-            Path jar = findJar(mavenRepo, id);
-            File file = jar != null ? jar.toFile() : null;
-            JAR_CACHE.put(id, file);
-            if (file != null) {
-                classpath.add(file);
+            if (cached != MISSING) {
+                classpath.add(cached);
             }
         }
         // current reactor runtime FIRST — the ~/.m2 snapshot may predate new runtime types
