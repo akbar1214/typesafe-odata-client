@@ -794,12 +794,12 @@ public class OperationGenerator extends AbstractTypeGenerator {
                                     + qualifiedEdmName(resolvedElement, op.owner()) + "\")";
                     if (p.nullable()) {
                         b.append("        if (").append(field).append(" != null) {\n")
-                         .append("            __pairs.add(\"").append(p.name()).append('=')
+                         .append("            __pairs.add(\"").append(Names.escapeJavaString(p.name())).append('=')
                          .append(alias).append("\");\n")
                          .append("        }\n");
                     } else {
                         appendRequiredGuard(b, p, field, op);
-                        b.append("        __pairs.add(\"").append(p.name()).append('=')
+                        b.append("        __pairs.add(\"").append(Names.escapeJavaString(p.name())).append('=')
                          .append(alias).append("\");\n");
                     }
                     aliases.add(new AliasEmission(alias, field, valueExpr, p.nullable()));
@@ -847,10 +847,10 @@ public class OperationGenerator extends AbstractTypeGenerator {
             String field = Names.toJavaFieldName(p.name());
             if (p.nullable()) {
                 b.append("        if (").append(field).append(" != null) {\n")
-                 .append("            __params.put(\"").append(p.name()).append("\", ").append(field).append(");\n")
+                 .append("            __params.put(\"").append(Names.escapeJavaString(p.name())).append("\", ").append(field).append(");\n")
                  .append("        }\n");
             } else {
-                b.append("        __params.put(\"").append(p.name()).append("\", ").append(field).append(");\n");
+                b.append("        __params.put(\"").append(Names.escapeJavaString(p.name())).append("\", ").append(field).append(");\n");
             }
         }
         if (op.parameters().isEmpty()) {
@@ -875,7 +875,7 @@ public class OperationGenerator extends AbstractTypeGenerator {
             b.append("        if (").append(field)
              .append(" == null) {\n")
              .append("            throw new IllegalArgumentException(\"Parameter '")
-             .append(p.name()).append("' is non-nullable and must not be null\");\n")
+             .append(Names.escapeJavaString(p.name())).append("' is non-nullable and must not be null\");\n")
              .append("        }\n");
         }
     }

@@ -165,6 +165,9 @@ public class Generator {
             if (part.isEmpty()) {
                 throw new IllegalArgumentException("Invalid package name '" + packageName + "': empty segment");
             }
+            if (Names.isJavaKeyword(part)) {
+                throw new IllegalArgumentException("Invalid package name '" + packageName + "': segment '" + part + "' is a Java keyword");
+            }
             if (!Character.isJavaIdentifierStart(part.charAt(0))) {
                 throw new IllegalArgumentException("Invalid package name '" + packageName + "': segment '" + part + "' is not a valid Java identifier");
             }

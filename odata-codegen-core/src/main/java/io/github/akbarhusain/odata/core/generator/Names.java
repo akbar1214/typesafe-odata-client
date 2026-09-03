@@ -362,6 +362,35 @@ public final class Names {
         return isReservedWord(word);
     }
 
+    /**
+     * Escapes a CSDL/metadata name for embedding in a Java string literal in
+     * generated source. CSDL NCNames cannot legally contain quotes or backslashes,
+     * but defensive escaping keeps hostile or non-conformant metadata from breaking
+     * compilation of the generated file (unclosed string literal) or silently
+     * changing the wire value.
+     */
+    public static String escapeJavaString(String s) {
+        StringBuilder sb = new StringBuilder(s.length());
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            switch (c) {
+                case '\\' -> sb.append("\\\\");
+                case '"' -> sb.append("\\\"");
+                case '\n' -> sb.append("\\n");
+                case '\r' -> sb.append("\\r");
+                case '\t' -> sb.append("\\t");
+                default -> {
+                    if (c < 0x20) {
+                        sb.append(String.format("\\u%04x", (int) c));
+                    } else {
+                        sb.append(c);
+                    }
+                }
+            }
+        }
+        return sb.toString();
+    }
+
     // Object methods that cannot be overridden (final) or would break identity contracts.
     private static final java.util.Set<String> OBJECT_METHOD_NAMES = java.util.Set.of(
             "getClass", "hashCode", "equals", "toString", "clone",

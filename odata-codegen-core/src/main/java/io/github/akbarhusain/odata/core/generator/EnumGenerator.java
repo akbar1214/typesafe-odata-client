@@ -54,7 +54,7 @@ public class EnumGenerator {
             String constant = constants.get(i);
             // each constant records its CSDL member name — the wire name for URL literals
             sb.append("    ").append(constant).append("(").append(member.value()).append("L, \"")
-              .append(escapeJava(member.name())).append("\")");
+              .append(Names.escapeJavaString(member.name())).append("\")");
             if (i < enumType.members().size() - 1) sb.append(",");
             sb.append("\n");
         }
@@ -67,7 +67,7 @@ public class EnumGenerator {
             sb.append("    private static final java.util.Map<String, ").append(className).append("> BY_NAME =\n");
             sb.append("            java.util.Map.ofEntries(\n");
             for (int i = 0; i < renamed.size(); i++) {
-                sb.append("                    java.util.Map.entry(\"").append(renamed.get(i)[0]).append("\", ")
+                sb.append("                    java.util.Map.entry(\"").append(Names.escapeJavaString(renamed.get(i)[0])).append("\", ")
                   .append(renamed.get(i)[1]).append(")").append(i < renamed.size() - 1 ? "," : "").append("\n");
             }
             sb.append("            );\n\n");
@@ -159,10 +159,5 @@ public class EnumGenerator {
             }
         }
         return Names.toConstantName(memberName);
-    }
-
-    /** Escapes a CSDL name for a Java string literal (wire names go into generated source). */
-    private static String escapeJava(String s) {
-        return s.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 }

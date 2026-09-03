@@ -196,7 +196,11 @@ public abstract class AbstractTypeGenerator {
                 default -> javaType;
             };
         }
-        return Names.resolvedClassName(resolved, effectiveSchemas);
+        // Contested simple names (same-named types from different output packages)
+        // must be referenced fully-qualified and never imported — route through the
+        // per-file TypeRefs resolution like navJavaType/resolveClassNameForConstant.
+        // When typeRefs is empty (not yet populated) refFor falls back to the simple name.
+        return refFor(resolved, schema);
     }
 
     protected String resolveSingleJavaType(String edmType, SchemaModel schema) {
@@ -204,7 +208,7 @@ public abstract class AbstractTypeGenerator {
         if (Names.isPrimitiveType(resolved)) {
             return Names.edmTypeToSimpleJavaType(resolved);
         }
-        return Names.resolvedClassName(resolved, effectiveSchemas);
+        return refFor(resolved, schema);
     }
 
     private java.util.Map<String, String> typeDefCache;
@@ -432,12 +436,12 @@ public abstract class AbstractTypeGenerator {
             if (kind == Names.TypeKind.ENTITY || kind == Names.TypeKind.COMPLEX) {
                 return "    public final CollectionProperty<" + className + ", " + elementClassName
                         + ", " + elementClassName + ".Filterable> " + constantName
-                        + " = new CollectionProperty<>(\"x/" + prop.name() + "\", " + className + ".class, "
+                        + " = new CollectionProperty<>(\"x/" + Names.escapeJavaString(prop.name()) + "\", " + className + ".class, "
                         + elementClassName + ".class, " + elementClassName + ".Filterable::new);\n";
             } else {
                 return "    public final CollectionProperty<" + className + ", " + elementClassName
                         + ", CollectionProperty.FilterableElement<" + elementClassName + ">> " + constantName
-                        + " = new CollectionProperty<>(\"x/" + prop.name() + "\", " + className + ".class, "
+                        + " = new CollectionProperty<>(\"x/" + Names.escapeJavaString(prop.name()) + "\", " + className + ".class, "
                         + elementClassName + ".class, CollectionProperty.FilterableElement::new);\n";
             }
         }
@@ -454,12 +458,12 @@ public abstract class AbstractTypeGenerator {
 
         String extra = "";
         if (constantType.equals("EnumProperty")) {
-            extra = ", " + resolveClassNameForConstant(edmType, schema) + ".class, \"" + qualifiedEdmName(resolveTypeDefinition(edmType, schema), schema) + "\"";
+            extra = ", " + resolveClassNameForConstant(edmType, schema) + ".class, \"" + Names.escapeJavaString(qualifiedEdmName(resolveTypeDefinition(edmType, schema), schema)) + "\"";
         } else if (constantType.equals("NumberProperty")) {
-            extra = ", \"" + resolveTypeDefinition(edmType, schema) + "\"";
+            extra = ", \"" + Names.escapeJavaString(resolveTypeDefinition(edmType, schema)) + "\"";
         }
         return "    public final " + constantType + typeParams + " " + constantName
-                + " = new " + constantType + "<>(\"x/" + prop.name() + "\", " + className + ".class"
+                + " = new " + constantType + "<>(\"x/" + Names.escapeJavaString(prop.name()) + "\", " + className + ".class"
                 + extra
                 + ");\n";
     }
@@ -472,7 +476,7 @@ public abstract class AbstractTypeGenerator {
         String constantName = constantNameFor(nav.name());
         return "    public final CollectionProperty<" + className + ", "
                 + elementClassName + ", " + elementClassName + ".Filterable> " + constantName
-                + " = new CollectionProperty<>(\"x/" + nav.name() + "\", " + className + ".class, "
+                + " = new CollectionProperty<>(\"x/" + Names.escapeJavaString(nav.name()) + "\", " + className + ".class, "
                 + elementClassName + ".class, " + elementClassName + ".Filterable::new);\n";
     }
 

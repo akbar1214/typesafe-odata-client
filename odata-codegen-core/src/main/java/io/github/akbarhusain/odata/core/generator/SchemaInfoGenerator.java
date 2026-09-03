@@ -32,19 +32,32 @@ public class SchemaInfoGenerator {
         StringBuilder sb = new StringBuilder();
         sb.append("package ").append(pkg).append(";\n\n");
 
+        // Cross-kind collisions (entity Foo vs complex Foo vs enum Foo sharing one
+        // simple name) would make every unqualified Foo.class ambiguous. Resolve
+        // references per file: contested names are referenced fully-qualified and
+        // never imported — the same deterministic policy as TypeRefs elsewhere.
+        java.util.List<String> refCandidates = new java.util.ArrayList<>();
+        for (SchemaModel schema : schemas) {
+            for (var entityType : schema.entityTypes()) {
+                refCandidates.add(basePackage + Names.packageNameSuffixEntity() + "." + Names.entityClassName(entityType.name()));
+            }
+            for (var complexType : schema.complexTypes()) {
+                refCandidates.add(basePackage + Names.packageNameSuffixComplexType() + "." + Names.complexTypeClassName(complexType.name()));
+            }
+            for (var enumType : schema.enumTypes()) {
+                refCandidates.add(basePackage + Names.packageNameSuffixEnum() + "." + Names.enumClassName(enumType.name()));
+            }
+        }
+        java.util.Map<String, String> refs = TypeRefs.resolve(refCandidates);
+
         Set<String> imports = new TreeSet<>();
         imports.add("java.util.Map");
         imports.add("java.util.HashMap");
 
-        for (SchemaModel schema : schemas) {
-            for (var entityType : schema.entityTypes()) {
-                imports.add(basePackage + Names.packageNameSuffixEntity() + "." + Names.entityClassName(entityType.name()));
-            }
-            for (var complexType : schema.complexTypes()) {
-                imports.add(basePackage + Names.packageNameSuffixComplexType() + "." + Names.complexTypeClassName(complexType.name()));
-            }
-            for (var enumType : schema.enumTypes()) {
-                imports.add(basePackage + Names.packageNameSuffixEnum() + "." + Names.enumClassName(enumType.name()));
+        for (String fqn : refCandidates) {
+            String ref = refs.get(fqn);
+            if (ref != null && !ref.contains(".")) {
+                imports.add(fqn);
             }
         }
 
@@ -63,15 +76,18 @@ public class SchemaInfoGenerator {
         for (SchemaModel schema : schemas) {
             for (var entityType : schema.entityTypes()) {
                 String fqn = schema.namespace() + "." + entityType.name();
-                sb.append("        classes.put(\"").append(fqn).append("\", ").append(Names.entityClassName(entityType.name())).append(".class);\n");
+                String generatedFqn = basePackage + Names.packageNameSuffixEntity() + "." + Names.entityClassName(entityType.name());
+                sb.append("        classes.put(\"").append(Names.escapeJavaString(fqn)).append("\", ").append(refs.get(generatedFqn)).append(".class);\n");
             }
             for (var complexType : schema.complexTypes()) {
                 String fqn = schema.namespace() + "." + complexType.name();
-                sb.append("        classes.put(\"").append(fqn).append("\", ").append(Names.complexTypeClassName(complexType.name())).append(".class);\n");
+                String generatedFqn = basePackage + Names.packageNameSuffixComplexType() + "." + Names.complexTypeClassName(complexType.name());
+                sb.append("        classes.put(\"").append(Names.escapeJavaString(fqn)).append("\", ").append(refs.get(generatedFqn)).append(".class);\n");
             }
             for (var enumType : schema.enumTypes()) {
                 String fqn = schema.namespace() + "." + enumType.name();
-                sb.append("        classes.put(\"").append(fqn).append("\", ").append(Names.enumClassName(enumType.name())).append(".class);\n");
+                String generatedFqn = basePackage + Names.packageNameSuffixEnum() + "." + Names.enumClassName(enumType.name());
+                sb.append("        classes.put(\"").append(Names.escapeJavaString(fqn)).append("\", ").append(refs.get(generatedFqn)).append(".class);\n");
             }
         }
         sb.append("    }\n\n");
