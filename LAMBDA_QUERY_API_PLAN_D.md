@@ -389,8 +389,13 @@ an entity named `NavProperty` becomes legal again).
 - New tests red → green, each observed failing pre-fix (lesson 186 discipline).
 - Full reactor offline green; `-Plive-tests` green.
 - Generated output for existing corpora differs only by the additive emission (`Selector`
-  classes + overloads + retyped constants); `NavProperty` unreferenced anywhere after the change
-  (grep referee: zero matches outside historical docs).
+  classes + overloads + retyped constants); `NavProperty` unreferenced anywhere after the
+  change. Referee: `grep -rnE "\bNavProperty\b" --include="*.java"` over the four module
+  source roots → zero matches (as implemented, the generator's own methods were renamed to
+  `generateNavConstant`/`generateSubtypeNavConstant`/`generateFilterableNavField` so the
+  word-boundary pattern is clean; a bare `grep NavProperty` still hits legitimate
+  domain-vocabulary test names like `expandSingleNavProperty` and the tests asserting the
+  class's absence — those are the referee, not violations).
 
 ---
 

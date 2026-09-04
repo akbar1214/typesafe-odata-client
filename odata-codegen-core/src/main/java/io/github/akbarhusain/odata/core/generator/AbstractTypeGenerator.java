@@ -533,7 +533,7 @@ public abstract class AbstractTypeGenerator {
         }
         for (NavigationPropertyModel nav : allNavs) {
             if (Names.isCollectionType(nav.type())) {
-                sb.append(generateFilterableNavPropertyField(nav, className, schema));
+                sb.append(generateFilterableNavField(nav, className, schema));
             }
         }
         sb.append("    }\n\n");
@@ -584,7 +584,7 @@ public abstract class AbstractTypeGenerator {
                 + ");\n";
     }
 
-    protected String generateFilterableNavPropertyField(NavigationPropertyModel nav, String className, SchemaModel schema) {
+    protected String generateFilterableNavField(NavigationPropertyModel nav, String className, SchemaModel schema) {
         String unwrapped = Names.unwrapCollectionType(nav.type());
         String elementClassName = refFor(resolveTypeDefinition(unwrapped, schema), schema);
         // must go through the per-type allocation like every other emission site —

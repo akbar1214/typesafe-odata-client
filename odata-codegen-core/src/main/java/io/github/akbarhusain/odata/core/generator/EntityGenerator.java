@@ -203,12 +203,12 @@ public class EntityGenerator extends AbstractTypeGenerator {
         }
         List<CastConstantRef> castConstants = new ArrayList<>();
         for (NavigationPropertyModel nav : entityType.navigationProperties()) {
-            sb.append(generateNavPropertyConstant(nav, className, schema));
+            sb.append(generateNavConstant(nav, className, schema));
             for (EntitySubtype subtype : subtypesFor(nav, schema)) {
                 String constantName = uniqueSubtypeConstantName(
                         constantNameFor(nav.name()), subtype.model().name(), usedConstantNames);
                 String javaRef = subtypeRefs.refs().get(subtype.qualifiedName());
-                sb.append(generateSubtypeNavPropertyConstant(nav, className, schema, subtype,
+                sb.append(generateSubtypeNavConstant(nav, className, schema, subtype,
                         constantName, javaRef));
                 castConstants.add(new CastConstantRef(constantName, javaRef));
             }
@@ -738,7 +738,7 @@ public class EntityGenerator extends AbstractTypeGenerator {
                 + ");\n";
     }
 
-    private String generateNavPropertyConstant(NavigationPropertyModel nav, String className, SchemaModel schema) {
+    private String generateNavConstant(NavigationPropertyModel nav, String className, SchemaModel schema) {
         boolean isCollection = Names.isCollectionType(nav.type());
         String unwrapped = Names.unwrapCollectionType(nav.type());
         // Complex-target navs (possible through TypeDefinition chains) are skipped:
@@ -764,7 +764,7 @@ public class EntityGenerator extends AbstractTypeGenerator {
         }
     }
 
-    private String generateSubtypeNavPropertyConstant(NavigationPropertyModel nav, String className,
+    private String generateSubtypeNavConstant(NavigationPropertyModel nav, String className,
                                                        SchemaModel schema, EntitySubtype subtype,
                                                        String constantName, String javaRef) {
         return "    public static final NavQuery<" + className + ", "
