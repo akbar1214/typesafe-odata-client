@@ -17,7 +17,7 @@ class QueryNullRejectionTest {
             new NumberProperty<>("Age", Object.class, "Edm.Int32");
     private final DateTimeProperty<Object> created =
             new DateTimeProperty<>("Created", Object.class);
-    private final CollectionProperty<Object, String, CollectionProperty.FilterableElement<String>> tags =
+    private final CollectionProperty<Object, String, CollectionProperty.FilterableElement<String>, ?> tags =
             new CollectionProperty<>("Tags", Object.class, String.class,
                     CollectionProperty.FilterableElement::new);
 

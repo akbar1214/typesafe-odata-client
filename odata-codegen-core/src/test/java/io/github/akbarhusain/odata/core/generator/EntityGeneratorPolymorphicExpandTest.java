@@ -19,8 +19,8 @@ class EntityGeneratorPolymorphicExpandTest {
                 .generate(schema.entityTypes().get(0), schema);
 
         assertTrue(code.contains(
-                "public static final NavProperty.NavQuery<Container, Doc> VERSIONS_AS_DOC"
-                        + " = VERSIONS.as(\"NS.Doc\", Doc.class);"), code);
+                "public static final NavQuery<Container, Doc, Doc.Selector> VERSIONS_AS_DOC"
+                        + " = VERSIONS.as(\"NS.Doc\", Doc.class, Doc.Selector::new);"), code);
         assertTrue(code.contains("import app.entity.Doc;"),
                 "the cast constant needs the generated subtype import: " + code);
     }

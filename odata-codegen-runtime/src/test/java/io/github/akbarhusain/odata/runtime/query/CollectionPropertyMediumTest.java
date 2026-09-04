@@ -16,13 +16,13 @@ class CollectionPropertyMediumTest {
     // Minimal Filterable for test that mimics generated one with x/ prefix
     static class TagFilterable {
         public final StringProperty<Tag> NAME = new StringProperty<>("x/Name", Tag.class);
-        public final CollectionProperty<Tag, String, CollectionProperty.FilterableElement<String>> NAMES =
+        public final CollectionProperty<Tag, String, CollectionProperty.FilterableElement<String>, ?> NAMES =
                 new CollectionProperty<>("x/Names", Tag.class, String.class, CollectionProperty.FilterableElement::new);
     }
 
     @Test
     void m8_nestedAnyShouldNotShadowAlias() {
-        CollectionProperty<Person, Tag, TagFilterable> tags =
+        CollectionProperty<Person, Tag, TagFilterable, ?> tags =
                 new CollectionProperty<>("Tags", Person.class, Tag.class, TagFilterable::new);
 
         String expr = tags.any(outer -> outer.NAME.equalTo("a")
@@ -36,7 +36,7 @@ class CollectionPropertyMediumTest {
 
     @Test
     void m8_aliasRebindMustNotCorruptQuotedLiterals() {
-        CollectionProperty<Person, Tag, TagFilterable> tags =
+        CollectionProperty<Person, Tag, TagFilterable, ?> tags =
                 new CollectionProperty<>("Tags", Person.class, Tag.class, TagFilterable::new);
 
         // The inner predicate's literal 'x/value' contains "x/" — the alias rebinding at
@@ -53,7 +53,7 @@ class CollectionPropertyMediumTest {
 
     @Test
     void m8_aliasRebindMustNotMatchInsideLongerIdentifiers() {
-        CollectionProperty<Person, Tag, TagFilterable> tags =
+        CollectionProperty<Person, Tag, TagFilterable, ?> tags =
                 new CollectionProperty<>("Tags", Person.class, Tag.class, TagFilterable::new);
 
         // A property path like x/Max/Value contains "x/" inside "Max/" — only standalone
@@ -70,7 +70,7 @@ class CollectionPropertyMediumTest {
 
     @Test
     void m8_singleAnyStillWorks() {
-        CollectionProperty<Person, Tag, TagFilterable> tags =
+        CollectionProperty<Person, Tag, TagFilterable, ?> tags =
                 new CollectionProperty<>("Tags", Person.class, Tag.class, TagFilterable::new);
         String expr = tags.any(t -> t.NAME.equalTo("a")).toODataExpression();
         assertEquals("Tags/any(x: x/Name eq 'a')", expr, "single any should use x");

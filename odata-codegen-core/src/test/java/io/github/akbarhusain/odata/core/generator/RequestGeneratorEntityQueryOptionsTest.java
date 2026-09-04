@@ -31,13 +31,14 @@ class RequestGeneratorEntityQueryOptionsTest {
     void entityRequestEmitsTypedExpandOverloads() throws Exception {
         String code = generatePersonRequest();
         assertTrue(code.contains(
-                "@SafeVarargs\n    public final PersonEntityRequest expand(NavProperty<? super Person, ?>... properties)"),
-                "expand(NavProperty...) on the entity request: " + code);
+                "@SafeVarargs\n    public final PersonEntityRequest expand(Expandable<? super Person>... expandables)"),
+                "one constant expand over the sealed Expandable set: " + code);
         assertTrue(code.contains(
-                "@SafeVarargs\n    public final PersonEntityRequest expand(NavProperty.NavQuery<? super Person, ?>... queries)"),
-                "expand(NavQuery...) renders nested options like Folders($expand=Abc)");
-        assertTrue(code.contains("for (var p : properties) next.expands.add(p.getEdmName());"));
-        assertTrue(code.contains("for (var q : queries) next.expands.add(q.toODataExpand());"));
+                "public final PersonEntityRequest expand(java.util.function.Function<Person.Selector, ? extends Expandable<? super Person>> query)"),
+                "lambda expand renders nested options like Folders($expand=Abc)");
+        assertTrue(code.contains("for (var e : expandables) next.expands.add(e.toODataExpand());"));
+        assertTrue(code.contains("return expand(query.apply(s));"),
+                "lambda expand delegates to the constant form");
     }
 
     @Test

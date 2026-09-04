@@ -92,7 +92,7 @@ class CrossSchemaSimpleNameCompilationTest {
         assertFalse(oneASource.contains("import com.p2.entity.A;"),
                 "importing a foreign type with the same simple name as the generated class "
                         + "collides:\n" + oneASource);
-        assertTrue(oneASource.contains("CHILDREN_AS_A_2 = CHILDREN.as(\"Two.A\", com.p2.entity.A.class)"),
+        assertTrue(oneASource.contains("CHILDREN_AS_A_2 = CHILDREN.as(\"Two.A\", com.p2.entity.A.class, com.p2.entity.A.Selector::new)"),
                 "foreign same-name subtype referenced by FQN:\n" + oneASource);
 
         // The generated entity in a DIFFERENT schema from its parent: with*/navWith copy

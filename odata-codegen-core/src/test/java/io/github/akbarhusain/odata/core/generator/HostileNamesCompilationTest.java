@@ -88,7 +88,7 @@ class HostileNamesCompilationTest {
 
         String entity = Files.readString(out.resolve("com/p/entity/T.java"));
         assertTrue(entity.contains("NumberProperty<T, Double> BUDGET =")
-                        && entity.contains("CollectionProperty<T, Other, Other.Filterable> BUDGET_2 ="),
+                        && entity.contains("CollectionProperty<T, Other, Other.Filterable, ?> BUDGET_2 ="),
                 "Filterable nav fields must use the allocated (deduped) names. Got:\n" + entity);
         String errors = CompilationHarness.compileAll(out);
         assertNull(errors, "output must compile (previously two BUDGET fields in Filterable):\n" + errors);

@@ -192,7 +192,7 @@ OData type error); anything else throws `IllegalArgumentException`.
 | `has(value)` | `has` | Flags membership (IsFlags enums) |
 | `isNull()` / `isNotNull()` | `eq/ne null` | Null predicates |
 
-### CollectionProperty\<E, T, F\>
+### CollectionProperty\<E, T, F, Sel\>
 
 | Method | OData | Description |
 |--------|-------|-------------|
@@ -200,6 +200,45 @@ OData type error); anything else throws `IllegalArgumentException`.
 | `all(predicate)` | `/all(x: ...)` | Every element matches |
 | `contains(value)` | `contains()` | Collection contains a value |
 | `length()` | `length()` | Element count |
+| `select/filter/orderBy/top/skip/count/expand(...)` | `Name($select=...;...)` | Opens a `NavQuery` with chained expand options |
+| `as(qualifiedCast, subtype[, selectorFactory])` | `Name/Cast` | Element type cast (2-arg drops the selector factory, 3-arg swaps it) |
+
+### NavQuery\<S, T, Sel\>
+
+A navigation with chained expand options, rendered as `Name($select=...;$filter=...;...)`.
+Opened from a collection navigation constant (`Person.TRIPS.select(...)`) or
+`NavQuery.of(name, Target.Selector::new)`; `NavQuery.raw("A($expand=x)")` is the escape
+hatch. Constant builders (`select`/`filter`/`orderBy`/`top`/`skip`/`count`/`expand`)
+always work; the selector-lambda overloads need a factory (fail fast with a clear
+`IllegalStateException` otherwise).
+
+### Expandable\<E\>
+
+The sealed supertype of everything `expand(...)` accepts: `NavQuery` (nav + options)
+and `CollectionProperty` (bare segment). Generated requests emit one constant
+`expand(Expandable<? super E>...)` overload plus the selector-lambda
+`expand(Function<E.Selector, ? extends Expandable<? super E>>)` form.
+
+### Selector lambdas
+
+Every read-shaping option on generated requests — `select`, `orderBy`, `expand`,
+`filter` (`select`/`expand` only on entity requests) — has a lambda overload applying
+each lambda to a generated `Selector` view that shares the entity's constant
+instances:
+
+```java
+client.people()
+    .filter(p -> p.FIRST_NAME.equalTo("Scott"))
+    .select(p -> p.FIRST_NAME, p -> p.LAST_NAME)
+    .orderBy(p -> p.USER_NAME.asc())
+    .expand(p -> p.TRIPS.select(t -> t.NAME).top(2))
+    .get();
+```
+
+`Sel` rides as a class-level type parameter (`NavQuery<S, T, Sel>`,
+`CollectionProperty<E, T, F, Sel>`), which is what makes full-depth nesting compile:
+each hop's factory arrives with the value. Cross-entity member access is a compile
+error in both spellings; constants remain the short form.
 
 !!! note
     `$select` accepts structural property paths only — transformation results such as

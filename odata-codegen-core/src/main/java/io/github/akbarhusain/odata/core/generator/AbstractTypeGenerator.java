@@ -533,7 +533,7 @@ public abstract class AbstractTypeGenerator {
         }
         for (NavigationPropertyModel nav : allNavs) {
             if (Names.isCollectionType(nav.type())) {
-                sb.append(generateFilterableNavPropertyField(nav, className, schema));
+                sb.append(generateFilterableNavField(nav, className, schema));
             }
         }
         sb.append("    }\n\n");
@@ -549,13 +549,14 @@ public abstract class AbstractTypeGenerator {
             String elementClassName = resolveClassNameForConstant(elementType, schema);
             Names.TypeKind kind = Names.resolveTypeKind(elementType, effectiveSchemas);
             if (kind == Names.TypeKind.ENTITY || kind == Names.TypeKind.COMPLEX) {
+                // wildcard Sel: Filterable fields serve any/all only, never selector lambdas
                 return "    public final CollectionProperty<" + className + ", " + elementClassName
-                        + ", " + elementClassName + ".Filterable> " + constantName
+                        + ", " + elementClassName + ".Filterable, ?> " + constantName
                         + " = new CollectionProperty<>(\"x/" + Names.escapeJavaString(prop.name()) + "\", " + className + ".class, "
                         + elementClassName + ".class, " + elementClassName + ".Filterable::new);\n";
             } else {
                 return "    public final CollectionProperty<" + className + ", " + elementClassName
-                        + ", CollectionProperty.FilterableElement<" + elementClassName + ">> " + constantName
+                        + ", CollectionProperty.FilterableElement<" + elementClassName + ">, ?> " + constantName
                         + " = new CollectionProperty<>(\"x/" + Names.escapeJavaString(prop.name()) + "\", " + className + ".class, "
                         + elementClassName + ".class, CollectionProperty.FilterableElement::new);\n";
             }
@@ -583,14 +584,15 @@ public abstract class AbstractTypeGenerator {
                 + ");\n";
     }
 
-    protected String generateFilterableNavPropertyField(NavigationPropertyModel nav, String className, SchemaModel schema) {
+    protected String generateFilterableNavField(NavigationPropertyModel nav, String className, SchemaModel schema) {
         String unwrapped = Names.unwrapCollectionType(nav.type());
         String elementClassName = refFor(resolveTypeDefinition(unwrapped, schema), schema);
         // must go through the per-type allocation like every other emission site —
         // the raw name collides with a property constant when e.g. prop BUDGET + nav budget
         String constantName = constantNameFor(nav.name());
+        // wildcard Sel: Filterable fields serve any/all only, never selector lambdas
         return "    public final CollectionProperty<" + className + ", "
-                + elementClassName + ", " + elementClassName + ".Filterable> " + constantName
+                + elementClassName + ", " + elementClassName + ".Filterable, ?> " + constantName
                 + " = new CollectionProperty<>(\"x/" + Names.escapeJavaString(nav.name()) + "\", " + className + ".class, "
                 + elementClassName + ".class, " + elementClassName + ".Filterable::new);\n";
     }

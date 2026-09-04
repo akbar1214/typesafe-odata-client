@@ -1,28 +1,218 @@
 package io.github.akbarhusain.odata.runtime.query;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
-public final class CollectionProperty<E, T, F> extends NavProperty<E, T> {
+/**
+ * A collection-valued navigation or structural property. Doubly usable:
+ * {@code any}/{@code all} build collection filter lambdas against the {@code F}
+ * filterable type, while the constant and selector-lambda builders
+ * ({@code select}/{@code filter}/{@code orderBy}/{@code top}/.../{@code expand}/{@code as})
+ * open a {@link NavQuery} with chained options — the selector lambdas need the
+ * {@code Sel} factory wired (generated property constants provide it; hand-built
+ * 4-arg constructions carry none and fail fast on the lambda overloads).
+ *
+ * @param <E>   the entity type the property belongs to
+ * @param <T>   the element type
+ * @param <F>   the filterable type used by any/all lambdas
+ * @param <Sel> the element's selector type used by the NavQuery lambda overloads
+ */
+public final class CollectionProperty<E, T, F, Sel> implements Expandable<E> {
+    private final String edmName;
+    private final Class<E> entityType;
     private final Class<T> elementType;
     private final Supplier<F> filterableFactory;
+    private final Supplier<Sel> selectorFactory;
 
     public CollectionProperty(String edmName, Class<E> entityType) {
-        this(edmName, entityType, null, null);
+        this(edmName, entityType, null, null, null);
     }
 
     public CollectionProperty(String edmName, Class<E> entityType, Class<T> elementType) {
-        this(edmName, entityType, elementType, null);
+        this(edmName, entityType, elementType, null, null);
     }
 
     public CollectionProperty(String edmName, Class<E> entityType, Class<T> elementType, Supplier<F> filterableFactory) {
-        super(edmName, entityType, elementType);
-        this.elementType = elementType;
-        this.filterableFactory = filterableFactory;
+        this(edmName, entityType, elementType, filterableFactory, null);
     }
 
+    public CollectionProperty(String edmName, Class<E> entityType, Class<T> elementType,
+                              Supplier<F> filterableFactory, Supplier<Sel> selectorFactory) {
+        this.edmName = edmName;
+        this.entityType = entityType;
+        this.elementType = elementType;
+        this.filterableFactory = filterableFactory;
+        this.selectorFactory = selectorFactory;
+    }
+
+    public String getEdmName() { return edmName; }
+    public Class<E> getEntityType() { return entityType; }
     public Class<T> getElementType() { return elementType; }
     public Supplier<F> getFilterableFactory() { return filterableFactory; }
+
+    /** A bare collection navigation expands to its plain segment: {@code Friends}. */
+    @Override
+    public String toODataExpand() {
+        return edmName;
+    }
+
+    // ------------------------------------------------------------------
+    // Casts
+    // ------------------------------------------------------------------
+
+    /**
+     * Casts the collection's element type to a subtype: {@code Versions/ABC.Doc}.
+     * The selector factory is dropped — chain the 3-arg form to keep lambda
+     * overloads on the subtype.
+     */
+    public <S2 extends T> NavQuery<E, S2, ?> as(String qualifiedCast, Class<S2> subtype) {
+        return new NavQuery<>(edmName, List.of(), List.of(), List.of(), null, null, null,
+                List.of(), requireCast(qualifiedCast, subtype), null);
+    }
+
+    /**
+     * Casts the collection's element type to a subtype AND narrows the selector
+     * factory with it, keeping lambda overloads enabled against the subtype's selector.
+     */
+    public <S2 extends T, Sel2> NavQuery<E, S2, Sel2> as(String qualifiedCast, Class<S2> subtype,
+                                                         Supplier<Sel2> selectorFactory) {
+        return new NavQuery<>(edmName, List.of(), List.of(), List.of(), null, null, null,
+                List.of(), requireCast(qualifiedCast, subtype), selectorFactory);
+    }
+
+    private static String requireCast(String qualifiedCast, Object subtype) {
+        if (qualifiedCast == null || qualifiedCast.isBlank()) {
+            throw new IllegalArgumentException("qualifiedCast must not be blank");
+        }
+        if (subtype == null) {
+            throw new IllegalArgumentException("subtype must not be null");
+        }
+        return qualifiedCast;
+    }
+
+    // ------------------------------------------------------------------
+    // Constant builders (open a NavQuery carrying the selector factory)
+    // ------------------------------------------------------------------
+
+    /**
+     * Bridges the zero-arg call: with only varargs overloads present, {@code select()}
+     * would be ambiguous between the constant and lambda forms (both accept zero args).
+     */
+    public NavQuery<E, T, Sel> select() {
+        return select(new PropertyExpression[0]);
+    }
+
+    /** Same zero-arg bridge as {@link #select()}. */
+    public NavQuery<E, T, Sel> orderBy() {
+        return orderBy(new OrderExpression[0]);
+    }
+
+    public NavQuery<E, T, Sel> select(PropertyExpression<? super T, ?>... properties) {
+        List<String> selects = new ArrayList<>();
+        for (var prop : properties) {
+            selects.add(NavQuery.selectableName(prop));
+        }
+        return new NavQuery<>(edmName, selects, List.of(), List.of(), null, null, null,
+                List.of(), null, selectorFactory);
+    }
+
+    public NavQuery<E, T, Sel> filter(FilterExpression<? super T> predicate) {
+        return new NavQuery<>(edmName, List.of(), List.of(predicate.toODataExpression()),
+                List.of(), null, null, null, List.of(), null, selectorFactory);
+    }
+
+    public NavQuery<E, T, Sel> orderBy(OrderExpression<? super T, ?>... expressions) {
+        List<String> orderings = new ArrayList<>();
+        for (var expr : expressions) {
+            orderings.add(expr.getODataPath());
+        }
+        return new NavQuery<>(edmName, List.of(), List.of(), orderings, null, null, null,
+                List.of(), null, selectorFactory);
+    }
+
+    public NavQuery<E, T, Sel> top(int count) {
+        NavQuery.requireNonNegative("top", count);
+        return new NavQuery<>(edmName, List.of(), List.of(), List.of(), "$top=" + count,
+                null, null, List.of(), null, selectorFactory);
+    }
+
+    public NavQuery<E, T, Sel> skip(int count) {
+        NavQuery.requireNonNegative("skip", count);
+        return new NavQuery<>(edmName, List.of(), List.of(), List.of(), null,
+                "$skip=" + count, null, List.of(), null, selectorFactory);
+    }
+
+    /** Requests the inline count within the expansion: {@code Trips($count=true)}. */
+    public NavQuery<E, T, Sel> count() {
+        return new NavQuery<>(edmName, List.of(), List.of(), List.of(), null, null,
+                "$count=true", List.of(), null, selectorFactory);
+    }
+
+    /** Same zero-arg bridge as {@link #select()}. */
+    public NavQuery<E, T, Sel> expand() {
+        return expand(new Expandable[0]);
+    }
+
+    public NavQuery<E, T, Sel> expand(Expandable<? super T>... expandables) {
+        List<String> expands = new ArrayList<>();
+        for (var e : expandables) {
+            expands.add(e.toODataExpand());
+        }
+        return new NavQuery<>(edmName, List.of(), List.of(), List.of(), null, null, null,
+                expands, null, selectorFactory);
+    }
+
+    // ------------------------------------------------------------------
+    // Selector-lambda overloads (fail fast when no factory was supplied)
+    // ------------------------------------------------------------------
+
+    @SafeVarargs
+    public final NavQuery<E, T, Sel> select(
+            Function<? super Sel, ? extends PropertyExpression<? super T, ?>>... selectors) {
+        Sel selector = selector("select");
+        PropertyExpression<? super T, ?>[] resolved = new PropertyExpression[selectors.length];
+        for (int i = 0; i < selectors.length; i++) {
+            resolved[i] = selectors[i].apply(selector);
+        }
+        return select(resolved);
+    }
+
+    public NavQuery<E, T, Sel> filter(
+            Function<? super Sel, ? extends FilterExpression<? super T>> predicate) {
+        return filter(predicate.apply(selector("filter")));
+    }
+
+    @SafeVarargs
+    public final NavQuery<E, T, Sel> orderBy(
+            Function<? super Sel, ? extends OrderExpression<? super T, ?>>... expressions) {
+        Sel selector = selector("orderBy");
+        OrderExpression<? super T, ?>[] resolved = new OrderExpression[expressions.length];
+        for (int i = 0; i < expressions.length; i++) {
+            resolved[i] = expressions[i].apply(selector);
+        }
+        return orderBy(resolved);
+    }
+
+    public NavQuery<E, T, Sel> expand(
+            Function<? super Sel, ? extends Expandable<? super T>> query) {
+        return expand(query.apply(selector("expand")));
+    }
+
+    private Sel selector(String operation) {
+        if (selectorFactory == null) {
+            throw new IllegalStateException("CollectionProperty '" + edmName
+                    + "' has no selector factory; construct it with the element type's "
+                    + "Selector::new (generated property constants provide one) "
+                    + "(operation: " + operation + ")");
+        }
+        return selectorFactory.get();
+    }
+
+    // ------------------------------------------------------------------
+    // Collection filter lambdas (any / all)
+    // ------------------------------------------------------------------
 
     public FilterExpression<E> any(Function<F, FilterExpression<T>> predicate) {
         return lambda("any", predicate);

@@ -43,9 +43,9 @@ class EntityGeneratorFilterableTest {
     @Test
     void collectionNavPropertyUsesTypedFilterable() throws Exception {
         String code = generateEntity("Person");
-        assertTrue(code.contains("public static final CollectionProperty<Person, Trip, Trip.Filterable> TRIPS"),
+        assertTrue(code.contains("public static final CollectionProperty<Person, Trip, Trip.Filterable, Trip.Selector> TRIPS"),
                 "Collection navigation property should use the target entity's Filterable type");
-        assertTrue(code.contains("new CollectionProperty<>(\"Trips\", Person.class, Trip.class, Trip.Filterable::new)"),
+        assertTrue(code.contains("new CollectionProperty<>(\"Trips\", Person.class, Trip.class, Trip.Filterable::new, Trip.Selector::new)"),
                 "Collection navigation property should pass the target Filterable factory");
     }
 
@@ -68,7 +68,7 @@ class EntityGeneratorFilterableTest {
     @Test
     void filterableIncludesCollectionNavPropertiesForNestedLambdas() throws Exception {
         String code = generateEntity("Trip");
-        assertTrue(code.contains("public final CollectionProperty<Trip, PlanItem, PlanItem.Filterable> PLAN_ITEMS"),
+        assertTrue(code.contains("public final CollectionProperty<Trip, PlanItem, PlanItem.Filterable, ?> PLAN_ITEMS"),
                 "Trip.Filterable should expose collection navigation properties for nested any/all");
     }
 }

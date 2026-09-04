@@ -5,25 +5,25 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * M3: NavProperty/NavQuery top()/skip()/count() accepted negative values and rendered
+ * M3: nav top()/skip()/count() accepted negative values and rendered
  * invalid OData ($top=-5). ApplyBuilder validates >= 0 (lesson 110) — the expansion
  * options must match.
  */
 class NavQueryValidationTest {
 
     @Test
-    void navPropertyTopRejectsNegative() {
+    void navTopRejectsNegative() {
         assertThrows(IllegalArgumentException.class, () -> TestProps.NAME.top(-1));
     }
 
     @Test
-    void navPropertySkipRejectsNegative() {
+    void navSkipRejectsNegative() {
         assertThrows(IllegalArgumentException.class, () -> TestProps.NAME.skip(-1));
     }
 
     @Test
     void navQueryTopRejectsNegative() {
-        NavProperty.NavQuery<Person, Trip> q = TestProps.NAME.top(2);
+        NavQuery<Person, Trip, ?> q = TestProps.NAME.top(2);
         assertThrows(IllegalArgumentException.class, () -> q.top(-2));
         assertThrows(IllegalArgumentException.class, () -> q.skip(-2));
     }
@@ -43,6 +43,6 @@ class NavQueryValidationTest {
     static final class Person {}
     static final class Trip {}
     static final class TestProps {
-        static final NavProperty<Person, Trip> NAME = new NavProperty<>("Trips", Person.class, Trip.class);
+        static final NavQuery<Person, Trip, ?> NAME = NavQuery.of("Trips");
     }
 }

@@ -49,17 +49,12 @@ class RequestGeneratorNarrowQueryTest {
     }
 
     @Test
-    void expandNavPropertyIsScopedToEntity() throws Exception {
+    void expandIsScopedToEntity() throws Exception {
         String code = generateCollectionRequest("Person");
-        assertTrue(code.contains("expand(NavProperty<? super Person, ?>"),
-                "expand(NavProperty) should accept only navigation properties scoped to Person or its base types");
-    }
-
-    @Test
-    void expandNavQueryIsScopedToEntity() throws Exception {
-        String code = generateCollectionRequest("Person");
-        assertTrue(code.contains("expand(NavProperty.NavQuery<? super Person, ?>"),
-                "expand(NavQuery) should accept only navigation queries scoped to Person or its base types");
+        assertTrue(code.contains("expand(Expandable<? super Person>... expandables)"),
+                "expand() should accept only navigations scoped to Person or its base types");
+        assertTrue(code.contains("expand(java.util.function.Function<Person.Selector, ? extends Expandable<? super Person>> query)"),
+                "lambda expand is scoped to Person's selector");
     }
 
     @Test
@@ -69,7 +64,7 @@ class RequestGeneratorNarrowQueryTest {
                 "Subtype collection request should still use ? super bound for select");
         assertTrue(code.contains("orderBy(OrderExpression<? super Flight, ?>"),
                 "Subtype collection request should still use ? super bound for orderBy");
-        assertTrue(code.contains("expand(NavProperty<? super Flight, ?>"),
+        assertTrue(code.contains("expand(Expandable<? super Flight>... expandables)"),
                 "Subtype collection request should still use ? super bound for expand");
     }
 }
