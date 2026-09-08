@@ -147,6 +147,10 @@ public class Person implements ODataEntityType {
 Notes:
 - `@odata.*` control fields (`@odata.id`, `@odata.editLink`, ...) are filtered out and
   never land in `unmappedFields`.
+- Types with a `BaseType` (entities and complex types) emit a getter-only
+  `@JsonProperty("@odata.type")` returning `"#Namespace.Type"`, so posting a `Flight`
+  to `PlanItems` (or an `EventLocation` inside `AddressInfo`) tells the service which
+  subtype to materialize. Root types emit no annotation.
 - `getUnmappedFields()` returns an unmodifiable view; dynamic properties are also
   re-serialized (POST/PATCH) via the `@JsonAnyGetter`, so they round-trip.
 - Openness propagates down the inheritance chain. An open subtype of a non-open base
@@ -346,8 +350,15 @@ public enum PersonGender {
     PersonGender(String value) { this.value = value; }
 
     public String getValue() { return value; }
+
+    // CSDL member name on the wire — even when the Java constant was sanitized
+    @JsonValue
+    @Override
+    public String wireName() { return wireName; }
 }
 ```
+
+`Edm.Byte` (unsigned, 0..255) maps to `Short`; `Edm.SByte` maps to `Byte`.
 
 ## Schema Info
 

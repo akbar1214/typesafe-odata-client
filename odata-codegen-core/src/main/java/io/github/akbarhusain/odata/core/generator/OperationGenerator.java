@@ -712,7 +712,12 @@ public class OperationGenerator extends AbstractTypeGenerator {
         sb.append("    public ").append(bound.className()).append("(Context context, ContextPath basePath")
           .append(constructorParams(op)).append(") {\n");
         sb.append("        this.context = context;\n");
-        sb.append(constructorBody("basePath", bound.castSegment(), bound.opName(), op, isAction));
+        // URL Conventions §4.5: bound operations are addressed by their namespace-
+        // (or alias-) qualified name; aliases are resolved at parse time, so the owning
+        // schema's namespace is the qualifier. The bare name is parsed as a property —
+        // TripPin answers "Open navigation properties are not supported on OpenTypes".
+        String qualifiedOpName = bound.owner().namespace() + "." + bound.opName();
+        sb.append(constructorBody("basePath", bound.castSegment(), qualifiedOpName, op, isAction));
         if (isAction) {
             sb.append("        this.body = ").append(bodyArg.equals("body") ? "__body" : "null").append(";\n");
         }

@@ -53,4 +53,23 @@ class PartialPatchVocabularyTest {
         assertFalse(body.contains("Scott"),
                 "a Java field name is not a wire name and must match nothing: " + body);
     }
+
+    public static class DerivedBean extends PersonBean {
+        @JsonProperty("@odata.type")
+        public String odataType() { return "#NS.Derived"; }
+    }
+
+    @Test
+    void controlAnnotationsSurviveChangedFieldFiltering() {
+        // "@odata.type" is control information, not a structural property: a derived
+        // entity's PATCH body must keep it even though no with*() ever tracks it
+        DerivedBean bean = new DerivedBean();
+        bean.firstName = "Scott";
+
+        String body = patchBody(bean, Set.of("FirstName"));
+
+        assertTrue(body.contains("\"@odata.type\":\"#NS.Derived\""), "control annotation stripped: " + body);
+        assertTrue(body.contains("\"FirstName\""), body);
+        assertFalse(body.contains("\"UserName\""), body);
+    }
 }

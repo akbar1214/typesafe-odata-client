@@ -41,8 +41,4 @@ public final class NumberProperty<E, N extends Number> extends NumberExpression<
         return "Edm.Double".equals(edmType) || "Edm.Single".equals(edmType)
                 || "Edm.Decimal".equals(edmType);
     }
-
-    private static String formatValue(Object value) {
-        return String.valueOf(value);
-    }
 }

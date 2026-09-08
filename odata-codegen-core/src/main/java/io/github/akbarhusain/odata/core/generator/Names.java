@@ -229,7 +229,9 @@ public final class Names {
         return switch (edmType) {
             case "Edm.String", "Edm.Guid" -> "String";
             case "Edm.Boolean" -> "Boolean";
-            case "Edm.Byte", "Edm.SByte" -> "Byte";
+            // Edm.Byte is UNSIGNED (0..255, CSDL §4.1) — Java's Byte cannot hold 128..255
+            case "Edm.Byte" -> "Short";
+            case "Edm.SByte" -> "Byte";
             case "Edm.Int16" -> "Short";
             case "Edm.Int32" -> "Integer";
             case "Edm.Int64" -> "Long";

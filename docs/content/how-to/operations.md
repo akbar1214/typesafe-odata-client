@@ -12,10 +12,12 @@ surface as accessors on that entity's request — with the entity's keyed path a
 invocation context. They compose with the keyed accessor API (decision 95):
 
 ```java
-// Bound action on Person — POST People('russellwhyte')/ShareTrip
+// Bound action on Person —
+// POST People('russellwhyte')/Microsoft.OData.SampleService.Models.TripPin.ShareTrip
 client.people("russellwhyte").shareTrip("friend", 1).execute();
 
-// Bound function on Trip — GET Trips(1)/GetInvolvedPeople
+// Bound function on Trip —
+// GET People('russellwhyte')/Trips(1)/Microsoft.OData.SampleService.Models.TripPin.GetInvolvedPeople()
 client.people("russellwhyte").trips(1).getInvolvedPeople().execute();
 
 // Result handling matches imports: Optional<T> for nullable returns,
@@ -23,8 +25,13 @@ client.people("russellwhyte").trips(1).getInvolvedPeople().execute();
 List<Trip> trips = client.people("russellwhyte").getFriendsTrips("russellwhyte").execute();
 ```
 
+Bound operations are always invoked by their **namespace-qualified** name
+(URL Conventions §4.5) — the bare name is parsed by services as a property (TripPin
+answers 500 "Open navigation properties are not supported on OpenTypes"). Function and
+action *imports* keep their plain container name.
+
 Ops declared on a **base type** also surface on subtype requests, with a type-cast
-segment in the URL (`.../Flight('x')/NS.PlanItem/Op` when the op is bound to
+segment in the URL (`.../Flight('x')/NS.PlanItem/NS.Op` when the op is bound to
 `PlanItem`). Same-name bound functions overload by parameter names (per-overload
 accessors like `getByName(...)`); identical parameter-name lists and duplicate
 same-name actions fail at generation. Collection-bound operations

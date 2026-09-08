@@ -131,8 +131,9 @@ BatchRequest batch = context.batch();
 
 | Method | Returns | Description |
 |--------|---------|-------------|
-| `toBatchOperation()` | `BatchOperation` | GET the entity |
-| `patchToBatchOperation(T entity)` | `BatchOperation` | PATCH the entity |
+| `toBatchOperation()` | `BatchOperation` | GET the entity (with the request's `$select`/`$expand`) |
+| `patchToBatchOperation(T entity)` | `BatchOperation` | PATCH the entity — only the tracked `changedFields`, like `patch()` |
+| `patchToBatchOperation(T entity, String etag)` | `BatchOperation` | Conditional PATCH (`If-Match`) |
 | `deleteToBatchOperation()` | `BatchOperation` | DELETE the entity |
 
 ### CollectionRequest

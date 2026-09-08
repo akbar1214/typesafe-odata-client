@@ -4,6 +4,40 @@
 
 ### Status: Full Pipeline Working
 
+### Review Round 6 — Spec Conformance (TDD)
+
+**Wire-format fixes:**
+
+- Temporal values serialize as ISO 8601 strings (`Edm.DateTimeOffset`/`Date`/`TimeOfDay`/
+  `Duration`) instead of Jackson's numeric timestamps; `DateTimeOffset` offsets are
+  preserved on read. Applies to entity bodies, action parameter bodies and structured
+  parameter aliases (`JacksonSerializer.newODataMapper()`).
+- Derived entity and complex types emit `"@odata.type": "#NS.Type"` (JSON Format §4.5.3);
+  partial PATCH bodies keep `@`-control annotations.
+- Enum members serialize as their CSDL wire name (`@JsonValue`), matching the existing
+  `@JsonCreator` read side.
+- `Edm.Byte` (unsigned) maps to `Short` — values 128..255 no longer fail to deserialize.
+
+**URL fixes:**
+
+- Bound functions/actions are invoked by their namespace-qualified name
+  (`People('x')/NS.GetFriendsTrips(...)`, URL Conventions §4.5). The unqualified form was
+  the real cause of TripPin's "Open navigation properties are not supported on OpenTypes"
+  500, previously attributed to the service.
+- `nextPage()` no longer splits `@odata.nextLink` query strings on `;` — nested expand
+  options (`$expand=Trips($top=2;$select=Name)`) round-trip intact.
+- `CollectionProperty.contains(v)` renders `Name/any(x: x eq v)` and `length()` renders
+  `Name/$count`; `contains()`/`length()` are string functions in OData.
+- Numeric filter literals follow the ABNF: `INF`/`-INF` for infinities, plain digits for
+  `BigDecimal` (no `1E+3`).
+
+**Generated request fixes:**
+
+- Entity `toBatchOperation()` carries the request's `$select`/`$expand` (same URL as `get()`).
+- `patchToBatchOperation(entity)` sends only the tracked changes like `patch()`; new
+  `patchToBatchOperation(entity, etag)` overload for conditional batch PATCH.
+- Collection `top(n)`/`skip(n)` reject negatives (parity with `NavQuery`/`ApplyBuilder`).
+
 ### Review Round 3 — Correctness & Hardening (all 79 findings resolved)
 
 **Correctness fixes (highlights):**

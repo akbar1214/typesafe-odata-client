@@ -308,17 +308,32 @@ public final class CollectionProperty<E, T, F, Sel> implements Expandable<E> {
         return Character.isJavaIdentifierPart(c);
     }
 
+    /**
+     * Membership test rendered as a lambda over the collection —
+     * {@code Emails/any(x: x eq 'a')}. OData's {@code contains()} is a STRING function
+     * (URL Conventions §5.1.1.5); applying it to a collection is a type error on every
+     * conformant service.
+     */
     public FilterExpression<E> contains(T value) {
         if (value == null) {
-            // No null literal is valid inside contains(...) — filter for null elements
-            // explicitly (e.g. any(x: x eq null)) instead of passing null here.
+            // No null literal is valid as an element comparison here — filter for null
+            // elements explicitly (e.g. any(x: x eq null)) instead of passing null.
             throw new IllegalArgumentException("contains value must not be null");
         }
-        return new RawFilterExpression<>("contains(" + edmName + "," + formatElement(value) + ")");
+        // Unique per nesting depth so a contains() inside an any()/all() predicate never
+        // shadows the enclosing lambda variable (same scheme as lambda())
+        int depth = LAMBDA_DEPTH.get();
+        String alias = depth == 0 ? "x" : "x" + depth;
+        return new RawFilterExpression<>(edmName + "/any(" + alias + ": " + alias + " eq "
+                + formatElement(value) + ")");
     }
 
+    /**
+     * The collection's size as a filterable expression — {@code Emails/$count}
+     * (URL Conventions §5.1.1.4). {@code length()} is a string function in OData.
+     */
     public NumberExpression<Integer, E> length() {
-        return new NumberExpression<>("length(" + edmName + ")", entityType);
+        return new NumberExpression<>(edmName + "/$count", entityType);
     }
 
     @SuppressWarnings("unchecked")

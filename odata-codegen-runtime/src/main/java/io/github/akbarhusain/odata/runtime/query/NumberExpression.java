@@ -141,7 +141,23 @@ public class NumberExpression<N, E> implements OrderExpression<E, N> {
         return new RawFilterExpression(expression + " ne null");
     }
 
-    private static String formatValue(Object value) {
+    /**
+     * Renders a numeric literal per the OData ABNF: {@code nanInfinity = 'NaN' / '-INF'
+     * / 'INF'} (Java prints {@code Infinity}), and {@code decimalValue} is plain digits
+     * ({@code BigDecimal.toString()} may emit {@code 1E+3}).
+     */
+    protected static String formatValue(Object value) {
+        if (value instanceof Double d) {
+            if (d.isInfinite()) return d > 0 ? "INF" : "-INF";
+            return d.toString();
+        }
+        if (value instanceof Float f) {
+            if (f.isInfinite()) return f > 0 ? "INF" : "-INF";
+            return f.toString();
+        }
+        if (value instanceof java.math.BigDecimal bd) {
+            return bd.toPlainString();
+        }
         return String.valueOf(value);
     }
 }

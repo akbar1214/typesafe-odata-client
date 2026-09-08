@@ -318,6 +318,16 @@ public class EntityGenerator extends AbstractTypeGenerator {
         sb.append("        return \"").append(Names.escapeJavaString(schema.namespace())).append(".").append(Names.escapeJavaString(entityType.name())).append("\";\n");
         sb.append("    }\n\n");
 
+        // Derived types must name themselves in payloads (OData JSON Format §4.5.3):
+        // without "@odata.type" a service deserializes the declared base type and drops
+        // every subtype property. Getter-only, so incoming annotations are ignored by
+        // Jackson rather than captured as dynamic properties.
+        if (base != null) {
+            sb.append("    @com.fasterxml.jackson.annotation.JsonProperty(\"@odata.type\")\n");
+            sb.append("    public String odataTypeAnnotation() {\n");
+            sb.append("        return \"#\" + odataTypeName();\n");
+            sb.append("    }\n\n");
+        }
         sb.append("    @Override\n    public Optional<String> getETag() {\n");
         sb.append("        return Optional.ofNullable(etag);\n");
         sb.append("    }\n\n");

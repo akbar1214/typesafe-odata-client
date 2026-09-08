@@ -31,8 +31,18 @@ class CollectionPropertyTest {
         CollectionProperty<Object, String, CollectionProperty.FilterableElement<String>, ?> prop =
                 new CollectionProperty<>("Emails", Object.class, String.class, CollectionProperty.FilterableElement::new);
 
+        // contains() is a STRING function in OData v4; membership in a collection is a
+        // lambda over the collection (URL Conventions §5.1.1.10)
         FilterExpression<Object> expr = prop.contains("scott@example.com");
-        assertEquals("contains(Emails,'scott@example.com')", expr.toODataExpression());
+        assertEquals("Emails/any(x: x eq 'scott@example.com')", expr.toODataExpression());
+    }
+
+    @Test
+    void containsEscapesQuotesInStringElements() {
+        CollectionProperty<Object, String, CollectionProperty.FilterableElement<String>, ?> prop =
+                new CollectionProperty<>("Emails", Object.class, String.class, CollectionProperty.FilterableElement::new);
+
+        assertEquals("Emails/any(x: x eq 'o''brien')", prop.contains("o'brien").toODataExpression());
     }
 
     @Test
@@ -41,7 +51,7 @@ class CollectionPropertyTest {
                 new CollectionProperty<>("Scores", Object.class, Integer.class, CollectionProperty.FilterableElement::new);
 
         FilterExpression<Object> expr = prop.contains(42);
-        assertEquals("contains(Scores,42)", expr.toODataExpression());
+        assertEquals("Scores/any(x: x eq 42)", expr.toODataExpression());
     }
 
     @Test
@@ -49,8 +59,10 @@ class CollectionPropertyTest {
         CollectionProperty<Object, String, CollectionProperty.FilterableElement<String>, ?> prop =
                 new CollectionProperty<>("Emails", Object.class, String.class, CollectionProperty.FilterableElement::new);
 
+        // length() is a string function; a collection's size is its $count path segment
         NumberExpression<Integer, Object> expr = prop.length();
-        assertEquals("length(Emails)", expr.toODataExpression());
+        assertEquals("Emails/$count", expr.toODataExpression());
+        assertEquals("Emails/$count gt 0", expr.greaterThan(0).toODataExpression());
     }
 
     @Test

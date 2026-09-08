@@ -130,8 +130,12 @@ BatchResponse response = ctx.batch()
     // Entity request → GET
     .add(client.people("scott").toBatchOperation())
 
-    // Entity request → PATCH
+    // Entity request → PATCH (sends only the tracked changes, like patch();
+    // pass an ETag for a conditional PATCH: patchToBatchOperation(entity, etag))
     .add(client.people("scott").patchToBatchOperation(updatedPerson))
+
+    // Entity request → GET with query options (same URL as get())
+    .add(client.people("scott").select(Person.FIRST_NAME).expand(Person.TRIPS).toBatchOperation())
 
     // Entity request → DELETE
     .add(client.people("louis").deleteToBatchOperation())
