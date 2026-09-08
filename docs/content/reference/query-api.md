@@ -78,8 +78,8 @@ formatted per the ABNF automatically.
 |--------|-------|-------------|
 | `any(lambda)` | `any()` | Check if any element matches |
 | `all(lambda)` | `all()` | Check if all elements match |
-| `contains(value)` | `contains()` | Check if contains element |
-| `length()` | `length()` | Collection length |
+| `contains(value)` | `Name/any(x: x eq value)` | Check if contains element (`contains()` is a string function in OData) |
+| `length()` | `Name/$count` | Collection size |
 
 ## Logical Operators
 
@@ -198,8 +198,8 @@ OData type error); anything else throws `IllegalArgumentException`.
 |--------|-------|-------------|
 | `any(predicate)` | `/any(x: ...)` | At least one element matches (typed `Filterable` lambda) |
 | `all(predicate)` | `/all(x: ...)` | Every element matches |
-| `contains(value)` | `contains()` | Collection contains a value |
-| `length()` | `length()` | Element count |
+| `contains(value)` | `Name/any(x: x eq value)` | Collection contains a value |
+| `length()` | `Name/$count` | Element count |
 | `select/filter/orderBy/top/skip/count/expand(...)` | `Name($select=...;...)` | Opens a `NavQuery` with chained expand options |
 | `as(qualifiedCast, subtype[, selectorFactory])` | `Name/Cast` | Element type cast (2-arg drops the selector factory, 3-arg swaps it) |
 

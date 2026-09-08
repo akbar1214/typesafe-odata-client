@@ -289,8 +289,22 @@ class OperationGeneratorBoundTest {
 
         assertTrue(code.contains("package app.operation;"), () -> code);
         assertTrue(code.contains("basePath.addSegment(\"N.NS.Base\")")
-                && code.contains("OperationPath.segment(\"Rate\""),
-                "cast segment precedes the operation segment: " + snippet(code, "this.contextPath"));
+                && code.contains("OperationPath.segment(\"N.NS.Rate\""),
+                "cast segment precedes the QUALIFIED operation segment: " + snippet(code, "this.contextPath"));
+    }
+
+    @Test
+    void boundFunctionSegmentIsNamespaceQualified() {
+        OperationGenerator gen = generator();
+        OperationGenerator.BoundOp friendsTrips = gen.boundOperationsFor(type("Person"), schema)
+                .stream().filter(o -> o.opName().equals("GetFriendsTrips")).findFirst().orElseThrow();
+        String code = gen.generateBoundOperationRequest(friendsTrips, type("Person"), schema);
+
+        assertTrue(code.contains(
+                "OperationPath.segment(\"Microsoft.OData.SampleService.Models.TripPin.GetFriendsTrips\", __pairs.toArray(new String[0]))"),
+                "bound functions invoke by qualified name: " + snippet(code, "this.contextPath"));
+        assertFalse(code.contains("OperationPath.segment(\"GetFriendsTrips\""),
+                "the unqualified segment resolves as an open property on TripPin (500)");
     }
 
     @Test
@@ -303,8 +317,13 @@ class OperationGeneratorBoundTest {
         assertTrue(code.contains(
                 "public PersonShareTripActionRequest(Context context, ContextPath basePath, String userName, int tripId)"),
                 "non-nullable primitive binding params stay unboxed (import-parity contract)");
-        assertTrue(code.contains("this.contextPath = basePath.addSegment(\"ShareTrip\");"),
-                "no cast when the op is bound to the request's own type");
+        // URL Conventions §4.5 / Protocol §11.5.4.1: a bound operation is addressed by its
+        // namespace-qualified name. The bare "ShareTrip" is parsed as a (dynamic)
+        // property — TripPin answers 500 "Open navigation properties are not supported".
+        assertTrue(code.contains(
+                "this.contextPath = basePath.addSegment(\"Microsoft.OData.SampleService.Models.TripPin.ShareTrip\");"),
+                "no cast when the op is bound to the request's own type, but the segment is qualified: "
+                        + snippet(code, "this.contextPath"));
         assertTrue(code.contains("__params.put(\"userName\", userName);"));
         assertTrue(code.contains("EntityOperations.invokeVoidSync(context, contextPath, HttpMethod.POST, body)"),
                 "parameterless-RETURN bound action is a void POST with body");

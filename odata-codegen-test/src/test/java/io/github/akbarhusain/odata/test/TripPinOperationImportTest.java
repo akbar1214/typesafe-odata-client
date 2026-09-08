@@ -12,7 +12,6 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /**
  * Live round-trip for the generated function-import request class — TripPin's
@@ -45,24 +44,15 @@ class TripPinOperationImportTest {
     @Test
     void boundFunctionRoundTripGetFriendsTrips() {
         // GetFriendsTrips is BOUND to Person (binding param supplies the URL context);
-        // the keyed container accessor + bound-op accessor compose:
-        // GET People('russellwhyte')/GetFriendsTrips(userName='russellwhyte')
-        try {
-            List<Trip> trips = client.people("russellwhyte").getFriendsTrips("russellwhyte").execute();
+        // the keyed container accessor + bound-op accessor compose into the
+        // namespace-QUALIFIED invocation the spec requires (URL Conventions §4.5):
+        // GET People('russellwhyte')/Microsoft.OData.SampleService.Models.TripPin.GetFriendsTrips(userName='scottketchum')
+        // The unqualified form this test previously skipped on ("Open navigation
+        // properties are not supported on OpenTypes") was a client bug, not a service fault.
+        List<Trip> trips = client.people("russellwhyte").getFriendsTrips("scottketchum").execute();
 
-            assertNotNull(trips, "bound function returns a materialized list (never null)");
-            assertFalse(trips.isEmpty(), "russellwhyte's friends have trips in the seed data");
-            assertNotNull(trips.get(0).getTripId());
-        } catch (io.github.akbarhusain.odata.runtime.exception.ServerException e) {
-            // Verified with curl (lesson 21: read the error body before blaming): the URL is
-            // spec-correct — GetFriendsTrips IS bound to Person in $metadata — yet TripPin's
-            // URI parser cannot resolve bound operations on the OpenType Person and 500s with
-            // "Open navigation properties are not supported on OpenTypes" (both parenthesized
-            // and parameterless forms). Skip ONLY on this verified service fault signature;
-            // any other failure fails the test.
-            assumeTrue(e.getMessage() != null
-                            && e.getMessage().contains("Open navigation properties are not supported on OpenTypes"),
-                    "unexpected server error: " + e.getMessage());
-        }
+        assertNotNull(trips, "bound function returns a materialized list (never null)");
+        assertFalse(trips.isEmpty(), "scottketchum (russellwhyte's friend) has trips in the seed data");
+        assertNotNull(trips.get(0).getTripId());
     }
 }

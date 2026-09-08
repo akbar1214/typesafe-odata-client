@@ -52,10 +52,30 @@ public class JacksonSerializer implements Serializer {
     }
 
     private static ObjectMapper baseMapper() {
+        return newODataMapper();
+    }
+
+    /**
+     * A fresh {@link ObjectMapper} configured for the OData v4 JSON format. Every
+     * mapper the runtime uses for wire payloads (entity bodies, action parameter
+     * bodies, structured parameter aliases, collection envelopes) must come from here:
+     * <ul>
+     *   <li>temporal values are ISO 8601 strings ({@code 2014-01-01T00:00:00Z},
+     *       {@code 2014-01-01}, {@code 09:05:07}, {@code PT1H30M}) — JavaTimeModule's
+     *       default numeric timestamps / date arrays are rejected by every service;</li>
+     *   <li>the offset a service sends in an {@code Edm.DateTimeOffset} survives the read
+     *       instead of being normalized to UTC;</li>
+     *   <li>unknown properties are tolerated (lenient reads).</li>
+     * </ul>
+     */
+    public static ObjectMapper newODataMapper() {
         return new ObjectMapper()
                 .registerModule(new Jdk8Module())
                 .registerModule(new JavaTimeModule())
-                .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+                .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false)
+                .configure(DeserializationFeature.ADJUST_DATES_TO_CONTEXT_TIME_ZONE, false)
+                .configure(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS, false)
+                .configure(SerializationFeature.WRITE_DURATIONS_AS_TIMESTAMPS, false);
     }
 
     // Shared mapper for DynamicPropertyConverter to avoid duplicate ObjectMapper config (L9)
@@ -150,7 +170,10 @@ public class JacksonSerializer implements Serializer {
                 java.util.List<String> names = new java.util.ArrayList<>();
                 tree.fieldNames().forEachRemaining(names::add);
                 for (String name : names) {
-                    if (!includeFields.contains(name)) {
+                    // "@odata.type" and friends are control information, not structural
+                    // properties: nothing ever tracks them as changed, yet a derived
+                    // entity's PATCH body must keep its type annotation
+                    if (!includeFields.contains(name) && !name.startsWith("@")) {
                         ((com.fasterxml.jackson.databind.node.ObjectNode) tree).remove(name);
                     }
                 }

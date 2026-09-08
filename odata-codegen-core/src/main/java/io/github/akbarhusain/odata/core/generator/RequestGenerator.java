@@ -315,14 +315,23 @@ public class RequestGenerator extends AbstractTypeGenerator {
             }
         }
 
-        // Batch methods
+        // Batch methods — a batch view must mean the same thing as the direct call:
+        // GET carries the request's $select/$expand (buildContext, like get()), and
+        // PATCH sends only the tracked changes (decision 51, like patch())
         sb.append("    public BatchOperation toBatchOperation() {\n");
-        sb.append("        return BatchOperation.get(contextPath.toRelativeUrl());\n");
+        sb.append("        return BatchOperation.get(buildContext().toRelativeUrl());\n");
         sb.append("    }\n\n");
 
         sb.append("    public BatchOperation patchToBatchOperation(").append(entityClassName).append(" entity) {\n");
-        sb.append("        byte[] body = context.serializer().serialize(entity, ").append(entityClassName).append(".class);\n");
-        sb.append("        return BatchOperation.patch(contextPath.toRelativeUrl(), body);\n");
+        sb.append("        return patchToBatchOperation(entity, null);\n");
+        sb.append("    }\n\n");
+
+        sb.append("    public BatchOperation patchToBatchOperation(").append(entityClassName).append(" entity, String etag) {\n");
+        sb.append("        java.util.Set<String> changed = entity.getChangedFields();\n");
+        sb.append("        byte[] body = changed != null && !changed.isEmpty()\n");
+        sb.append("                ? context.serializer().serialize(entity, ").append(entityClassName).append(".class, changed)\n");
+        sb.append("                : context.serializer().serialize(entity, ").append(entityClassName).append(".class);\n");
+        sb.append("        return BatchOperation.patch(contextPath.toRelativeUrl(), body, etag);\n");
         sb.append("    }\n\n");
 
         sb.append("    public BatchOperation deleteToBatchOperation() {\n");
@@ -464,13 +473,21 @@ public class RequestGenerator extends AbstractTypeGenerator {
         sb.append("    }\n\n");
 
         // top, skip, count, search
+        // $top/$skip must be >= 0 — negative values render invalid OData (parity with
+        // NavQuery/ApplyBuilder, which already reject them)
         sb.append("    public ").append(className).append(" top(int count) {\n");
+        sb.append("        if (count < 0) {\n");
+        sb.append("            throw new IllegalArgumentException(\"top must be >= 0, got: \" + count);\n");
+        sb.append("        }\n");
         sb.append("        ").append(className).append(" next = copy();\n");
         sb.append("        next.topValue = count;\n");
         sb.append("        return next;\n");
         sb.append("    }\n\n");
 
         sb.append("    public ").append(className).append(" skip(int count) {\n");
+        sb.append("        if (count < 0) {\n");
+        sb.append("            throw new IllegalArgumentException(\"skip must be >= 0, got: \" + count);\n");
+        sb.append("        }\n");
         sb.append("        ").append(className).append(" next = copy();\n");
         sb.append("        next.skipValue = count;\n");
         sb.append("        return next;\n");

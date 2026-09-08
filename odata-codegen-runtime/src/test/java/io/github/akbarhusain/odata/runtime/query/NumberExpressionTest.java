@@ -98,4 +98,22 @@ class NumberExpressionTest {
         assertEquals("(Price divby 2.0)", price.divide(2.0).toODataExpression(),
                 "OData 'div' is truncating integer division; Double/Decimal/Single must use 'divby'");
     }
+
+    // OData ABNF: doubleValue = decimalValue [ "e" [SIGN] 1*DIGIT ] / nanInfinity ;
+    // nanInfinity = 'NaN' / '-INF' / 'INF'. Java prints "Infinity", which no service parses.
+    @Test
+    void infinityRendersAsOdataInfLiteral() {
+        assertEquals("Price gt INF", price.greaterThan(Double.POSITIVE_INFINITY).toODataExpression());
+        assertEquals("Price lt -INF", price.lessThan(Double.NEGATIVE_INFINITY).toODataExpression());
+        assertEquals("Score eq INF", score.equalTo(Float.POSITIVE_INFINITY).toODataExpression());
+        assertEquals("Price eq NaN", price.equalTo(Double.NaN).toODataExpression());
+    }
+
+    // decimalValue = [SIGN] 1*DIGIT ["." 1*DIGIT] — BigDecimal.toString may emit "1E+3"
+    @Test
+    void bigDecimalRendersPlainDigits() {
+        NumberExpression<java.math.BigDecimal, Object> total = new NumberExpression<>("Total", Object.class);
+        assertEquals("Total eq 1000", total.equalTo(new java.math.BigDecimal("1E+3")).toODataExpression());
+        assertEquals("Total ge 0.00001", total.greaterThanOrEqualTo(new java.math.BigDecimal("1E-5")).toODataExpression());
+    }
 }

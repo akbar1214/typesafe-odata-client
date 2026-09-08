@@ -278,11 +278,27 @@ class ContextPathTest {
     }
 
     @Test
-    void l3NextLinkSemicolonQuerySeparatorIsAccepted() {
+    void nextLinkSemicolonIsAnExpandOptionSeparatorNotAQuerySeparator() {
+        // OData ABNF: queryOptions = queryOption *( "&" queryOption ) — ';' only separates
+        // options INSIDE a parenthesized $expand/$select group. Splitting on it mangled
+        // every nextLink that carried nested expand options.
         ContextPath path = new ContextPath(BASE).addSegment("People");
-        ContextPath nextPath = path.fromNextLink(BASE + "/People?$skip=10;$top=5");
+        ContextPath nextPath = path.fromNextLink(
+                BASE + "/People?$expand=Trips($top=2;$select=Name)&$skiptoken=abc");
 
-        assertEquals(BASE + "/People?$skip=10&$top=5", nextPath.toUrl(),
-                "the OData URL grammar allows ';' as a query-option separator");
+        // '=' and ';' inside a value re-encode as %3D / %3B (decision 61); what matters is
+        // that the expand stays ONE option and $skiptoken a second one
+        assertEquals(BASE + "/People?$expand=Trips($top%3D2%3B$select%3DName)&$skiptoken=abc",
+                nextPath.toUrl(), "nested expand options must round-trip as one $expand option");
+    }
+
+    @Test
+    void nextLinkWithEncodedSemicolonInsideExpandRoundTrips() {
+        ContextPath path = new ContextPath(BASE).addSegment("People");
+        ContextPath nextPath = path.fromNextLink(
+                BASE + "/People?$expand=Trips(%24top%3D2%3B%24select%3DName)&$skip=10");
+
+        assertEquals(BASE + "/People?$expand=Trips($top%3D2%3B$select%3DName)&$skip=10",
+                nextPath.toUrl());
     }
 }

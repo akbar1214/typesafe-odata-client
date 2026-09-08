@@ -108,6 +108,25 @@ class EnumJsonDeserializationTest {
         }
     }
 
+    @Test
+    void sanitizedMemberNamesSerializeAsWireNames(@TempDir Path tempDir) throws Exception {
+        // Writing is the mirror of reading: the JSON value must be the CSDL member name,
+        // never the sanitized Java constant (Jackson's default enum serializer uses name())
+        String code = generateEnum(HOSTILE_METADATA, "E", tempDir);
+        assertTrue(code.contains("@com.fasterxml.jackson.annotation.JsonValue"),
+                "wireName() must be the JSON value. Got:\n" + code);
+
+        try (var loader = loaderFor(tempDir)) {
+            Class<Enum<?>> e = enumClass(loader, "E");
+            ObjectMapper mapper = new ObjectMapper();
+            Enum<?> aB = mapper.readValue("\"a-b\"", e);
+
+            assertEquals("\"a-b\"", mapper.writeValueAsString(aB),
+                    "sanitized constant A_B must serialize as its CSDL name");
+            assertEquals("\"ok\"", mapper.writeValueAsString(mapper.readValue("\"ok\"", e)));
+        }
+    }
+
     // ------------------------------------------------------------------
     // harness
     // ------------------------------------------------------------------

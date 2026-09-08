@@ -155,8 +155,11 @@ public record ContextPath(
         }
         ContextPath result = new ContextPath(base);
         if (queryPart != null && !queryPart.isEmpty()) {
-            // The OData URL grammar allows ';' as a query-option separator too
-            for (String pair : queryPart.split("[&;]")) {
+            // OData ABNF: queryOptions = queryOption *( "&" queryOption ). ';' is NOT a
+            // query separator — it separates options INSIDE a parenthesized $expand /
+            // $select group (Trips($top=2;$select=Name)), so splitting on it tears
+            // every nextLink that carries nested expand options apart
+            for (String pair : queryPart.split("&")) {
                 if (pair.isEmpty()) continue;
                 int eq = pair.indexOf('=');
                 String name = eq >= 0 ? pair.substring(0, eq) : pair;

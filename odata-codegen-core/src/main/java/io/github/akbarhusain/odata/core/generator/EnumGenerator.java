@@ -85,6 +85,9 @@ public class EnumGenerator {
         sb.append("        return value;\n");
         sb.append("    }\n\n");
 
+        // JSON writes the CSDL member name (OData v4 JSON format §7.1), never the
+        // sanitized Java constant — Jackson's default enum serializer would use name()
+        sb.append("    @com.fasterxml.jackson.annotation.JsonValue\n");
         sb.append("    @Override\n");
         sb.append("    public String wireName() {\n");
         sb.append("        return wireName;\n");

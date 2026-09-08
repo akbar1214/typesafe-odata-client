@@ -1,10 +1,7 @@
 package io.github.akbarhusain.odata.runtime.client;
 
-import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JavaType;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
-import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import io.github.akbarhusain.odata.runtime.entity.Context;
 import io.github.akbarhusain.odata.runtime.entity.ContextPath;
 import io.github.akbarhusain.odata.runtime.entity.SchemaInfo;
@@ -33,10 +30,10 @@ public class EntityOperations {
     private static final ConcurrentHashMap<Class<?>, JavaType> LIST_TYPE_CACHE = new ConcurrentHashMap<>();
 
     static {
-        ObjectMapper mapper = new ObjectMapper();
-        mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-        mapper.registerModule(new com.fasterxml.jackson.datatype.jdk8.Jdk8Module());
-        mapper.registerModule(new com.fasterxml.jackson.datatype.jsr310.JavaTimeModule());
+        // One OData-format configuration for every wire mapper (ISO temporal strings,
+        // offsets preserved) — action bodies and parameter aliases go through this mapper
+        // rather than the entity Serializer, so it must not drift from it
+        ObjectMapper mapper = JacksonSerializer.newODataMapper();
         COLLECTION_MAPPER = mapper;
         MAP_TYPE = mapper.getTypeFactory().constructMapType(HashMap.class, String.class, Object.class);
     }

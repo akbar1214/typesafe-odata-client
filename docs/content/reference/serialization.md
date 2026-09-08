@@ -29,6 +29,22 @@ Context ctx = Context.builder()
 - Handles records automatically
 - No annotations required on entities
 
+**OData JSON format contract** (`JacksonSerializer.newODataMapper()` — the one
+configuration every runtime mapper shares, including action bodies and parameter aliases):
+
+- Temporal values are ISO 8601 strings: `Edm.DateTimeOffset` → `"2014-01-01T00:00:00Z"`,
+  `Edm.Date` → `"2014-01-01"`, `Edm.TimeOfDay` → `"09:05:07"`, `Edm.Duration` → `"PT1H30M"`
+  (never Jackson's numeric timestamps or `[y, m, d]` arrays).
+- The offset a service sends in an `Edm.DateTimeOffset` is preserved on read (no
+  normalization to UTC).
+- Enum members serialize as their CSDL member name (`@JsonValue` on `wireName()`), even
+  when the Java constant had to be sanitized.
+- Derived entity and complex types carry `"@odata.type": "#Namespace.Type"` so services
+  materialize the subtype (JSON Format §4.5.3); root types stay annotation-free.
+- Partial PATCH bodies keep `@`-prefixed control information alongside the tracked fields.
+
+A custom `Serializer` must honor the same wire format.
+
 > Only `JacksonSerializer` ships as a built-in implementation. To use Gson or
 > Jakarta JSON-B, implement the `Serializer` interface yourself — see
 > [Custom Implementations](#custom-implementations) below.
