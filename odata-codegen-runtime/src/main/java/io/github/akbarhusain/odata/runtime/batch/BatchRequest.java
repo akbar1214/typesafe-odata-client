@@ -1,17 +1,25 @@
 package io.github.akbarhusain.odata.runtime.batch;
 
+import io.github.akbarhusain.odata.runtime.client.EntityOperations;
 import io.github.akbarhusain.odata.runtime.entity.Context;
 import io.github.akbarhusain.odata.runtime.entity.ContextPath;
 import io.github.akbarhusain.odata.runtime.exception.ODataException;
-import io.github.akbarhusain.odata.runtime.http.*;
+import io.github.akbarhusain.odata.runtime.http.HttpMethod;
+import io.github.akbarhusain.odata.runtime.http.HttpRequest;
+import io.github.akbarhusain.odata.runtime.http.HttpResponse;
+import io.github.akbarhusain.odata.runtime.http.HttpTransport;
 import io.github.akbarhusain.odata.runtime.internal.MultipartHelper;
-import io.github.akbarhusain.odata.runtime.client.EntityOperations;
 
-import java.time.Duration;
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 
@@ -21,31 +29,33 @@ public class BatchRequest {
     private boolean continueOnError;
 
     public BatchRequest(Context context) {
-        this.context = context;
+        this.context = Objects.requireNonNull(context, "context must not be null");
     }
 
-    /**
-     * Requests partial processing: the service continues after a failed operation instead
-     * of aborting the rest of the batch ({@code Prefer: continue-on-error=true}, OData
-     * 4.01). Services advertise support via the Capabilities-V1 batch capabilities.
-     */
     public BatchRequest continueOnError() {
         this.continueOnError = true;
         return this;
     }
 
     public BatchRequest add(BatchOperation operation) {
+        if (operation == null) {
+            throw new IllegalArgumentException("operation must not be null");
+        }
         entries.add(operation);
         return this;
     }
 
     public BatchRequest addChangeset(Changeset changeset) {
+        if (changeset == null) {
+            throw new IllegalArgumentException("changeset must not be null");
+        }
         entries.add(changeset);
         return this;
     }
 
     public int size() {
-        return entries.stream().mapToInt(e -> e instanceof Changeset c ? c.size() : 1).sum();
+        return entries.stream().mapToInt(entry -> entry instanceof Changeset changeset
+                ? changeset.size() : 1).sum();
     }
 
     public boolean isEmpty() {
@@ -57,19 +67,20 @@ public class BatchRequest {
             return new BatchResponse(List.of());
         }
         try {
+            PreparedBatch prepared = prepare();
             String boundary = MultipartHelper.generateBoundary();
-            HttpResponse response = submitBatch(boundary).join();
-            return parseResponse(response, boundary);
+            HttpResponse response = submitBatch(prepared, boundary).join();
+            return parseResponse(response, prepared);
         } catch (CompletionException e) {
             Throwable cause = e.getCause();
             if (cause instanceof InterruptedException) {
-                // join() is not itself interruptible; the async task failed interrupted —
-                // restore the flag on the calling thread (parity with EntityOperations)
                 Thread.currentThread().interrupt();
-                throw new ODataException("Batch request failed: interrupted (" + cause.getMessage() + ")", cause);
+                throw new ODataException("Batch request failed: interrupted", cause);
             }
-            if (cause instanceof RuntimeException re) throw re;
-            throw new ODataException("Batch request failed: " + cause.getMessage(), cause);
+            if (cause instanceof RuntimeException runtime) {
+                throw runtime;
+            }
+            throw new ODataException("Batch request failed", cause);
         }
     }
 
@@ -77,137 +88,450 @@ public class BatchRequest {
         if (entries.isEmpty()) {
             return CompletableFuture.completedFuture(new BatchResponse(List.of()));
         }
-        String boundary = MultipartHelper.generateBoundary();
-        return submitBatch(boundary)
-                .thenApply(response -> parseResponse(response, boundary));
+        try {
+            PreparedBatch prepared = prepare();
+            String boundary = MultipartHelper.generateBoundary();
+            return submitBatch(prepared, boundary)
+                    .thenApply(response -> parseResponse(response, prepared));
+        } catch (RuntimeException e) {
+            return CompletableFuture.failedFuture(e);
+        }
     }
 
-    /** Shared request assembly for the sync and async paths (they had drifted into copies). */
-    private CompletableFuture<HttpResponse> submitBatch(String boundary) {
-        // Resolve URLs into a LOCAL copy — mutating this.entries consumed the builder
-        // as a side effect of execution
-        List<Object> resolvedEntries = new ArrayList<>(entries.size());
-        String root = context.baseUrl();
-        if (root.endsWith("/")) {
-            root = root.substring(0, root.length() - 1);
-        }
-        final String serviceRoot = root;
-        for (Object entry : entries) {
-            if (entry instanceof BatchOperation op) {
-                resolvedEntries.add(resolveOperationUrl(op, serviceRoot));
-            } else if (entry instanceof Changeset cs) {
-                resolvedEntries.add(new Changeset(cs.operations().stream()
-                        .map(op -> resolveOperationUrl(op, serviceRoot))
-                        .toList()));
+    private PreparedBatch prepare() {
+        List<Object> prepared = MultipartHelper.prepareEntries(entries);
+        List<Object> resolvedEntries = new ArrayList<>(prepared.size());
+        List<PlannedOperation> operations = new ArrayList<>(size());
+        int order = 0;
+        int group = 0;
+        String root = trimTrailingSlash(context.baseUrl());
+        for (Object entry : prepared) {
+            if (entry instanceof BatchOperation operation) {
+                BatchOperation resolved = resolveOperationUrl(operation, root);
+                resolvedEntries.add(resolved);
+                operations.add(new PlannedOperation(plannedId(resolved), null, order++));
             } else {
-                resolvedEntries.add(entry);
+                Changeset changeset = (Changeset) entry;
+                String groupId = "changeset-" + group++;
+                List<BatchOperation> resolved = new ArrayList<>(changeset.size());
+                for (BatchOperation operation : changeset.operations()) {
+                    BatchOperation operationWithUrl = resolveOperationUrl(operation, root);
+                    resolved.add(operationWithUrl);
+                    operations.add(new PlannedOperation(plannedId(operationWithUrl), groupId, order++));
+                }
+                resolvedEntries.add(new Changeset(resolved));
             }
         }
+        return new PreparedBatch(List.copyOf(resolvedEntries), List.copyOf(operations));
+    }
 
-        byte[] body = MultipartHelper.encodeBatchRequest(boundary, resolvedEntries);
-
+    private CompletableFuture<HttpResponse> submitBatch(PreparedBatch prepared, String boundary) {
+        byte[] body = MultipartHelper.encodeBatchRequest(boundary, prepared.entries());
         ContextPath batchPath = context.basePath().addSegment("$batch");
-
-        Map<String, List<String>> headers = new HashMap<>();
-        headers.putAll(toMultiMap(context.authProvider().getHeaders()));
-        // Framing headers must win exactly once: an auth provider supplying e.g.
-        // lowercase "content-type" must not produce a duplicate Content-Type.
-        setHeaderCaseInsensitive(headers, "Content-Type", "multipart/mixed; boundary=" + boundary);
-        setHeaderCaseInsensitive(headers, "Accept", "multipart/mixed");
+        String batchUrl = batchPath.toUrl();
+        Map<String, List<String>> headers = EntityOperations.requestHeaders(context, batchUrl,
+                Map.of("Content-Type", "multipart/mixed; boundary=" + boundary,
+                        "Accept", "multipart/mixed"), "multipart/mixed");
         if (continueOnError) {
             setHeaderCaseInsensitive(headers, "Prefer", "continue-on-error=true");
         }
-
         HttpRequest request = HttpRequest.builder()
                 .method(HttpMethod.POST)
-                .url(batchPath.toUrl())
+                .url(batchUrl)
                 .headers(headers)
                 .body(body)
                 .connectTimeout(context.connectTimeout())
                 .readTimeout(context.readTimeout())
                 .build();
-
         HttpTransport transport = EntityOperations.buildTransportChain(context, context.transport());
-        return transport.submit(request);
+        try {
+            CompletableFuture<HttpResponse> result = transport.submit(request);
+            return result == null ? CompletableFuture.failedFuture(
+                    new NullPointerException("HTTP transport returned null future")) : result;
+        } catch (RuntimeException e) {
+            return CompletableFuture.failedFuture(e);
+        }
     }
 
-    private static BatchOperation resolveOperationUrl(BatchOperation op, String baseUrl) {
-        String url = op.url();
-        if (!url.regionMatches(true, 0, "http", 0, 4)) {
-            url = baseUrl + (url.startsWith("/") ? "" : "/") + url;
+    private BatchResponse parseResponse(HttpResponse response, PreparedBatch prepared) {
+        if (response == null) {
+            throw new ODataException("Batch request returned a null response");
         }
-        if (op.body() != null && op.body().length > 0) {
-            return new BatchOperation(op.method(), url, op.headers(), op.body());
+        if (!response.isSuccessful()) {
+            throw ODataException.fromResponse(response);
         }
-        return new BatchOperation(op.method(), url, op.headers(), null);
-    }
-
-    private BatchResponse parseResponse(HttpResponse response, String boundary) {
-        if (response.statusCode() < 200 || response.statusCode() >= 300) {
-            // typed exception with the parsed ODataError, like every other response path
-            io.github.akbarhusain.odata.runtime.exception.ODataException typed =
-                    io.github.akbarhusain.odata.runtime.exception.ODataException.fromResponse(response);
-            if (typed != null) {
-                throw typed;
+        try {
+            List<String> contentTypes = response.headers().entrySet().stream()
+                    .filter(entry -> entry.getKey().equalsIgnoreCase("Content-Type"))
+                    .flatMap(entry -> entry.getValue().stream())
+                    .toList();
+            String contentType = contentTypes.isEmpty() ? "" : contentTypes.get(0);
+            if (contentTypes.isEmpty() || contentTypes.stream().anyMatch(value -> !MultipartHelper.isMultipartMixed(value))) {
+                throw new ODataException(response.statusCode(),
+                        "Expected multipart/mixed response but got: " + contentType);
             }
-            throw new ODataException(response.statusCode(),
-                    "Batch request failed with HTTP " + response.statusCode() + ": " + response.getText());
-        }
-
-        String contentType = "";
-        for (var entry : response.headers().entrySet()) {
-            if (entry.getKey() != null && entry.getKey().equalsIgnoreCase("Content-Type")) {
-                contentType = entry.getValue().stream().findFirst().orElse("");
-                break;
-            }
-        }
-
-        if (!contentType.contains("multipart/mixed")) {
-            throw new ODataException(response.statusCode(),
-                    "Expected multipart/mixed response but got: " + contentType);
-        }
-
-        String responseBoundary = extractBoundary(contentType);
-        if (responseBoundary == null) {
-            responseBoundary = boundary;
-        }
-
-        List<BatchResult<?>> results = MultipartHelper.decodeResponse(responseBoundary, response.body());
-        return new BatchResponse(results);
-    }
-
-    private static String extractBoundary(String contentType) {
-        for (String part : contentType.split(";")) {
-            String trimmed = part.trim();
-            if (trimmed.regionMatches(true, 0, "boundary=", 0, "boundary=".length())) {
-                String value = trimmed.substring("boundary=".length()).strip();
-                // RFC 2046 allows quoted boundary values; the quotes are not part of the boundary
-                if (value.length() >= 2 && value.startsWith("\"") && value.endsWith("\"")) {
-                    value = value.substring(1, value.length() - 1);
+            String responseBoundary;
+            try {
+                responseBoundary = MultipartHelper.extractBoundary(contentType);
+                for (String value : contentTypes) {
+                    String otherBoundary = MultipartHelper.extractBoundary(value);
+                    if (responseBoundary == null ? otherBoundary != null : !responseBoundary.equals(otherBoundary)) {
+                        throw new ODataException(response.statusCode(),
+                                "Conflicting multipart response boundaries");
+                    }
                 }
-                return value;
+            } catch (IllegalArgumentException e) {
+                throw new ODataException(response.statusCode(), "Invalid multipart response boundary", e);
             }
+            if (responseBoundary == null) {
+                throw new ODataException(response.statusCode(),
+                        "Expected multipart/mixed response with a boundary");
+            }
+            MultipartHelper.DecodedResponse decoded = MultipartHelper.decodeResponseDetailed(responseBoundary,
+                    response.body());
+            return correlate(decoded, prepared.operations());
+        } catch (ODataException e) {
+            throw e;
+        } catch (IllegalArgumentException e) {
+            throw new ODataException(response.statusCode(), "Invalid multipart response boundary", e);
         }
-        return null;
     }
 
-    private static Map<String, List<String>> toMultiMap(Map<String, String> singleMap) {
-        Map<String, List<String>> result = new HashMap<>();
-        for (var entry : singleMap.entrySet()) {
-            result.put(entry.getKey(), new ArrayList<>(List.of(entry.getValue())));
+    private BatchResponse correlate(MultipartHelper.DecodedResponse decoded,
+                                     List<PlannedOperation> operations) {
+        List<MultipartHelper.DecodedPart> wireParts = decoded.parts();
+        Map<String, BatchResult<?>> byId = new LinkedHashMap<>();
+        Map<String, List<MultipartHelper.DecodedPart>> byGroup = new LinkedHashMap<>();
+        List<MultipartHelper.DecodedPart> unkeyed = new ArrayList<>();
+        for (MultipartHelper.DecodedPart part : wireParts) {
+            BatchResult<?> result = part.result();
+            String id = result.contentId();
+            if (id != null) {
+                if (byId.putIfAbsent(id, result) != null) {
+                    throw new ODataException("Duplicate Content-ID in batch response: " + id);
+                }
+            } else if (part.groupId() == null) {
+                unkeyed.add(part);
+            }
+            if (part.groupId() != null) {
+                byGroup.computeIfAbsent(part.groupId(), ignored -> new ArrayList<>()).add(part);
+            }
+        }
+
+        Map<String, PlannedOperation> plannedById = new LinkedHashMap<>();
+        Map<String, List<PlannedOperation>> plannedGroups = new LinkedHashMap<>();
+        for (PlannedOperation operation : operations) {
+            if (operation.contentId() != null) {
+                if (plannedById.putIfAbsent(operation.contentId(), operation) != null) {
+                    throw new ODataException("Duplicate Content-ID in batch plan: " + operation.contentId());
+                }
+            }
+            if (operation.groupId() != null) {
+                plannedGroups.computeIfAbsent(operation.groupId(), ignored -> new ArrayList<>()).add(operation);
+            }
+        }
+
+        Map<String, List<MultipartHelper.DecodedPart>> normalizedGroups = new LinkedHashMap<>();
+        Set<String> mappedGroups = new HashSet<>();
+        List<String> unmappedGroups = new ArrayList<>();
+        for (Map.Entry<String, List<MultipartHelper.DecodedPart>> entry : byGroup.entrySet()) {
+            List<MultipartHelper.DecodedPart> observed = entry.getValue();
+            List<String> observedIds = observed.stream()
+                    .map(part -> part.result().contentId())
+                    .filter(Objects::nonNull)
+                    .toList();
+            String target = null;
+            if (!observedIds.isEmpty()) {
+                for (String plannedGroup : plannedGroups.keySet()) {
+                    if (mappedGroups.contains(plannedGroup)) {
+                        continue;
+                    }
+                    List<PlannedOperation> expected = plannedGroups.get(plannedGroup);
+                    if (observedIds.stream().allMatch(id -> expected.stream()
+                            .anyMatch(op -> id.equals(op.contentId())))) {
+                        target = plannedGroup;
+                        break;
+                    }
+                }
+            } else {
+                for (String plannedGroup : plannedGroups.keySet()) {
+                    if (!mappedGroups.contains(plannedGroup)) {
+                        target = plannedGroup;
+                        break;
+                    }
+                }
+            }
+            if (target != null) {
+                normalizedGroups.computeIfAbsent(target, ignored -> new ArrayList<>()).addAll(observed);
+                mappedGroups.add(target);
+            } else {
+                unmappedGroups.add(entry.getKey());
+            }
+        }
+        if (!unmappedGroups.isEmpty()) {
+            throw new ODataException("Unexpected changeset group in batch response: " + unmappedGroups.get(0));
+        }
+        byGroup = normalizedGroups;
+        associateKeyedFlatParts(wireParts, byId, byGroup, plannedById);
+        associateUnkeyedFlatFailedParts(unkeyed, byGroup, plannedGroups);
+
+        for (String id : byId.keySet()) {
+            if (!plannedById.containsKey(id)) {
+                throw new ODataException("Unexpected Content-ID in batch response: " + id);
+            }
+        }
+        for (String groupId : byGroup.keySet()) {
+            if (!plannedGroups.containsKey(groupId)) {
+                throw new ODataException("Unexpected changeset group in batch response: " + groupId);
+            }
+        }
+
+        Map<String, BatchResult<?>> resolvedById = new HashMap<>();
+        Map<String, BatchResult<?>> resolvedUnkeyed = new HashMap<>();
+        int unkeyedIndex = 0;
+        for (PlannedOperation operation : operations) {
+            if (operation.groupId() == null && operation.contentId() != null) {
+                BatchResult<?> result = byId.get(operation.contentId());
+                if (result == null) {
+                    throw new ODataException("Missing Content-ID in batch response: " + operation.contentId());
+                }
+                resolvedById.put(operation.contentId(), result);
+            } else if (operation.groupId() == null && unkeyedIndex < unkeyed.size()) {
+                resolvedUnkeyed.put(operation.orderKey(), unkeyed.get(unkeyedIndex++).result());
+            } else if (operation.groupId() == null) {
+                throw new ODataException("Missing response part for unkeyed batch operation");
+            }
+        }
+        if (unkeyedIndex != unkeyed.size()) {
+            throw new ODataException("Unexpected unkeyed response part in batch");
+        }
+
+        for (Map.Entry<String, List<PlannedOperation>> group : plannedGroups.entrySet()) {
+            List<MultipartHelper.DecodedPart> observed = byGroup.getOrDefault(group.getKey(), List.of());
+            List<PlannedOperation> expected = group.getValue();
+            if (observed.isEmpty()) {
+                throw new ODataException("Missing response part for changeset " + group.getKey());
+            }
+            if (observed.size() == expected.size()) {
+                Set<String> seen = new HashSet<>();
+                for (MultipartHelper.DecodedPart part : observed) {
+                    String id = part.result().contentId();
+                    if (id == null || !expected.stream().anyMatch(op -> id.equals(op.contentId()))) {
+                        throw new ODataException("Missing or unexpected Content-ID in changeset " + group.getKey());
+                    }
+                    if (!seen.add(id)) {
+                        throw new ODataException("Duplicate Content-ID in changeset " + group.getKey() + ": " + id);
+                    }
+                    resolvedById.put(id, part.result().withType(Object.class));
+                }
+            } else if (observed.size() == 1 && expected.size() > 1
+                    && !observed.get(0).result().isSuccessful()) {
+                String id = observed.get(0).result().contentId();
+                if (id != null && !expected.stream().anyMatch(op -> id.equals(op.contentId()))) {
+                    throw new ODataException("Unexpected Content-ID in failed changeset " + group.getKey());
+                }
+                Set<String> related = new LinkedHashSet<>();
+                expected.forEach(op -> related.add(op.contentId()));
+                BatchResult<?> collapsed = observed.get(0).result().withRelatedContentIds(related, group.getKey());
+                expected.forEach(op -> resolvedById.put(op.contentId(), collapsed));
+            } else if (observed.size() == 1 && expected.size() == 1
+                    && !observed.get(0).result().isSuccessful()
+                    && observed.get(0).result().contentId() == null) {
+                Set<String> related = Set.of(expected.get(0).contentId());
+                resolvedById.put(expected.get(0).contentId(), observed.get(0).result()
+                        .withRelatedContentIds(related, group.getKey()));
+            } else {
+                throw new ODataException("Unexpected number of response parts for changeset " + group.getKey());
+            }
+        }
+
+        List<BatchResult<?>> ordered = new ArrayList<>(operations.size());
+        for (PlannedOperation operation : operations) {
+            BatchResult<?> result = operation.groupId() == null
+                    ? (operation.contentId() != null ? resolvedById.get(operation.contentId())
+                    : resolvedUnkeyed.get(operation.orderKey()))
+                    : resolvedById.get(operation.contentId());
+            if (result == null) {
+                throw new ODataException("No result correlated to batch operation " + operation.order());
+            }
+            ordered.add(result);
+        }
+        Map<Integer, BatchResult<?>> byWireIndex = new HashMap<>();
+        for (BatchResult<?> result : ordered) {
+            byWireIndex.putIfAbsent(result.wireIndex(), result);
+        }
+        List<BatchResult<?>> wireResults = new ArrayList<>(decoded.results().size());
+        for (MultipartHelper.DecodedPart part : decoded.parts()) {
+            BatchResult<?> result = byWireIndex.get(part.wireIndex());
+            wireResults.add(result != null ? result : part.result());
+        }
+        return new BatchResponse(ordered, wireResults);
+    }
+
+    private static void associateKeyedFlatParts(
+            List<MultipartHelper.DecodedPart> wireParts,
+            Map<String, BatchResult<?>> byId,
+            Map<String, List<MultipartHelper.DecodedPart>> byGroup,
+            Map<String, PlannedOperation> plannedById) {
+        for (MultipartHelper.DecodedPart part : wireParts) {
+            if (part.groupId() != null) {
+                continue;
+            }
+            String id = part.result().contentId();
+            PlannedOperation operation = plannedById.get(id);
+            if (operation == null || operation.groupId() == null) {
+                continue;
+            }
+            byGroup.computeIfAbsent(operation.groupId(), ignored -> new ArrayList<>()).add(part);
+            byId.remove(id);
+        }
+    }
+
+    private static void associateUnkeyedFlatFailedParts(
+            List<MultipartHelper.DecodedPart> unkeyed,
+            Map<String, List<MultipartHelper.DecodedPart>> byGroup,
+            Map<String, List<PlannedOperation>> plannedGroups) {
+        if (unkeyed.isEmpty()) {
+            return;
+        }
+        List<String> missingGroups = plannedGroups.entrySet().stream()
+                .filter(entry -> byGroup.getOrDefault(entry.getKey(), List.of()).isEmpty())
+                .map(Map.Entry::getKey)
+                .toList();
+        if (missingGroups.isEmpty() || unkeyed.size() < missingGroups.size()) {
+            return;
+        }
+        List<MultipartHelper.DecodedPart> remaining = new ArrayList<>(unkeyed);
+        Map<String, MultipartHelper.DecodedPart> collapsed = new LinkedHashMap<>();
+        for (String groupId : missingGroups) {
+            MultipartHelper.DecodedPart failure = remaining.stream()
+                    .filter(part -> !part.result().isSuccessful())
+                    .findFirst()
+                    .orElse(null);
+            if (failure == null) {
+                return;
+            }
+            collapsed.put(groupId, failure);
+            remaining.remove(failure);
+        }
+        for (Map.Entry<String, MultipartHelper.DecodedPart> entry : collapsed.entrySet()) {
+            byGroup.computeIfAbsent(entry.getKey(), ignored -> new ArrayList<>()).add(entry.getValue());
+        }
+        unkeyed.clear();
+        unkeyed.addAll(remaining);
+    }
+
+    private static String plannedId(BatchOperation operation) {
+        return operation.contentId() == null ? null
+                : BatchOperation.canonicalContentId(operation.contentId());
+    }
+
+    private static BatchOperation resolveOperationUrl(BatchOperation operation, String baseUrl) {
+        if (isAbsoluteHttpUrl(operation.url())) {
+            return operation;
+        }
+        String value = operation.url();
+        if (value.startsWith("/")) {
+            value = value.substring(1);
+        }
+        if (value.isEmpty()) {
+            throw new IllegalArgumentException("batch URL must contain a request target");
+        }
+        int suffix = firstSuffix(value);
+        String path = value.substring(0, suffix);
+        String tail = value.substring(suffix);
+        List<String> segments = new ArrayList<>();
+        for (String segment : splitRequestPath(path)) {
+            if (segment.isEmpty() || segment.equals(".")) {
+                continue;
+            }
+            if (segment.equals("..")) {
+                if (segments.isEmpty()) {
+                    throw new IllegalArgumentException("batch URL traversal escapes the service root");
+                }
+                segments.remove(segments.size() - 1);
+            } else {
+                segments.add(segment);
+            }
+        }
+        if (segments.isEmpty()) {
+            throw new IllegalArgumentException("batch URL must contain a request target");
+        }
+        return operation.withUrl(baseUrl + "/" + String.join("/", segments) + tail);
+    }
+
+    private static boolean isAbsoluteHttpUrl(String value) {
+        try {
+            URI uri = URI.create(value);
+            String scheme = uri.getScheme();
+            return uri.isAbsolute() && scheme != null
+                    && (scheme.equalsIgnoreCase("http") || scheme.equalsIgnoreCase("https"))
+                    && uri.getHost() != null;
+        } catch (IllegalArgumentException e) {
+            return false;
+        }
+    }
+
+    private static List<String> splitRequestPath(String path) {
+        List<String> segments = new ArrayList<>();
+        StringBuilder current = new StringBuilder();
+        boolean quoted = false;
+        for (int i = 0; i < path.length(); i++) {
+            char c = path.charAt(i);
+            if (c == '\'') {
+                current.append(c);
+                if (quoted && i + 1 < path.length() && path.charAt(i + 1) == '\'') {
+                    current.append(path.charAt(++i));
+                } else {
+                    quoted = !quoted;
+                }
+            } else if (c == '/' && !quoted) {
+                segments.add(current.toString());
+                current.setLength(0);
+            } else {
+                current.append(c);
+            }
+        }
+        segments.add(current.toString());
+        return segments;
+    }
+
+    private static int firstSuffix(String value) {
+        boolean quoted = false;
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            if (c == '\'') {
+                if (quoted && i + 1 < value.length() && value.charAt(i + 1) == '\'') {
+                    i++;
+                } else {
+                    quoted = !quoted;
+                }
+            } else if (!quoted && (c == '?' || c == '#')) {
+                return i;
+            }
+        }
+        return value.length();
+    }
+
+    private static String trimTrailingSlash(String value) {
+        String result = value;
+        while (result.endsWith("/")) {
+            result = result.substring(0, result.length() - 1);
         }
         return result;
     }
 
-    /**
-     * Sets a header, replacing any existing entry whose name matches
-     * case-insensitively (mirrors EntityOperations: HTTP names are
-     * case-insensitive per RFC 9110, and framing headers must win exactly once).
-     */
-    private static void setHeaderCaseInsensitive(Map<String, List<String>> headers,
-                                                 String name, String value) {
+    private static void setHeaderCaseInsensitive(Map<String, List<String>> headers, String name, String value) {
         headers.keySet().removeIf(key -> key.equalsIgnoreCase(name));
         headers.put(name, new ArrayList<>(List.of(value)));
     }
 
+    private record PreparedBatch(List<Object> entries, List<PlannedOperation> operations) {
+    }
+
+    private record PlannedOperation(String contentId, String groupId, int order) {
+        String orderKey() {
+            return Integer.toString(order);
+        }
+    }
 }

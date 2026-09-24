@@ -9,8 +9,8 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -19,7 +19,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * M12: URL metadata is downloaded to a temp file that must be deleted on EVERY exit
  * path of {@code GenerateMojo.execute()} — success, up-to-date early return, and
  * failure. Behavioral check: run the full mojo against a local HTTP server and assert
- * no {@code odata-metadata-*} temp files are left behind in java.io.tmpdir.
+ * no {@code odata-metadata-*} temp files are left behind in the test's isolated directory.
  */
 class GenerateMojoMediumTest {
 
@@ -58,8 +58,21 @@ class GenerateMojoMediumTest {
         return server;
     }
 
+    private static final class IsolatedTempGenerateMojo extends GenerateMojo {
+        private final Path tempDir;
+
+        private IsolatedTempGenerateMojo(Path tempDir) {
+            this.tempDir = tempDir;
+        }
+
+        @Override
+        Path createMetadataTempFile() throws IOException {
+            return Files.createTempFile(tempDir, "odata-metadata-", ".xml");
+        }
+    }
+
     private GenerateMojo newMojo(String url, File outDir) throws Exception {
-        GenerateMojo mojo = new GenerateMojo();
+        GenerateMojo mojo = new IsolatedTempGenerateMojo(tempDir);
         setField(mojo, "metadataUrl", url);
         setField(mojo, "outputDirectory", outDir);
         setField(mojo, "basePackage", "com.example.test");
@@ -73,10 +86,9 @@ class GenerateMojoMediumTest {
         f.set(target, value);
     }
 
-    private List<Path> leftoverMetadataTemps() throws IOException {
-        List<Path> found = new ArrayList<>();
-        Path tmpdir = Path.of(System.getProperty("java.io.tmpdir"));
-        try (Stream<Path> files = Files.list(tmpdir)) {
+    private Set<Path> leftoverMetadataTemps() throws IOException {
+        Set<Path> found = new HashSet<>();
+        try (Stream<Path> files = Files.list(tempDir)) {
             files.filter(p -> p.getFileName().toString().startsWith("odata-metadata-"))
                     .forEach(found::add);
         }
@@ -93,7 +105,7 @@ class GenerateMojoMediumTest {
             assertTrue(Files.exists(out.toPath().resolve("com/example/test/entity/Person.java")),
                     "generation should have produced Person.java");
 
-            assertEquals(0, leftoverMetadataTemps().size(),
+            assertTrue(leftoverMetadataTemps().isEmpty(),
                     "M12: downloaded metadata temp file must be deleted after a successful run");
         } finally {
             server.stop(0);
@@ -111,7 +123,7 @@ class GenerateMojoMediumTest {
             // but the temp file was already downloaded for hashing
             mojo.execute();
 
-            assertEquals(0, leftoverMetadataTemps().size(),
+            assertTrue(leftoverMetadataTemps().isEmpty(),
                     "M12: the up-to-date early-return path must also delete the downloaded temp file");
         } finally {
             server.stop(0);

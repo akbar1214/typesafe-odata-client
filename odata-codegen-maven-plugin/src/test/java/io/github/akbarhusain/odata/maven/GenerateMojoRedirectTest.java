@@ -6,7 +6,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.File;
+import java.io.IOException;
 import java.lang.reflect.Method;
+import java.nio.file.Files;
 import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -21,6 +23,19 @@ class GenerateMojoRedirectTest {
 
     @TempDir
     Path tempDir;
+
+    private static final class IsolatedTempGenerateMojo extends GenerateMojo {
+        private final Path tempDir;
+
+        private IsolatedTempGenerateMojo(Path tempDir) {
+            this.tempDir = tempDir;
+        }
+
+        @Override
+        Path createMetadataTempFile() throws IOException {
+            return Files.createTempFile(tempDir, "odata-metadata-", ".xml");
+        }
+    }
 
     private void setField(Object target, String name, Object value) throws Exception {
         var f = GenerateMojo.class.getDeclaredField(name);
@@ -39,7 +54,7 @@ class GenerateMojoRedirectTest {
         });
         server.start();
         try {
-            GenerateMojo mojo = new GenerateMojo();
+            GenerateMojo mojo = new IsolatedTempGenerateMojo(tempDir);
             File out = tempDir.resolve("out").toFile();
             setField(mojo, "metadataUrl", "http://localhost:" + server.getAddress().getPort() + "/metadata");
             setField(mojo, "outputDirectory", out);
@@ -102,7 +117,7 @@ class GenerateMojoRedirectTest {
         });
         server.start();
         try {
-            GenerateMojo mojo = new GenerateMojo();
+            GenerateMojo mojo = new IsolatedTempGenerateMojo(tempDir);
             File out = tempDir.resolve("out2").toFile();
             setField(mojo, "metadataUrl", "http://localhost:" + server.getAddress().getPort() + "/metadata");
             setField(mojo, "outputDirectory", out);
@@ -111,9 +126,16 @@ class GenerateMojoRedirectTest {
 
             Method dl = GenerateMojo.class.getDeclaredMethod("downloadMetadata", String.class);
             dl.setAccessible(true);
-            Path result = (Path) dl.invoke(mojo, "http://localhost:" + server.getAddress().getPort() + "/metadata");
-            assertTrue(java.nio.file.Files.exists(result), "redirect should be followed and temp file created");
-            assertTrue(java.nio.file.Files.readString(result).contains("TestNS"));
+            Path result = null;
+            try {
+                result = (Path) dl.invoke(mojo, "http://localhost:" + server.getAddress().getPort() + "/metadata");
+                assertTrue(Files.exists(result), "redirect should be followed and temp file created");
+                assertTrue(Files.readString(result).contains("TestNS"));
+            } finally {
+                if (result != null) {
+                    Files.deleteIfExists(result);
+                }
+            }
         } finally {
             server.stop(0);
         }

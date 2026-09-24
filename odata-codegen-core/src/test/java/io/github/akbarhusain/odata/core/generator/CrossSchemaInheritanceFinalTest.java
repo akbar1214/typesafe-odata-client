@@ -3,6 +3,7 @@ package io.github.akbarhusain.odata.core.generator;
 import io.github.akbarhusain.odata.core.model.CsdlModel;
 import io.github.akbarhusain.odata.core.parser.StaxCsdlParser;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
@@ -24,7 +25,7 @@ class CrossSchemaInheritanceFinalTest {
     }
 
     @Test
-    void crossSchemaQualifiedBaseIsNotFinal() throws Exception {
+    void crossSchemaQualifiedBaseIsNotFinal(@TempDir Path tmp) throws Exception {
         String xml = """
             <?xml version="1.0" encoding="utf-8"?>
             <edmx:Edmx Version="4.0" xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx">
@@ -46,7 +47,6 @@ class CrossSchemaInheritanceFinalTest {
             """;
         CsdlModel model = parse(xml);
         // Generate into temp dir with shared package to avoid import complexity
-        Path tmp = Files.createTempDirectory("gen-h3");
         Generator gen = new Generator(tmp, java.util.Map.of(), "com.test");
         gen.generate(model);
 
@@ -66,7 +66,7 @@ class CrossSchemaInheritanceFinalTest {
     }
 
     @Test
-    void crossSchemaUnqualifiedBaseIsNotFinal() throws Exception {
+    void crossSchemaUnqualifiedBaseIsNotFinal(@TempDir Path tmp) throws Exception {
         // Variant: Derived uses unqualified BaseType="Base" — parser keeps "Base",
         // EntityGenerator must still find Base in NS.A and mark it non-final.
         String xml = """
@@ -88,7 +88,6 @@ class CrossSchemaInheritanceFinalTest {
             </edmx:Edmx>
             """;
         CsdlModel model = parse(xml);
-        Path tmp = Files.createTempDirectory("gen-h3-unq");
         Generator gen = new Generator(tmp, java.util.Map.of(), "com.test");
         gen.generate(model);
         String baseCode = Files.readString(tmp.resolve("com/test/entity/Base.java"));
@@ -99,7 +98,7 @@ class CrossSchemaInheritanceFinalTest {
     // Same policy as ambiguous container Extends: an unqualified BaseType matching
     // several schemas' types must fail loudly instead of first-wins (order-dependent)
     @Test
-    void unqualifiedAmbiguousBaseFailsLoudly() throws Exception {
+    void unqualifiedAmbiguousBaseFailsLoudly(@TempDir Path tmp) throws Exception {
         String xml = """
             <?xml version="1.0" encoding="utf-8"?>
             <edmx:Edmx Version="4.0" xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx">
@@ -125,7 +124,6 @@ class CrossSchemaInheritanceFinalTest {
             </edmx:Edmx>
             """;
         CsdlModel model = parse(xml);
-        Path tmp = Files.createTempDirectory("gen-h3-ambig");
         Generator gen = new Generator(tmp, java.util.Map.of(), "com.test");
         Exception ex = assertThrows(Exception.class, () -> gen.generate(model),
                 "unqualified BaseType='Base' with two candidate Base entities must be rejected");

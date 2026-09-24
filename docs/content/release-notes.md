@@ -2,228 +2,222 @@
 
 ## 0.1.0-SNAPSHOT (Development)
 
-### Status: Full Pipeline Working
+### Current branch status
 
-### Review Round 6 — Spec Conformance (TDD)
+The current branch is a development snapshot. The following is the API and behavior to use when reading the generated client:
 
-**Wire-format fixes:**
+- Generated model packages are `entity`, `complex`, and `enums`.
+- Generated request packages are `entity.request` and `collection.request`; their source directories are `entity/request` and `collection/request`.
+- Function and action request classes are in `operation`.
+- The per-output-package registry is `schema/SchemaInfo.java`, exposed as `SchemaInfo.INSTANCE`.
+- Keyed entity sets use container overloads such as `client.people("scottketchum")`; composite keys use one argument per key component. Keyed navigation overloads are available on entity requests, for example `client.people("scottketchum").trips(2)`.
+- Collection requests expose `create(entity)`. Entity requests expose `get()`, `put(entity)`, `patch(entity)`, and `delete()` plus their ETag variants.
+- `count()` returns a collection request that adds `$count=true`; `countValue()` is the terminal count-only operation and returns a `long`.
+- Navigation constants are `NavQuery` and `NavCollectionProperty` values. Request `expand(...)` accepts `Expandable` values, including selector-lambda forms.
+- Entity and collection read/CRUD methods are synchronous. Runtime transport and batch APIs are asynchronous, and generated single-result operation requests may also expose `executeAsync()`.
+- The StAX parser accepts OData v4 CSDL only. OData v3 and unknown document roots fail loudly.
+- `JdkHttpTransport` is the only bundled transport implementation; applications can provide a custom two-method `HttpTransport`.
 
-- Temporal values serialize as ISO 8601 strings (`Edm.DateTimeOffset`/`Date`/`TimeOfDay`/
-  `Duration`) instead of Jackson's numeric timestamps; `DateTimeOffset` offsets are
-  preserved on read. Applies to entity bodies, action parameter bodies and structured
-  parameter aliases (`JacksonSerializer.newODataMapper()`).
-- Derived entity and complex types emit `"@odata.type": "#NS.Type"` (JSON Format §4.5.3);
-  partial PATCH bodies keep `@`-control annotations.
-- Enum members serialize as their CSDL wire name (`@JsonValue`), matching the existing
-  `@JsonCreator` read side.
-- `Edm.Byte` (unsigned) maps to `Short` — values 128..255 no longer fail to deserialize.
+### Current supported behavior
 
-**URL fixes:**
+- CSDL parsing uses the JDK StAX API and produces immutable model records with parser warnings.
+- Generated code supports entity and complex-type inheritance, keyed single and composite access, typed filters, scalar/enum/collection query properties, nested expand options, polymorphic expands, operations, changesets, ETag-aware writes, media streams, and open-type dynamic properties.
+- `$filter`, `$select`, `$expand`, `$orderby`, `$top`, `$skip`, `$count`, `$search`, and `$apply` are available where the generated request shape supports them. `ApplyExpression` includes aggregation and `compute` transformations.
+- The default `JacksonSerializer` writes OData temporal values as ISO 8601 strings, preserves service offsets, uses generated enum wire names, and omits lifecycle metadata and empty collections from ordinary write bodies.
+- Batch requests use `multipart/mixed`, support atomic changesets, correlate response parts by Content-ID, preserve binary bodies, and expose typed response views.
+- Typed HTTP exceptions include the structured `ODataError` parsed from an error response.
 
-- Bound functions/actions are invoked by their namespace-qualified name
-  (`People('x')/NS.GetFriendsTrips(...)`, URL Conventions §4.5). The unqualified form was
-  the real cause of TripPin's "Open navigation properties are not supported on OpenTypes"
-  500, previously attributed to the service.
-- `nextPage()` no longer splits `@odata.nextLink` query strings on `;` — nested expand
-  options (`$expand=Trips($top=2;$select=Name)`) round-trip intact.
-- `CollectionProperty.contains(v)` renders `Name/any(x: x eq v)` and `length()` renders
-  `Name/$count`; `contains()`/`length()` are string functions in OData.
-- Numeric filter literals follow the ABNF: `INF`/`-INF` for infinities, plain digits for
-  `BigDecimal` (no `1E+3`).
+### Current known limitations
 
-**Generated request fixes:**
+- Cancellable streaming is not implemented. A stream returned by `HttpTransport.stream(...)` or a generated media read is caller-owned and must be closed.
+- Generated media uploads buffer the complete input stream into memory; there is no streaming upload body publisher.
+- Spatial and geography Edm types are represented as `Object`; typed geography/geometry models and spatial query constants are not implemented.
+- Collection-bound operations are not emitted as typed request accessors.
+- Copy-on-write `with*()` methods are optional and disabled by the Maven plugin default; builders and typed setters remain available.
+- Generated entities expose public setters and no-argument construction for Jackson. Use builders or generated `with*()` methods when copy-on-write and tracked partial-PATCH behavior are desired.
+- A custom serializer must honor the generated model annotations and OData JSON conventions. No Gson or JSON-B implementation is bundled.
+- The parser does not support OData v3 metadata.
 
-- Entity `toBatchOperation()` carries the request's `$select`/`$expand` (same URL as `get()`).
-- `patchToBatchOperation(entity)` sends only the tracked changes like `patch()`; new
-  `patchToBatchOperation(entity, etag)` overload for conditional batch PATCH.
-- Collection `top(n)`/`skip(n)` reject negatives (parity with `NavQuery`/`ApplyBuilder`).
+### Future milestones
 
-### Review Round 3 — Correctness & Hardening (all 79 findings resolved)
+- Cancellable streaming and streaming media uploads
+- Typed spatial/geography model support
+- Collection-bound typed operations
+- Automatic page iteration and generated asynchronous CRUD variants
+- Maven Central publication
 
-**Correctness fixes (highlights):**
+### Testing status
 
-- CSDL enum members without `Value` default to previous+1 per spec (were member-count → wrong wire values)
-- `@JsonProperty` setters on abstract base types — subtype deserialization no longer drops base fields
-- One aggregate `SchemaInfo` per output package (multi-schema registries no longer overwrite)
-- Polymorphic `@odata.type` deserialization via the `SchemaInfo` registry, per element for collections
-- Enums map JSON numerics by CSDL value (`@JsonCreator`), not ordinal; strings keep mapping by name
-- PATCH/GET tolerate 204/empty bodies; `nextLink` decoding no longer corrupts `+` in continuation tokens
-- Unquoted GUID filter literals (`GuidProperty`); type-driven key literals (`addKey(name, value, edmType)`)
-- Query parameters render once after all segments (no `?` mid-URL); `div` vs `divby` by operand type;
-  datetime literals validated against the OData ABNF with typed overloads
-- Partial PATCH: `changedFields` tracked by `builder()`/`with*()` now produce partial update bodies
-- Batch: part-level `Content-ID` correlation (`getByContentId`), batch-wide numbering, loud failures on
-  malformed responses, RFC 2046 line-anchored delimiters, CRLF-injection rejection, quoted boundaries,
-  `continue-on-error` preference, typed errors for non-2xx
-- Parser: alias resolution, required-attribute validation, container `Extends` merging, v4 referential
-  constraints, whitespace-tolerant type refs
-- Generators: inherited navs/streams/`HasStream` on subtype requests, enum `@JsonCreator`, runtime-class
-  name shadowing, constant auto-dedup (`VALUE_2`) with loud field-collision errors
+Fixed test totals are intentionally not recorded in this development snapshot because the branch changes alter the suite. Use `mvn test` for the hermetic offline suite and `mvn test -Plive-tests` when the public-service tests are intentionally included.
 
-**Build & ecosystem:**
+## Historical release record (superseded where noted)
 
-- Apache-2.0 `LICENSE`/`NOTICE` + POM metadata; docs rewritten to the real API
-- Live-service tests tagged and hermetic by default (`mvn test` offline; `-Plive-tests` for everything)
-- `<release>17</release>` (caught a latent Java 21+ `List.getFirst()` usage), reproducible-build timestamp,
-  Maven wrapper, per-execution incremental markers with stale-file cleanup, `metadataHeaders` auth support
-- Dead `JavaNetHttpTransport` removed; `JdkHttpTransport` is the single transport
-- Interceptor chain cached per `Context`; interceptor failures complete futures exceptionally;
-  `Retry-After` HTTP-date parsing + `hasServerRetryAfter()`; `ODataError` maps `details[]`/`target`
+!!! warning "Historical entries"
+    The sections below preserve earlier implementation and review snapshots. They are retained for context, not as current API documentation. Where an old snapshot conflicts with the current-branch section above, the current section wins.
 
-### Generated `SchemaInfo` Registry — BREAKING (decision 6a amendment)
+### Review Round 6 — Spec Conformance (TDD) — historical
 
-- The per-package type registry class is now `<basePackage>.schema.SchemaInfo`
-  (was `ServiceSchemaInfo`); `SchemaInfo.INSTANCE` unchanged in shape
-- Migrate any direct references: `import ...schema.ServiceSchemaInfo;` →
-  `import ...schema.SchemaInfo;` — generated request classes already pass the
-  instance internally, so most users touch nothing
+**Wire-format fixes recorded in that round:**
 
-### Keyed Accessor API — BREAKING (decision 95, option A)
-- **Keyed container overloads**: every keyed entity set gains `client.people("russellwhyte")`,
-  `client.orderDetails(orderId, productId)` returning the entity request directly. Keyless
-  entity sets keep only the zero-arg collection accessor
-- **Keyed nav overloads**: collection navigations to keyed entities gain `person.trips(2)`
-  (renders `People('x')/Trips(2)`) on the entity request; single navs unchanged
-- **The `byID`/`byKey` family on collection requests is removed** — `personByUserName(...)`,
-  `tripByID(...)`, `advertisementByID(...)` and friends no longer exist. Migrate:
-  `client.people().personByUserName("x")` → `client.people("x")`;
-  `person.trips().tripByID(2)` → `person.trips(2)`. Key literals stay type-driven
-  (decision 52); composite and inherited keys surface as multi-parameter overloads
+- Temporal values were changed to serialize as ISO 8601 strings for `Edm.DateTimeOffset`, `Edm.Date`, `Edm.TimeOfDay`, and `Edm.Duration`; offsets are preserved on read. Entity bodies, action parameter bodies, and structured parameter aliases use the OData mapper.
+- Derived entity and complex types emit `@odata.type` values carrying the qualified subtype name; partial PATCH bodies retain `@`-prefixed control annotations.
+- Enum members serialize using their CSDL wire names, matching the generated `fromJson(...)` read path.
+- `Edm.Byte` maps to `Short` because it is unsigned.
 
-### Bound Operations (decision 96)
+**URL fixes recorded in that round:**
 
-- Operations bound to an entity type (or an ancestor) generate
-  `<Entity><Op>FunctionRequest` / `<Entity><Op>ActionRequest` classes with typed
-  accessors on the entity request: `client.people("x").shareTrip("friend", 1).execute()`
-- Ancestor-bound ops emit a type-cast segment (`.../Flight('x')/NS.PlanItem/Op`);
-  binding parameters are excluded from invocation parameters; overloads by parameter
-  names; ambiguous or duplicate declarations fail at generation
-- Result handling identical to imports (Optional/List/typed results, polymorphic reads)
+- Bound operations were changed to use namespace-qualified invocation names. The earlier unqualified request shape was identified as the cause of a misleading live-service error.
+- `nextPage(...)` preserves nested expand options in continuation links.
+- `CollectionProperty.contains(v)` renders a collection `any(...)` predicate and `length()` renders the collection count path.
+- Numeric literals use OData numeric forms, including `INF`, `-INF`, and plain `BigDecimal` text.
 
-### Function/Action Imports (request-object style)
-- Unbound container imports generate final `<Name>FunctionRequest`/`<Name>ActionRequest` classes
-  in `.operation`, with one typed container accessor per import; functions GET with typed URL
-  literals (key-predicate formatting), actions POST a JSON body keyed by CSDL parameter names
-- **Overloaded functions supported**: OData identifies an unbound overload by its parameter names,
-  so each overload generates its own class/accessor (`isSiteAdminByUsername`/`isSiteAdminByUserId`);
-  bound same-name siblings no longer read as ambiguity; identical parameter-name sets and same-name
-  unbound actions fail generation per spec
-- **Collection function parameters supported via parameter aliases**: `Collection(Edm.String)` maps
-  to `List<String>` and renders `ByTags(tags=@p0)?@p0=['a','b']` (previously failed generation);
-  structured elements still fail loudly (no URL literal form)
-- **Structured function parameters supported via JSON parameter aliases** (URL Conventions §5.1.1):
-  `NS.Address` maps to the complex type and `Collection(NS.Address)` to `List<Address>`, rendering
-  `Near(addr=@p0)?@p0={"Street":"..."}` / `VisitAll(addrs=@p0)?@p0=[{...},{...}]` — previously any
-  structured function parameter failed generation; nullable structured parameters omit the pair and
-  alias when null
-- **Overload identity corrected to the spec** (ODATA-500/ODATA-425): overloads are identified by the
-  binding parameter type plus the ordered set of parameter types — same-name overloads with different
-  parameter types, or bound to different types in an inheritance hierarchy, now generate (previously
-  "has overloads with identical parameter names"); a derived-type request sees ancestor-bound
-  overloads via the cast segment; bound actions overload by binding parameter (one per binding type);
-  only overloads identical in names AND types still fail generation
-- **Type-safe polymorphic expands** (cast segments): `expand(MyContainer.VERSIONS_AS_DOC.expand(MyDoc.ABC))`
-  renders `$expand=Versions/ABC.Doc($expand=abc)` — the generator emits a typed `<NAV>_AS_<TYPE>`
-  constant per navigation/known-subtype pair with the qualified CSDL name baked in; nested options
-  type-check against the subtype and casting to an unrelated type is a compile error; `NavQuery.raw(...)`
-  is the general escape hatch
-- **Typed `select()`/`expand()` on entity requests** (keyed accessors): `client.people("x").expand(...)`
-  / `.select(...)` now exist — $select/$expand are the query options valid on a single-entity GET
-  (the docs promised this when keyed accessors shipped; the generator never emitted it); nested
-  `NavQuery` expands render `Containers(id)?$expand=Folders($expand=Files)`; filter/top/skip/orderby
-  stay collection-only
+**Generated-request fixes recorded in that round:**
 
+- Entity `toBatchOperation()` includes the request's current `$select` and `$expand` options.
+- `patchToBatchOperation(entity)` follows tracked partial-PATCH fields and has a conditional overload accepting an ETag.
+- Collection `top(...)` and `skip(...)` reject negative values.
 
-**Core Features:**
+### Review Round 3 — Correctness & Hardening — historical
 
-- **CSDL Parser** — StAX-based parser for OData v4 metadata (handles v3/v4 namespace variations)
-- **Code Generator** — Entity, request, container, schema-info generators
-- **Runtime Library** — Context, query builders, HTTP transport, serialization
-- **Maven Plugin** — `odata-codegen:generate` goal in the `generate-sources` phase
+**Correctness fixes recorded in that round:**
 
-**Type-Safe Queries:**
+- Enum members without an explicit numeric value use the preceding value plus one.
+- `@JsonProperty` setters are emitted on abstract base types so concrete subtype deserialization retains base fields.
+- One aggregate `SchemaInfo` is generated per output package instead of one registry per schema.
+- Polymorphic `@odata.type` deserialization uses the generated registry for entities and collection elements.
+- Generated enums map JSON numbers by CSDL value rather than Java ordinal; strings continue to map by name.
+- PATCH and GET tolerate empty response bodies, and continuation-token decoding preserves literal `+` characters.
+- GUID filter literals are unquoted, and generated key literals are formatted from the resolved Edm type.
+- Query parameters render after all path segments; division uses operand type; temporal literals are validated against the OData grammar.
+- Tracked `changedFields` from builders and copy-on-write methods drive partial PATCH bodies.
+- Batch decoding propagates Content-ID correlation, rejects malformed multipart responses, anchors delimiters to line starts, rejects injected line breaks, accepts quoted boundaries, supports `continue-on-error`, and raises typed outer-response errors.
+- The parser resolves aliases, validates required attributes, merges container inheritance, parses v4 referential constraints, and tolerates whitespace around type references.
+- Request generators include inherited navigation members, inherited stream members, and inherited `HasStream` behavior on subtype requests; generated names avoid runtime-class collisions and constant collisions are detected or deterministically disambiguated.
 
-- Property types: `String`, `Number`, `Boolean`, `DateTimeOffset`, `Enum`, `Collection`
-- Logical operators: `AND`, `OR`, `NOT`
-- Lambda operators: `any`, `all` (on collection properties)
-- Sort expressions: `asc`, `desc`
-- String operations: `contains`, `startsWith`, `endsWith`, `equalTo`, `notEqualTo`
-- Arithmetic operations: `add`, `subtract`, `multiply`, `divide`, `mod`
-- **Generic `FilterExpression<E>`** — cross-entity filters are compile-time errors; base-type predicates type-check against subtypes
-- **`PropertyExpression<E, T>`** — unifies `$select` and `$orderby` across all property types; entity-scoped `E` catches cross-entity `select`/`orderBy` at compile time
-- **`NavQuery<S, T>`** — nested `$expand` options are type-checked against the source and target entity types
+**Build and ecosystem fixes recorded in that round:**
 
-**Inheritance (Entity + Complex Type):**
+- Apache-2.0 license metadata and documentation were added.
+- Live-service tests were tagged and excluded from the default hermetic test run.
+- The build moved to Java 17 release compatibility, reproducible-build metadata, a Maven wrapper, per-execution incremental markers with stale-file cleanup, and metadata-header support.
+- The former duplicate transport implementation was removed; the current bundled transport is `JdkHttpTransport`.
+- Interceptor chains are cached per `Context`; interceptor failures complete futures exceptionally; retry information and structured error details are exposed.
 
-- Entity types with a `BaseType` emit a real Java `extends` clause (e.g. `Flight → PublicTransportation → PlanItem`)
-- Complex types with a `BaseType` also emit `extends` (e.g. `EventLocation → Location`, `AirportLocation → Location`)
-- `getKey()`, getters, `with*()` methods, and property constants resolve the full base-chain
-- `Builder` generated only for concrete top-level types; subtypes use `with*()` for copy-on-write
+### Generated `SchemaInfo` Registry — BREAKING (historical decision)
 
-**Entity Operations:**
+- The current registry class is `<basePackage>.schema.SchemaInfo` and exposes `SchemaInfo.INSTANCE`.
+- Earlier snapshots used a different registry class name. Generated request classes already pass the current registry internally, so most users do not need to change application code.
+- The registry maps fully qualified CSDL type names to generated classes and is used for polymorphic reads.
 
-- GET: Single entity and collection queries
-- POST: Create entities
-- PATCH: Update entities (with ETag / `If-Match` support)
-- DELETE: Remove entities (with ETag / `If-Match` support)
-- `$ref`: Add/remove navigation links
-- `$batch`: Batch multiple operations in a single request
-- **Media streams** — `HasStream="true"` entities get `streamMedia()` / `setMedia(InputStream[, etag])` at `.../<EntitySet>(key)/$value`; `Edm.Stream` named properties get `stream<Prop>()` / `set<Prop>(InputStream[, etag])` at `.../<EntitySet>(key)/<PropertyName>`
-- **OpenType dynamic properties** — `OpenType="true"` entities/complex types capture undeclared JSON fields into `unmappedFields` (exposed via `getUnmappedFields()` / `getDynamicProperty(String)`) and round-trip them on serialize; `@odata.*` control fields are filtered out
+### Keyed Accessor API — BREAKING (historical decision)
 
-**Query Operations:**
+- Keyed container overloads return entity requests directly: `client.people("russellwhyte")` and `client.order_Details(orderId, productId)`.
+- Keyed collection-navigation overloads return entity requests directly: `client.people("russellwhyte").trips(2)`.
+- The former collection-request keyed accessor family was removed. The migration is to use the keyed container overload for an entity set and the keyed navigation overload on its containing entity request.
+- Key literals remain type-driven; composite and inherited keys use generated parameters.
 
-- `$filter`: Type-safe filter expressions
-- `$select`: Field projection (any property type)
-- `$expand`: Navigation property expansion, **including nested options** via `NavQuery` (`$select`, `$filter`, `$top`, `$orderby`)
-- `$orderby`: Sort results
-- `$top`/`$skip`: Pagination
-- `$count`: Result counting
-- `$search`: Free-text search (`search(String)`)
-- `$apply`: Server-side aggregation and transformations (incl. `$compute`) via a fluent `ApplyExpression` builder — `groupBy`, `aggregate`, `compute`, `filter`, `orderBy`, `top`, `skip`
+### Bound Operations (historical decision)
 
-**HTTP Transport:**
+- Operations bound to an entity type or an ancestor generate request classes and typed accessors on the entity request ecosystem.
+- Ancestor-bound operations include a type-cast segment; binding parameters are excluded from invocation parameters.
+- Overloads are distinguished by binding type and ordered resolved parameter types, with deterministic generated suffixes where needed.
+- Return handling follows the same optional, list, typed-result, and polymorphic-read rules as operation imports.
 
-- `JdkHttpTransport` (Java 11+ `HttpClient`, native PATCH support, dedicated executor)
-- `JavaNetHttpTransport`
-- Custom `HttpTransport` interface (two methods: `submit`, `stream`)
+### Function/Action Imports (request-object style) — historical
 
-**Serialization:**
+- Unbound container imports generate final request classes in the `operation` package, with one typed container accessor per import.
+- Functions use GET with typed URL literals; actions use POST with a JSON parameter body keyed by original CSDL parameter names.
+- Same-name unbound functions are represented as overload sets when their parameter names and ordered types differ. Overloads that cannot be distinguished fail generation.
+- Collection and structured function parameters use OData parameter aliases. Primitive collections render bracketed alias values, while structured values render JSON aliases.
+- Structured single parameters and structured collection elements were initially rejected, then added to the generator through the same JSON-alias mechanism.
+- Type-safe polymorphic expands use generated cast constants. Raw navigation expressions remain available for advanced cases and compose with chained options.
+- Keyed entity requests expose `select(...)` and `expand(...)`; collection-only options remain on collection requests.
 
-- `JacksonSerializer` (default; uses `@JsonProperty` setters on generated entities)
-- Pluggable `Serializer` interface for custom (de)serialization
+### Core Features — historical
 
-**Batch Support:**
+- The CSDL parser is StAX-based and targets OData v4. An earlier snapshot described broader namespace tolerance; the current parser rejects v3 and unknown roots.
+- The code generator emits entity, complex-type, enum, request, container, operation, and schema-info sources.
+- The runtime provides context, typed query expressions, HTTP transport, serialization, paging, batch, and typed errors.
+- The Maven plugin exposes the `generate` goal for the `generate-sources` phase.
 
-- `multipart/mixed` format
-- GET, POST, PATCH, DELETE operations in batch
-- Async batch execution
-- Typed batch results
+### Type-Safe Queries — historical
 
-**Error Handling:**
+- Scalar property constants cover strings, numbers, booleans, temporal values, GUIDs, and enums; collection-valued properties use collection builders.
+- Logical composition supports `and`, `or`, and `not`.
+- Collection `any` and `all` use generated target `Filterable` views.
+- Every property expression supports `asc()` and `desc()`.
+- `FilterExpression<E>` rejects unrelated entity properties while allowing base-type predicates on subtype collections.
+- `PropertyExpression<E, T>` is shared by select and order expressions.
+- `NavQuery` and collection navigation constants provide nested expand options.
 
-- Typed exceptions: `BadRequestException` (400), `UnauthorizedException` (401), `ForbiddenException` (403), `NotFoundException` (404), `ConflictException` (409), `PreconditionFailedException` (412), `RateLimitException` (429, with `retryAfter`), `ServerException` (5xx)
-- `ODataException` base with `fromResponse(HttpResponse)` factory
-- ETag support for optimistic concurrency
-- Middleware chain for `HttpInterceptor`s
+### Inheritance (Entity and Complex Type) — historical
 
-**Testing:**
+- Entity and complex `BaseType` declarations become Java `extends` clauses.
+- Keys, properties, getters, navigation members, and property constants resolve through the full base chain.
+- Builders are generated for concrete top-level types; concrete subtypes use copy-on-write methods where enabled.
 
-- **285 tests passing**
-- Parser: 47 (TripPin + Northwind + OData Demo metadata)
-- Generator: integration (1) + compilation against runtime (1) + composite-key/collection-getter unit (3) + complex-type inheritance unit (3) + abstract-entity unit (3) + media-stream unit (3) + `$apply` unit (3) + open-type unit (4)
-- Runtime: 127 (live TripPin & Northwind integration, query expression, context path, batch, exceptions, transport, media `$value` stream/put via mock transport, `$apply` builder)
-- Generated client: 90 (TripPin, Northwind, OData Demo — including inheritance hierarchies, live media-stream reads, and OpenType dynamic-property capture + typed `getDynamicProperty(String, Class)`)
+### Entity Operations — historical
 
-### Known Limitations
+- Entity and collection HTTP GET/POST/PATCH/PUT/DELETE operations are generated.
+- `$ref` add/remove methods are generated for eligible navigation properties.
+- Media entities and named streams receive request-layer stream and upload methods.
+- Open types capture undeclared JSON properties in dynamic-property storage and expose typed conversion helpers.
 
-- Cancellable streaming not yet implemented
-- `Edm.GeographyPoint` still maps to `Object` (OData Demo `Supplier.Location`)
-- OpenType entities expose dynamic properties only via `unmappedFields` (no typed accessor yet)
-- `ConcurrencyMode="Fixed"` is parsed but not yet used to drive ETag behavior beyond the existing `If-Match` support
+### Query Operations — historical
 
-### Future Milestones
+- `$filter` uses typed filter expressions.
+- `$select` accepts scalar and enum property expressions.
+- `$expand` supports nested `NavQuery` options.
+- `$orderby`, `$top`, `$skip`, `$search`, and `$apply` are generated where the request shape supports them.
+- `$count=true` is represented by `count()` and the count-only endpoint by `countValue()`.
+
+### HTTP Transport — historical
+
+- The runtime transport contract has two asynchronous methods: `submit(HttpRequest)` and `stream(HttpRequest)`.
+- `JdkHttpTransport` is the current bundled implementation and uses the JDK `HttpClient` with native PATCH support.
+- Custom `HttpTransport` implementations remain supported through the same interface.
+- A former duplicate transport was removed; it is not a current option.
+
+### Serialization — historical
+
+- `JacksonSerializer` is the default implementation used by generated model annotations.
+- The `Serializer` interface supports serialization, deserialization, and optional field-filtered serialization for partial PATCH.
+- Generated entities use `@JsonProperty` setters; replacement serializers must honor those annotations and the OData wire conventions.
+
+### Batch Support — historical
+
+- The runtime supports `multipart/mixed` batch requests and changesets.
+- Standalone and changeset operations cover GET, POST, PATCH, PUT, and DELETE.
+- Batch execution has synchronous and asynchronous runtime entry points.
+- Responses expose ordered results, Content-ID lookup, related IDs, and typed views.
+
+### Error Handling — historical
+
+- Typed exceptions cover common 4xx statuses, 428, 429, and 5xx responses.
+- `ODataException.fromResponse(HttpResponse)` carries the parsed `ODataError`.
+- ETag support and the interceptor chain are part of the runtime request path.
+
+### Testing — historical
+
+Earlier snapshots included fixed test totals and per-module counts. Those numbers are retired because the active branch changes the suite. The current verification commands are:
+
+```bash
+mvn test
+mvn test -Plive-tests
+```
+
+### Earlier known limitations — historical
+
+Earlier snapshots recorded the following limitations. The current list above supersedes this record:
+
+- Cancellable streaming and streaming media uploads were unavailable.
+- Spatial values were not mapped to typed geography/geometry models.
+- Typed open-type accessors were not available.
+- Fixed concurrency metadata was not used to drive ETag behavior automatically.
+
+## Future milestones — historical
 
 - Cancellable streaming support
-- Typed OpenType dynamic-property accessors
-- Publish to Maven Central
+- Typed open-type and spatial accessors
+- Collection-bound typed operations
+- Automatic page iteration and generated asynchronous CRUD variants
+- Maven Central publication

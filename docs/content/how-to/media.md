@@ -1,77 +1,57 @@
-# Work with Media Streams (HasStream & Edm.Stream)
+# Work with Media Streams
 
-OData v4 lets services expose binary content two ways:
+OData v4 exposes binary content in two forms:
 
-* **Media entities** — an entity type declares `HasStream="true"`. The entity *is* the
-  media; its bytes live at `.../<EntitySet>(key)/$value`.
-* **Named streams** — an entity property is typed `Edm.Stream`. The stream lives at
-  `.../<EntitySet>(key)/<PropertyName>` (the media resource itself).
+- A media entity declares `HasStream="true"`. Its bytes are at `.../<EntitySet>(key)/$value`.
+- A named stream is an `Edm.Stream` property. Its bytes are at `.../<EntitySet>(key)/<PropertyName>`.
 
-For both, the generated **entity request** class exposes `stream*` / `set*` methods.
-Entities themselves (which hold no `Context`) do **not** get stream methods — use the
-request returned by the container or a key accessor.
+Generated stream methods are placed on entity request classes, not on model classes. The caller owns the returned `InputStream` and must close it.
 
-## Read a Media Entity (`HasStream="true"`)
+## Read a Media Entity
 
-The OData Demo service models `Advertisement` as a media entity. Read its bytes with
-`streamMedia()`:
+For the OData Demo `Advertisement` media entity:
 
 ```java
-Advertisement ad = client.advertisements().top(1).get().currentPage().get(0);
+Advertisement advertisement = client.advertisements().top(1).get().currentPage().get(0);
 
-try (InputStream media = client.advertisements()
-         advertisements(ad.getID())
-        .streamMedia()) {
+try (InputStream media = client.advertisements(advertisement.getID()).streamMedia()) {
     byte[] bytes = media.readAllBytes();
-    // bytes is the raw media at .../Advertisements(<id>)/$value
 }
 ```
 
-`streamMedia()` issues `GET .../<EntitySet>(key)/$value` and requests
-`Accept: */*` so the server returns the raw bytes, not JSON metadata.
+The keyed accessor is `client.advertisements(String id)`. The generated `getID()` return type follows the CSDL nullability of the key; for this metadata it is a `String`.
 
-Always close the returned stream (try-with-resources as above) — an unclosed
-stream holds the HTTP connection out of the client's pool.
+`streamMedia()` requests raw bytes with `Accept: */*` and maps HTTP failures to the runtime's typed exceptions.
 
 ## Write a Media Entity
 
-Upload new bytes with `setMedia(...)`. Pass the current ETag for optimistic
-concurrency (the runtime sends `If-Match`):
-
 ```java
-client.advertisements()
-     advertisements(ad.getID())
-    .setMedia(new ByteArrayInputStream(newBytes), ad.getETag().orElse(null));
+client.advertisements(advertisement.getID())
+    .setMedia(new ByteArrayInputStream(newBytes), advertisement.getETag().orElse(null));
 ```
 
-Without an ETag, `setMedia(InputStream)` sends a plain `PUT`.
+The overload without an ETag sends an unconditional PUT. The overload with an ETag adds `If-Match`.
 
-> **Known limitation:** uploads are buffered — `setMedia(InputStream)` reads the
-> whole stream into memory before sending, because the request layer carries
-> `byte[]` bodies. Fine for images/documents; not suitable for very large media.
-> True streaming upload needs a body-publisher abstraction in `HttpRequest`
-> and is tracked as future work.
+Uploads are currently buffered: the generated method reads the complete `InputStream` into a `byte[]` before sending it. Large streaming uploads are not yet supported by the request body model.
 
-## Read a Named Stream (`Edm.Stream`)
+## Read and Write a Named Stream
 
-The OData Demo `PersonDetail` has a `Photo` property of type `Edm.Stream`. Read it
-with the generated `streamPhoto()` (the method name is `stream` + the property name):
+For the OData Demo `PersonDetail.Photo` stream:
 
 ```java
-PersonDetail pd = client.personDetails().top(1).get().currentPage().get(0);
+PersonDetail detail = client.personDetails().top(1).get().currentPage().get(0);
 
-try (InputStream photo = client.personDetails()
-        .personDetailByPersonID(pd.getPersonID())
-        .streamPhoto()) {
+try (InputStream photo = client.personDetails(detail.getPersonID()).streamPhoto()) {
     byte[] bytes = photo.readAllBytes();
-    // bytes is the raw media at .../PersonDetails(<id>)/Photo
 }
+
+client.personDetails(detail.getPersonID())
+    .setPhoto(new ByteArrayInputStream(newBytes), detail.getETag().orElse(null));
 ```
 
-Write it back with `setPhoto(InputStream)` / `setPhoto(InputStream, etag)` — a `PUT`
-to the same `.../<EntitySet>(key)/<PropertyName>` URL.
+The named-stream URL ends at `/Photo`; it does not append `$value`.
 
 ## What's Next
 
-- [Perform CRUD Operations](crud.md) — Create, read, update, delete
+- [Perform CRUD Operations](crud.md) — Create, read, update, and delete entities
 - [Handle ETags and Concurrency](etag.md) — Optimistic concurrency with ETags

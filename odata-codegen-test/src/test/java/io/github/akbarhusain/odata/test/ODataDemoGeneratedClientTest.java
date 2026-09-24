@@ -160,17 +160,17 @@ class ODataDemoGeneratedClientTest {
 
     @Test
     void getSuppliersCollection() {
-        CollectionPage<Supplier> page = client.suppliers().top(3).get();
+        CollectionPage<Supplier_> page = client.suppliers().top(3).get();
         assertNotNull(page);
         assertFalse(page.currentPage().isEmpty());
-        for (Supplier s : page.currentPage()) {
+        for (Supplier_ s : page.currentPage()) {
             assertNotNull(s.getName().orElse(null));
         }
     }
 
     @Test
     void getSupplierByKey() {
-        Supplier supplier = client.suppliers(1).get();
+        Supplier_ supplier = client.suppliers(1).get();
         assertNotNull(supplier);
         assertEquals(1, supplier.getID());
         // Address is a complex type
@@ -283,7 +283,7 @@ class ODataDemoGeneratedClientTest {
 
     @Test
     void geography_supplierLocationIsPresent() {
-        Supplier supplier = client.suppliers(1).get();
+        Supplier_ supplier = client.suppliers(1).get();
         assertNotNull(supplier);
         // Location is GeoJSON but typed as Object — should still be present
         assertTrue(supplier.getLocation().isPresent());
@@ -292,7 +292,7 @@ class ODataDemoGeneratedClientTest {
 
     @Test
     void geography_supplierAddressComplexType() {
-        Supplier supplier = client.suppliers(1).get();
+        Supplier_ supplier = client.suppliers(1).get();
         assertNotNull(supplier);
         assertTrue(supplier.getAddress().isPresent());
         Address addr = supplier.getAddress().get();
@@ -304,9 +304,9 @@ class ODataDemoGeneratedClientTest {
 
     @Test
     void geography_multipleSuppliersHaveLocations() {
-        CollectionPage<Supplier> page = client.suppliers().top(5).get();
+        CollectionPage<Supplier_> page = client.suppliers().top(5).get();
         assertFalse(page.currentPage().isEmpty());
-        for (Supplier s : page.currentPage()) {
+        for (Supplier_ s : page.currentPage()) {
             // All suppliers should have both Address and Location
             assertTrue(s.getAddress().isPresent());
             assertTrue(s.getLocation().isPresent());

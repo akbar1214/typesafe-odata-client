@@ -51,8 +51,8 @@ Trip created = client.people("scottketchum")
 
 // Delete it through the same path
 client.people("scottketchum")
-    .tripByTripId(1001)
-    .delete();
+    .trips(1001)
+    .deleteWithETag(created.getETag().orElseThrow());
 ```
 
 ## Notes on Strict Services

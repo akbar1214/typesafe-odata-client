@@ -1,141 +1,89 @@
 # Type-Safe Query Building
 
-Build OData queries with compile-time validation.
+Generated property constants carry the owning entity type in their generic signature. That lets request methods reject properties from another entity while still accepting properties declared by a base entity.
 
 ## Expression Hierarchy
 
-```
+```text
 Expression<T>
-├── PropertyExpression<E, T> (abstract)
-│   ├── StringProperty<E>
-│   ├── NumberProperty<E, N>
-│   ├── BooleanProperty<E>
-│   ├── DateTimeProperty<E>
-│   ├── EnumProperty<E, V>
-│   └── CollectionProperty<E, T, F>
-├── FilterExpression<E>
-└── ApplyExpression
+├── OrderExpression<E, T>
+│   └── PropertyExpression<E, T>
+│       ├── StringProperty<E>
+│       ├── NumberProperty<E, N>
+│       ├── BooleanProperty<E>
+│       ├── DateTimeProperty<E>
+│       ├── GuidProperty<E>
+│       └── EnumProperty<E, V>
+└── FilterExpression<E>
+
+ApplyExpression
+
+Collection and navigation builders
+├── CollectionProperty<E, T, F, Sel>
+├── NavCollectionProperty<E, T, F, Sel>
+└── NavQuery<S, T, Sel>
 ```
 
-## Property Types
+`CollectionProperty` has four type parameters: owner entity `E`, element type `T`, filterable type `F`, and selector type `Sel`. Generated collection navigations use `NavCollectionProperty`, a subtype that also implements `Expandable`; structural collection properties use `CollectionProperty`. Primitive collection elements use `CollectionProperty.FilterableElement<T>`.
 
-Each property type has its own set of valid operations:
+## Property Operations
 
-### StringProperty
+`StringProperty` supports equality, null checks, lexicographic comparisons, `contains`, `startsWith`, `endsWith`, `matchesPattern`, `length`, `indexOf`, `substring`, `trim`, `toLower`, `toUpper`, and `concat`.
+
+`NumberProperty` and `NumberExpression` support comparisons, `add`, `subtract`, `multiply`, `divide`/`divby`, `modulo`, `negate`, `ceiling`, `floor`, and `round`. Floating Edm types use `divby`; integer operands use `div`.
+
+`DateTimeProperty` accepts validated OData temporal strings and typed `LocalDate`, `OffsetDateTime`, `LocalTime`, and `Duration` values. It also provides `year`, `month`, `day`, `hour`, `minute`, `second`, `fractionalSeconds`, `totalOffsetMinutes`, `totalSeconds`, `date`, and `time` where the Edm type permits them.
+
+`BooleanProperty` supports `isTrue`, `isFalse`, equality, and null checks. `EnumProperty` renders qualified enum literals and supports `has(...)` for enums declared with `IsFlags="true"`. `GuidProperty` validates an 8-4-4-4-12 value and emits an unquoted GUID literal.
+
+## Logical Composition
 
 ```java
-Person.FIRST_NAME.equalTo("Scott")       // ✓
-Person.FIRST_NAME.contains("ott")        // ✓
-Person.FIRST_NAME.startsWith("S")        // ✓
-Person.FIRST_NAME.endsWith("ott")        // ✓
-Person.FIRST_NAME.length()               // ✓
-Person.FIRST_NAME.greaterThan(3)         // ✗ Compile error!
+FilterExpression<Person> expression =
+    Person.FIRST_NAME.equalTo("Scott")
+        .and(Person.LAST_NAME.startsWith("K"));
 ```
 
-### NumberProperty
+`and`, `or`, and `not` preserve the entity type parameter. Multiple request-level `filter(...)` calls are ANDed and each predicate is parenthesized before the join.
+
+## Collection Predicates
+
+Generated entity navigation constants provide typed `any` and `all` lambdas:
 
 ```java
-Person.CONCURRENCY.greaterThan(25)       // ✓
-Person.CONCURRENCY.lessThanOrEqualTo(65) // ✓
-Person.CONCURRENCY.multiply(2)           // ✓
-Person.CONCURRENCY.equalTo(30)           // ✓
-Person.CONCURRENCY.contains("2")         // ✗ Compile error!
+client.people()
+    .filter(Person.TRIPS.any(trip -> trip.BUDGET.greaterThan(500.0f)))
+    .filter(Person.TRIPS.all(trip -> trip.BUDGET.greaterThan(0.0f)))
+    .get();
 ```
 
-### EnumProperty
+`any` and `all` receive the target type's generated `Filterable` class. Primitive collection elements use the string-addressable `FilterableElement<T>` helper; entity and complex collections use their generated filterable views.
+
+## Request Selector Lambdas
+
+`select`, `orderBy`, `expand`, and collection `filter` also have selector-lambda overloads:
 
 ```java
-Person.GENDER.equalTo(PersonGender.Male) // ✓
-Person.GENDER.has(PersonGender.Male)     // ✓ (flags membership)
-Person.GENDER.contains("Ma")             // ✗ Compile error!
+client.people()
+    .select(p -> p.FIRST_NAME, p -> p.LAST_NAME)
+    .orderBy(p -> p.LAST_NAME.asc())
+    .expand(p -> p.TRIPS.select(t -> t.NAME).top(2))
+    .get();
 ```
 
-### CollectionProperty
+Selector lambdas use generated `Selector` views whose fields share the entity constants. The `Sel` type parameter is carried by `NavQuery` and `NavCollectionProperty`, allowing nested lambda composition at arbitrary depth. Hand-built navigation values without a selector factory support constant builders and fail fast if a lambda overload is used.
+
+## Apply Expressions
+
+`ApplyExpression.builder()` returns an `ApplyBuilder`. This example uses the generated
+`Product` type from the OData Demo fixture; substitute the entity and property names from
+your own metadata:
 
 ```java
-Person.TRIPS.any(trip -> trip.BUDGET.greaterThan(500))  // ✓
-Person.TRIPS.all(trip -> trip.NAME.startsWith("A"))     // ✓
+ApplyExpression expression = ApplyExpression.builder()
+    .filter(Product.PRICE.greaterThan(10.0))
+    .groupBy(Product.NAME)
+    .aggregate("Price with sum as Total");
 ```
 
-## Composing Expressions
-
-### AND
-
-```java
-Person.FIRST_NAME.equalTo("Scott")
-    .and(Person.LAST_NAME.equalTo("Ketchum"))
-```
-
-Produces: `FirstName eq 'Scott' and LastName eq 'Ketchum'`
-
-### OR
-
-```java
-Person.FIRST_NAME.equalTo("Scott")
-    .or(Person.FIRST_NAME.equalTo("Keith"))
-```
-
-Produces: `FirstName eq 'Scott' or FirstName eq 'Keith'`
-
-### NOT
-
-```java
-Person.FIRST_NAME.notEqualTo("Scott")
-```
-
-Produces: `FirstName ne 'Scott'`
-
-### Complex Expressions
-
-```java
-(Person.FIRST_NAME.equalTo("Scott").or(Person.FIRST_NAME.equalTo("Keith")))
-    .and(Person.CONCURRENCY.greaterThan(25))
-```
-
-Produces: `(FirstName eq 'Scott' or FirstName eq 'Keith') and Concurrency gt 25`
-
-## Compile-Time Safety
-
-The type system prevents invalid operations at compile time:
-
-```java
-// This won't compile
-Person.FIRST_NAME.greaterThan(3);
-
-// This won't compile
-Person.CONCURRENCY.contains("Scott");
-
-// This won't compile
-Person.GENDER.equalTo("Male");
-```
-
-The error message tells you exactly what's wrong:
-
-```
-Error: java: cannot find symbol
-  symbol: method greaterThan(int)
-  location: class StringProperty
-```
-
-## Why This Matters
-
-**String-based queries (old way):**
-
-```java
-// No compile-time safety
-String filter = "FirstName eq 'Scott'";  // Typo: "FirstNme"
-// Runtime HTTP 400 error
-```
-
-**Type-safe queries (new way):**
-
-```java
-// Compile error: cannot find symbol
-Person.FIRST_NMAE.equalTo("Scott");
-// Caught at compile time!
-```
-
-## What's Next
-
-- [Entity Immutability](immutability.md) — Why records matter
-- [CSDL Metadata Parsing](csdl-parsing.md) — How metadata is processed
+`ApplyExpression.of(raw)` is the raw escape hatch. `compute(...)` is a transformation inside `$apply`, not a standalone request option.

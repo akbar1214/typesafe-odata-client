@@ -51,11 +51,20 @@ public record NavQuery<S, T, Sel>(
     }
 
     public NavQuery {
-        // Defensive copies: builder methods hand out mutable lists otherwise
-        selects = List.copyOf(selects);
-        filters = List.copyOf(filters);
-        orderings = List.copyOf(orderings);
-        expands = List.copyOf(expands);
+        if (edmName == null || edmName.isBlank()) {
+            throw new IllegalArgumentException("navigation name must not be blank");
+        }
+        selects = copy(selects, "selects");
+        filters = copy(filters, "filters");
+        orderings = copy(orderings, "orderings");
+        expands = copy(expands, "expands");
+    }
+
+    private static <T> List<T> copy(List<T> values, String name) {
+        if (values == null) {
+            throw new IllegalArgumentException(name + " must not be null");
+        }
+        return List.copyOf(values);
     }
 
     /**
@@ -63,6 +72,9 @@ public record NavQuery<S, T, Sel>(
      * enabled. Generated navigation constants use this form.
      */
     public static <S, T, Sel> NavQuery<S, T, Sel> of(String edmName, Supplier<Sel> selectorFactory) {
+        if (edmName == null || edmName.isBlank()) {
+            throw new IllegalArgumentException("navigation name must not be blank");
+        }
         return new NavQuery<>(edmName, List.of(), List.of(), List.of(), null, null, null,
                 List.of(), null, selectorFactory);
     }
@@ -78,7 +90,12 @@ public record NavQuery<S, T, Sel>(
         if (odataExpand == null || odataExpand.isBlank()) {
             throw new IllegalArgumentException("odataExpand must not be blank");
         }
-        // The raw string is the ROOT path; options chained afterwards still render
+        for (int i = 0; i < odataExpand.length(); i++) {
+            char c = odataExpand.charAt(i);
+            if (c < 0x20 || c == 0x7f) {
+                throw new IllegalArgumentException("odataExpand contains a control character");
+            }
+        }
         return new NavQuery<>(odataExpand, List.of(), List.of(), List.of(), null, null,
                 null, List.of());
     }
@@ -92,8 +109,8 @@ public record NavQuery<S, T, Sel>(
      * factory is dropped — chain the 3-arg form to keep lambda overloads on the subtype.
      */
     public <S2 extends T> NavQuery<S, S2, ?> as(String qualifiedCast, Class<S2> subtype) {
-        return new NavQuery<>(edmName, List.of(), List.of(), List.of(), null, null, null,
-                List.of(), requireCast(qualifiedCast, subtype), null);
+        return new NavQuery<>(edmName, selects, filters, orderings, topOption, skipOption,
+                countOption, expands, requireCast(qualifiedCast, subtype), null);
     }
 
     /**
@@ -102,18 +119,41 @@ public record NavQuery<S, T, Sel>(
      */
     public <S2 extends T, Sel2> NavQuery<S, S2, Sel2> as(String qualifiedCast, Class<S2> subtype,
                                                          Supplier<Sel2> selectorFactory) {
-        return new NavQuery<>(edmName, List.of(), List.of(), List.of(), null, null, null,
-                List.of(), requireCast(qualifiedCast, subtype), selectorFactory);
+        return new NavQuery<>(edmName, selects, filters, orderings, topOption, skipOption,
+                countOption, expands, requireCast(qualifiedCast, subtype), selectorFactory);
     }
 
     private static String requireCast(String qualifiedCast, Object subtype) {
-        if (qualifiedCast == null || qualifiedCast.isBlank()) {
-            throw new IllegalArgumentException("qualifiedCast must not be blank");
-        }
         if (subtype == null) {
             throw new IllegalArgumentException("subtype must not be null");
         }
+        return requireQualifiedCast(qualifiedCast);
+    }
+
+    static String requireQualifiedCast(String qualifiedCast) {
+        if (qualifiedCast == null || qualifiedCast.isBlank()) {
+            throw new IllegalArgumentException("qualifiedCast must not be blank");
+        }
+        String[] parts = qualifiedCast.split("\\.", -1);
+        for (String part : parts) {
+            if (part.isEmpty() || !isIdentifierStart(part.charAt(0))) {
+                throw new IllegalArgumentException("qualifiedCast contains an invalid type name: " + qualifiedCast);
+            }
+            for (int i = 1; i < part.length(); i++) {
+                if (!isIdentifierPart(part.charAt(i))) {
+                    throw new IllegalArgumentException("qualifiedCast contains an invalid type name: " + qualifiedCast);
+                }
+            }
+        }
         return qualifiedCast;
+    }
+
+    private static boolean isIdentifierStart(char c) {
+        return c == '_' || Character.isLetter(c);
+    }
+
+    private static boolean isIdentifierPart(char c) {
+        return isIdentifierStart(c) || Character.isDigit(c);
     }
 
     // ------------------------------------------------------------------
@@ -134,6 +174,7 @@ public record NavQuery<S, T, Sel>(
     }
 
     public NavQuery<S, T, Sel> select(PropertyExpression<? super T, ?>... properties) {
+        if (properties == null) throw new IllegalArgumentException("properties must not be null");
         List<String> newSelects = new ArrayList<>(this.selects);
         for (var prop : properties) {
             newSelects.add(selectableName(prop));
@@ -143,6 +184,7 @@ public record NavQuery<S, T, Sel>(
     }
 
     public NavQuery<S, T, Sel> filter(FilterExpression<? super T> predicate) {
+        if (predicate == null) throw new IllegalArgumentException("filter predicate must not be null");
         List<String> newFilters = new ArrayList<>(this.filters);
         newFilters.add(predicate.toODataExpression());
         return new NavQuery<>(edmName, selects, newFilters, orderings, topOption, skipOption,
@@ -150,8 +192,10 @@ public record NavQuery<S, T, Sel>(
     }
 
     public NavQuery<S, T, Sel> orderBy(OrderExpression<? super T, ?>... expressions) {
+        if (expressions == null) throw new IllegalArgumentException("order expressions must not be null");
         List<String> newOrderings = new ArrayList<>(this.orderings);
         for (var expr : expressions) {
+            if (expr == null) throw new IllegalArgumentException("order expression must not be null");
             newOrderings.add(expr.getODataPath());
         }
         return new NavQuery<>(edmName, selects, filters, newOrderings, topOption, skipOption,
@@ -182,9 +226,12 @@ public record NavQuery<S, T, Sel>(
     }
 
     public NavQuery<S, T, Sel> expand(Expandable<? super T>... expandables) {
+        if (expandables == null) throw new IllegalArgumentException("expandables must not be null");
         List<String> newExpands = new ArrayList<>(this.expands);
         for (var e : expandables) {
-            newExpands.add(e.toODataExpand());
+            if (e == null) throw new IllegalArgumentException("expandable must not be null");
+            String rendered = e.toODataExpand();
+            if (!newExpands.contains(rendered)) newExpands.add(rendered);
         }
         return new NavQuery<>(edmName, selects, filters, orderings, topOption, skipOption,
                 countOption, newExpands, castSegment, selectorFactory);
@@ -197,9 +244,11 @@ public record NavQuery<S, T, Sel>(
     @SafeVarargs
     public final NavQuery<S, T, Sel> select(
             Function<? super Sel, ? extends PropertyExpression<? super T, ?>>... selectors) {
+        if (selectors == null) throw new IllegalArgumentException("select selectors must not be null");
         Sel selector = selector(selectorFactory, "select");
         PropertyExpression<? super T, ?>[] resolved = new PropertyExpression[selectors.length];
         for (int i = 0; i < selectors.length; i++) {
+            if (selectors[i] == null) throw new IllegalArgumentException("select selector must not be null");
             resolved[i] = selectors[i].apply(selector);
         }
         return select(resolved);
@@ -207,15 +256,18 @@ public record NavQuery<S, T, Sel>(
 
     public NavQuery<S, T, Sel> filter(
             Function<? super Sel, ? extends FilterExpression<? super T>> predicate) {
+        if (predicate == null) throw new IllegalArgumentException("filter selector must not be null");
         return filter(predicate.apply(selector(selectorFactory, "filter")));
     }
 
     @SafeVarargs
     public final NavQuery<S, T, Sel> orderBy(
             Function<? super Sel, ? extends OrderExpression<? super T, ?>>... expressions) {
+        if (expressions == null) throw new IllegalArgumentException("order selectors must not be null");
         Sel selector = selector(selectorFactory, "orderBy");
         OrderExpression<? super T, ?>[] resolved = new OrderExpression[expressions.length];
         for (int i = 0; i < expressions.length; i++) {
+            if (expressions[i] == null) throw new IllegalArgumentException("order selector must not be null");
             resolved[i] = expressions[i].apply(selector);
         }
         return orderBy(resolved);
@@ -223,6 +275,7 @@ public record NavQuery<S, T, Sel>(
 
     public NavQuery<S, T, Sel> expand(
             Function<? super Sel, ? extends Expandable<? super T>> query) {
+        if (query == null) throw new IllegalArgumentException("expand selector must not be null");
         return expand(query.apply(selector(selectorFactory, "expand")));
     }
 
@@ -232,6 +285,7 @@ public record NavQuery<S, T, Sel>(
      * expressions whose names contain function calls, which are invalid in $select.
      */
     static String selectableName(PropertyExpression<?, ?> prop) {
+        if (prop == null) throw new IllegalArgumentException("select property must not be null");
         String name = prop.getEdmName();
         if (name.indexOf('(') >= 0) {
             throw new IllegalArgumentException("'" + name + "' is not a selectable property "
@@ -254,7 +308,11 @@ public record NavQuery<S, T, Sel>(
                     + "with NavQuery.of(name, Type.Selector::new) — generated navigation constants "
                     + "provide one (operation: " + operation + ")");
         }
-        return factory.get();
+        Sel value = factory.get();
+        if (value == null) {
+            throw new IllegalStateException("selector factory returned null (operation: " + operation + ")");
+        }
+        return value;
     }
 
     @Override
@@ -320,18 +378,34 @@ public record NavQuery<S, T, Sel>(
      * trailing group do not confuse the match.
      */
     private static int trailingOptionGroupOpen(String path) {
-        if (!path.endsWith(")")) {
+        if (path == null || !path.endsWith(")")) {
             return -1;
         }
         int depth = 0;
-        for (int i = path.length() - 1; i >= 0; i--) {
+        int candidate = -1;
+        boolean inLiteral = false;
+        for (int i = 0; i < path.length(); i++) {
             char c = path.charAt(i);
-            if (c == ')') {
-                depth++;
+            if (inLiteral) {
+                if (c == '\'') {
+                    if (i + 1 < path.length() && path.charAt(i + 1) == '\'') {
+                        i++;
+                    } else {
+                        inLiteral = false;
+                    }
+                }
+                continue;
+            }
+            if (c == '\'') {
+                inLiteral = true;
             } else if (c == '(') {
+                if (depth == 0) candidate = i;
+                depth++;
+            } else if (c == ')') {
+                if (depth == 0) return -1;
                 depth--;
-                if (depth == 0) {
-                    return i;
+                if (depth == 0 && path.substring(i + 1).isBlank()) {
+                    return candidate;
                 }
             }
         }

@@ -157,10 +157,10 @@ class NorthwindGeneratedClientTest {
 
     @Test
     void getSuppliersCollection() {
-        CollectionPage<Supplier> page = client.suppliers().top(2).get();
+        CollectionPage<Supplier_> page = client.suppliers().top(2).get();
         assertNotNull(page);
         assertFalse(page.currentPage().isEmpty());
-        for (Supplier s : page.currentPage()) {
+        for (Supplier_ s : page.currentPage()) {
             assertNotNull(s.getCompanyName());
         }
     }

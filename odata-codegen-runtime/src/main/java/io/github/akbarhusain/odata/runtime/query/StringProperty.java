@@ -5,6 +5,9 @@ public final class StringProperty<E> implements PropertyExpression<E, String> {
     private final Class<E> entityType;
 
     public StringProperty(String edmName, Class<E> entityType) {
+        if (edmName == null || edmName.isBlank()) {
+            throw new IllegalArgumentException("string property name must not be blank");
+        }
         this.edmName = edmName;
         this.entityType = entityType;
     }
@@ -23,12 +26,6 @@ public final class StringProperty<E> implements PropertyExpression<E, String> {
 
     @Override
     public OrderExpression<E, String> desc() { return cast(new OrderedProperty(edmName, false)); }
-
-    @Override
-    public OrderExpression<E, String> nullsFirst() { return cast(new OrderedProperty(edmName, true, true, false)); }
-
-    @Override
-    public OrderExpression<E, String> nullsLast() { return cast(new OrderedProperty(edmName, true, false, true)); }
 
     @SuppressWarnings("unchecked")
     private OrderExpression<E, String> cast(OrderExpression<?, ?> expr) {
@@ -81,7 +78,7 @@ public final class StringProperty<E> implements PropertyExpression<E, String> {
 
     // String functions
     public NumberExpression<Integer, E> length() {
-        return new NumberExpression<>("length(" + edmName + ")", entityType);
+        return new NumberExpression<>("length(" + edmName + ")", entityType, "Edm.Int32");
     }
 
     public StringProperty<E> toLower() {
@@ -114,14 +111,17 @@ public final class StringProperty<E> implements PropertyExpression<E, String> {
         if (value == null) {
             throw new IllegalArgumentException("indexOf value must not be null");
         }
-        return new NumberExpression<>("indexof(" + edmName + ",'" + escape(value) + "')", entityType);
+        return new NumberExpression<>("indexof(" + edmName + ",'" + escape(value) + "')", entityType, "Edm.Int32");
     }
 
     public StringProperty<E> substring(int start) {
+        if (start < 0) throw new IllegalArgumentException("substring start must be >= 0");
         return new StringProperty<>("substring(" + edmName + "," + start + ")", entityType);
     }
 
     public StringProperty<E> substring(int start, int length) {
+        if (start < 0) throw new IllegalArgumentException("substring start must be >= 0");
+        if (length < 0) throw new IllegalArgumentException("substring length must be >= 0");
         return new StringProperty<>("substring(" + edmName + "," + start + "," + length + ")", entityType);
     }
 

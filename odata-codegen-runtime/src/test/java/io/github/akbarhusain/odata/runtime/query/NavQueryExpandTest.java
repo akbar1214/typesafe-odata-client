@@ -71,8 +71,8 @@ class NavQueryExpandTest {
 
     @Test
     void collectionPropertyAsExpandable() {
-        CollectionProperty<Object, Object, CollectionProperty.FilterableElement<Object>, ?> col =
-                new CollectionProperty<>("Friends", Object.class, Object.class, CollectionProperty.FilterableElement::new);
+        NavCollectionProperty<Object, Object, CollectionProperty.FilterableElement<Object>, ?> col =
+                new NavCollectionProperty<>("Friends", Object.class, Object.class, CollectionProperty.FilterableElement::new);
         assertEquals("Friends", col.getEdmName());
         assertEquals(Object.class, col.getEntityType());
         assertEquals(Object.class, col.getElementType());
@@ -85,8 +85,8 @@ class NavQueryExpandTest {
 
     @Test
     void collectionPropertyExpandWithSelect() {
-        CollectionProperty<Object, Object, CollectionProperty.FilterableElement<Object>, ?> col =
-                new CollectionProperty<>("Friends", Object.class, Object.class, CollectionProperty.FilterableElement::new);
+        NavCollectionProperty<Object, Object, CollectionProperty.FilterableElement<Object>, ?> col =
+                new NavCollectionProperty<>("Friends", Object.class, Object.class, CollectionProperty.FilterableElement::new);
         StringProperty<Object> firstName = new StringProperty<>("FirstName", null);
         NavQuery<Object, Object, ?> query = col.select(firstName);
         assertEquals("Friends($select=FirstName)", query.toODataExpand());
@@ -132,8 +132,8 @@ class NavQueryExpandTest {
     void navQueryExpandWithBareCollectionProperty() {
         // Expandable accepts BOTH implementors: a bare collection nav renders its name
         NavQuery<Object, Object, Object> trips = NavQuery.of("Trips");
-        CollectionProperty<Object, Object, CollectionProperty.FilterableElement<Object>, ?> friends =
-                new CollectionProperty<>("Friends", Object.class, Object.class, CollectionProperty.FilterableElement::new);
+        NavCollectionProperty<Object, Object, CollectionProperty.FilterableElement<Object>, ?> friends =
+                new NavCollectionProperty<>("Friends", Object.class, Object.class, CollectionProperty.FilterableElement::new);
         NavQuery<Object, Object, Object> query = trips.expand(friends);
         assertEquals("Trips($expand=Friends)", query.toODataExpand());
     }
@@ -310,8 +310,8 @@ class NavQueryExpandTest {
         // overloads existed; without the bridge it would match BOTH varargs overloads
         // and be ambiguous — same hazard the select()/expand() bridges cover
         assertEquals("Trips", NavQuery.<Object, Object, Object>of("Trips").orderBy().toODataExpand());
-        CollectionProperty<Object, Object, CollectionProperty.FilterableElement<Object>, ?> col =
-                new CollectionProperty<>("Friends", Object.class, Object.class, CollectionProperty.FilterableElement::new);
+        NavCollectionProperty<Object, Object, CollectionProperty.FilterableElement<Object>, ?> col =
+                new NavCollectionProperty<>("Friends", Object.class, Object.class, CollectionProperty.FilterableElement::new);
         assertEquals("Friends", col.orderBy().toODataExpand());
     }
 

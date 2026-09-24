@@ -1,115 +1,65 @@
 # How Code Generation Works
 
-OData Codegen uses build-time code generation to create type-safe Java classes from OData CSDL metadata.
+OData Codegen parses CSDL metadata and writes Java source files during the Maven `generate-sources` phase.
 
 ## Pipeline
 
-```
-CSDL XML Metadata
-    ↓
-StAX Parser (StaxCsdlParser)
-    ↓
-CsdlModel (29 Java records)
-    ↓
-Code Generator (7 generators)
-    ↓
-Java Source Files
-    ↓
-Java Compiler
-    ↓
-Type-Safe Client Classes
+```text
+CSDL XML
+  -> StaxCsdlParser
+  -> CsdlModel records
+  -> type, request, operation, container, and schema generators
+  -> generated Java source files
+  -> javac and the application build
 ```
 
-## Step 1: Parse Metadata
+## Parsed Model
 
-The StAX parser reads the CSDL XML and builds an in-memory model:
+`CsdlModel` is an immutable record containing schemas and parser warnings. A schema contains entity types, complex types, enums, type definitions, functions, actions, and containers. Properties retain their Edm type and nullability; navigation properties retain their target type, containment, and referential constraints.
 
-```java
-// Input: TripPin metadata XML
-// Output: CsdlModel with entities, complex types, enums, etc.
+## Generated Packages
 
-CsdlModel model = new StaxCsdlParser().parse(metadataInputStream);
-```
+For a base package `com.example.trippin`, the generator writes:
 
-The model is represented by 29 Java records:
+| Package | Contents |
+|---------|----------|
+| `entity` | Entity model classes |
+| `complex` | Complex model classes |
+| `enums` | Java enum types |
+| `entity.request` | Entity request classes |
+| `collection.request` | Collection request classes |
+| `operation` | Function and action request classes |
+| `container` | Entity-container entry points |
+| `schema` | `SchemaInfo` registry |
 
-```
-CsdlModel
-├── EntityType (name, baseType, key, properties, navigationProperties, annotations)
-├── ComplexType (name, properties)
-├── EnumType (name, members)
-├── EntityContainer (entitySets, actionImports, functionImports)
-├── Action (name, parameters, returnType)
-├── Function (name, parameters, returnType, isBound)
-└── ...
-```
+A schema-to-package mapping can place different schemas under different base packages. One `SchemaInfo` is emitted per resolved output package and merges all schemas assigned to that package.
 
-## Step 2: Generate Code
+## Entity Generation
 
-Seven generators transform the model into Java source files:
+For each entity type, the generator emits:
 
-| Generator | Output | Description |
-|-----------|--------|-------------|
-| `EntityGenerator` | `entity/*.java` | Immutable entity classes with builders |
-| `ComplexTypeGenerator` | `complex/*.java` | Immutable complex type classes |
-| `EnumGenerator` | `enums/*.java` | Java enums for OData enum types |
-| `RequestGenerator` | `request/*.java` | Entity and collection request classes |
-| `ContainerGenerator` | `container/*.java` | Client entry point classes |
-| `SchemaInfoGenerator` | `schema/*.java` | Type-to-class mapping |
-| `ActionGenerator` | (included in request) | Bound and unbound actions |
+1. A Java class implementing `ODataEntityType`.
+2. Protected fields and a no-argument constructor for Jackson and generated builders; the constructor is public on concrete model types and protected on abstract model types.
+3. Public `@JsonProperty` setters for declared properties and navigations.
+4. Typed static constants for supported scalar/enum property expressions, collection-valued properties, and entity navigation properties. Binary, stream, and spatial properties do not receive property constants, and complex-valued entity navigation constants are not emitted.
+5. `Filterable` and `Selector` inner classes used by collection lambdas and request selector lambdas.
+6. A `Builder` for concrete top-level types.
+7. Copy-on-write `with*()` methods when `generateWithMethods` is enabled and the type is concrete.
 
-## Step 3: Compile
+Entities are not Java records. Generated builders and copy-on-write methods create model values, while public setters support Jackson and application updates; collection getters return unmodifiable empty-safe views and nullable scalar getters follow the CSDL `Nullable` attribute.
 
-The generated Java files are compiled alongside your application code. This is where type checking happens:
+## Inheritance and Open Types
 
-- Property names are validated against the schema
-- Expression types are checked (e.g., can't call `greaterThan()` on a string)
-- Method signatures are verified
-- Import statements are resolved
+CSDL `BaseType` relationships become Java `extends` relationships on model classes. The generator walks the complete base chain for properties, keys, constants, and request-layer navigation/operation members. Abstract types remain abstract and do not receive concrete `with*()` methods.
 
-## Example: Entity Generation
+Open entity and complex types capture unknown JSON properties through `@JsonAnySetter` and expose them through `getUnmappedFields()` and `getDynamicProperty(...)`. Derived types also emit the OData type annotation getter used for polymorphic payloads.
 
-For each OData entity type, the generator creates:
+## Annotation and Serialization Contract
 
-1. **Immutable-by-contract class** — `final` class with `protected` fields, copy-on-write `with*()`, and `Builder`
-2. **Builder class** — for constructing instances (root-level concrete types only)
-3. **Static property constants** — for type-safe queries (`UPPER_CASE`, e.g., `Person.FIRST_NAME`)
-4. **`odataTypeName()` method** — returns the OData type name
-
-## Key Design Decisions
-
-### Immutable-by-Contract Classes Over Records
-
-Generated entities are `final` classes with protected fields and Jackson `@JsonProperty` setters, not records:
-
-```java
-// Generated entity
-public final class Person implements ODataEntityType {
-    public static final StringProperty<Person> FIRST_NAME = new StringProperty<>("FirstName", Person.class);
-    protected String userName;
-    protected String firstName;
-    protected String lastName;
-    protected List<String> emails;
-    protected Long age;
-    protected List<Trip> trips;
-    // Builder, with*() copy-on-write, getters (unmodifiableList / Optional)
-}
-```
-
-### Static Property Constants
-
-Each property has a static constant for type-safe queries:
-
-```java
-public static final StringProperty FIRST_NAME = new StringProperty("FirstName");
-public static final NumberProperty<Long> AGE = new NumberProperty<>("Age", Long.class);
-```
-
-### No Annotations
-
-Generated entities have no Jackson/Gson annotations. Serialization is pluggable via the `Serializer` interface.
+Generated model classes use Jackson annotations for property and ETag mapping, and derived types may emit a getter-only `@JsonProperty("@odata.type")`. The default `JacksonSerializer` is the supported wire implementation. The `Serializer` interface remains pluggable, but a replacement must honor the generated annotations and OData JSON conventions.
 
 ## What's Next
 
-- [The Context Pattern](context.md) — How HTTP execution is configured
+- [The Context Pattern](context.md) — Runtime configuration
 - [Type-Safe Query Building](query-builder.md) — Expression hierarchy
+- [Generated Code Structure](../reference/generated-code.md) — Detailed request APIs

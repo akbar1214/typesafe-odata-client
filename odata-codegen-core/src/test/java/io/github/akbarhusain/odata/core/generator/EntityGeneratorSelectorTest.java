@@ -57,7 +57,7 @@ class EntityGeneratorSelectorTest {
     @Test
     void selectorMirrorsCollectionNavsWithFactory() throws Exception {
         String code = generateEntity("Person");
-        assertTrue(code.contains("public final CollectionProperty<Person, Trip, Trip.Filterable, Trip.Selector> TRIPS = Person.TRIPS;"),
+        assertTrue(code.contains("public final NavCollectionProperty<Person, Trip, Trip.Filterable, Trip.Selector> TRIPS = Person.TRIPS;"),
                 "Collection nav selector fields share the entity's constants");
     }
 

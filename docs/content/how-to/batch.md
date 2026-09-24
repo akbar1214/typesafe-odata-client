@@ -1,6 +1,6 @@
 # Batch Requests
 
-Send multiple OData operations in a single HTTP request with `$batch`.
+`Context.batch()` sends a `multipart/mixed` request to the service's `$batch` endpoint. A batch can contain standalone operations and atomic `Changeset` groups.
 
 ## Basic Usage
 
@@ -8,7 +8,7 @@ Send multiple OData operations in a single HTTP request with `$batch`.
 import io.github.akbarhusain.odata.runtime.batch.BatchOperation;
 import io.github.akbarhusain.odata.runtime.batch.BatchResponse;
 import io.github.akbarhusain.odata.runtime.batch.BatchResult;
-import io.github.akbarhusain.odata.runtime.batch.Changeset;
+import io.github.akbarhusain.odata.runtime.entity.Context;
 
 Context ctx = Context.builder()
     .baseUrl("https://services.odata.org/V4/TripPinService")
@@ -19,154 +19,147 @@ BatchResponse response = ctx.batch()
     .add(BatchOperation.get("People('scottketchum')/Trips"))
     .execute();
 
-// Access results
-BatchResult<?> scott = response.get(0);
+BatchResult<?> person = response.get(0);
 BatchResult<?> trips = response.get(1);
-
-System.out.println(scott.statusCode());  // 200
-System.out.println(scott.getText());     // {"UserName":"scottketchum",...}
+String body = person.getText();
 ```
 
-## Atomic Changesets
+`get(index)` is the submitted-operation view. The result also exposes the actual response-part order through `wireOrder()`.
 
-Group operations that must succeed or fail together:
+## Changesets
+
+A `Changeset` is a non-empty group of non-GET operations executed atomically by the service:
 
 ```java
 byte[] customerBody = ctx.serializer().serialize(newCustomer, Customer.class);
 byte[] orderBody = ctx.serializer().serialize(newOrder, Order.class);
 
-Changeset accountCreation = new Changeset(List.of(
+Changeset creation = new Changeset(List.of(
     BatchOperation.post("Customers", customerBody),
     BatchOperation.post("Orders", orderBody)
 ));
 
 BatchResponse response = ctx.batch()
-    .addChangeset(accountCreation)
+    .addChangeset(creation)
     .add(BatchOperation.get("Customers"))
     .execute();
 ```
 
-Changesets emit `Content-ID` headers for each operation and wrap them in a nested
-`multipart/mixed` boundary. The server processes the entire changeset atomically —
-either all operations succeed or all are rolled back.
+Changeset operations receive batch-wide generated Content-IDs. The encoder wraps the group in a nested `multipart/mixed` boundary and each embedded request in an `application/http` part.
 
-### Mixed with Standalone Operations
+### Mixing operations
 
 ```java
-Changeset cs = new Changeset(List.of(
+Changeset changes = new Changeset(List.of(
     BatchOperation.post("Customers", customerBody),
-    BatchOperation.patch("Orders(1)", orderUpdate, "W/\"etag\"")
+    BatchOperation.patch("Orders(1)", orderBody, "W/\"etag\"")
 ));
 
-// Query-type batch operations are always standalone (no changeset needed)
 BatchResponse response = ctx.batch()
-    .addChangeset(cs)
+    .addChangeset(changes)
     .add(BatchOperation.get("Customers"))
     .add(BatchOperation.get("Orders"))
     .execute();
-
-// Results are flattened in insertion order:
-// [0] = changeset POST Customer result
-// [1] = changeset PATCH Order result
-// [2] = standalone GET Customers result
-// [3] = standalone GET Orders result
 ```
 
-### Known Limitation
+The positional view is:
 
-Changesets do not yet support `Content-ID` references within URLs
-(e.g., `POST Customers` → `PATCH $1/Contact`). Each operation must use an
-absolute or service-relative URL directly.
+```text
+response.get(0)  first changeset operation
+response.get(1)  second changeset operation
+response.get(2)  standalone Customers GET
+response.get(3)  standalone Orders GET
+```
+
+Changeset parts are matched by Content-ID even if the service returns them in a different order. Standalone parts without explicit IDs retain their relative wire order; assign an ID when the service may reorder those parts.
+
+## Content-ID References and Correlation
+
+An operation in a changeset can refer to an earlier Content-ID with `$1`, `$2`, and so on. References are resolved to the earlier request URL while the multipart request is prepared:
+
+```java
+BatchOperation first = BatchOperation.post("Customers", customerBody, "1");
+BatchOperation child = BatchOperation.post("$1/Orders", orderBody, "2");
+BatchOperation read = BatchOperation.get("Customers").withContentId("3");
+
+BatchResponse response = ctx.batch()
+    .addChangeset(new Changeset(List.of(first, child)))
+    .add(read)
+    .execute();
+
+BatchResult<?> firstResult = response.getByContentId("1");
+BatchResult<?> secondResult = response.getByContentId("2");
+```
+
+The response-side contract is:
+
+- `get(index)` follows the submitted operation plan, including a reordered changeset.
+- `wireOrder()` returns the response parts in the order received.
+- `getByContentId(String)` returns the result carrying that ID or a related ID. Null or blank IDs are rejected.
+- Missing, duplicate, or unexpected IDs in a keyed response fail with `ODataException` rather than silently shifting results.
+- A failed atomic changeset may legally collapse several submitted operations into one non-success part. The same result is exposed at each affected submitted index; `relatedContentIds()` contains all represented IDs and `contentIdGroup()` is the runtime's internal correlation-group identifier.
 
 ## Supported Operations
 
-### GET
-
 ```java
-// Single entity
-BatchOperation.get("People('scottketchum')")
-
-// Collection
-BatchOperation.get("People?$top=5")
-
-// With query params
-BatchOperation.get("People('scottketchum')?$select=UserName,FirstName")
+BatchOperation.get("People('scottketchum')");
+BatchOperation.post("People", body);
+BatchOperation.patch("People('scottketchum')", body);
+BatchOperation.patch("People('scottketchum')", body, "W/\"etag\"");
+BatchOperation.put("People('scottketchum')", body);
+BatchOperation.delete("People('scottketchum')");
 ```
 
-### PATCH
+For binary content, use `media(...)` so the request is labeled with its media type rather than the default JSON label:
 
 ```java
-byte[] body = context.serializer().serialize(updatedPerson, Person.class);
-BatchOperation.patch("People('scottketchum')", body)
+BatchOperation media = BatchOperation.media(
+    "Advertisements(0c5a0f6d-f3e8-4e11-9e4c-7d2a9a61b001)/$value",
+    bytes, "image/png");
 ```
 
-### PATCH with ETag
+`binary(...)`, `putMedia(...)`, and `postMedia(...)` are aliases or related convenience factories. The generic factories remain available when an explicit custom `Content-Type` is supplied.
+
+## Generated Requests
+
+Generated request objects can contribute operations to a batch:
 
 ```java
-BatchOperation.patch("People('scottketchum')", body, "W/\"12345\"")
-```
-
-### DELETE
-
-```java
-BatchOperation.delete("People('scottketchum')")
-```
-
-### POST
-
-```java
-byte[] body = context.serializer().serialize(newPerson, Person.class);
-BatchOperation.post("People", body)
-```
-
-## Using Generated Request Classes
-
-Each generated request class has `toBatchOperation()` and related methods:
-
-```java
-DefaultContainer client = new DefaultContainer(ctx);
-
 BatchResponse response = ctx.batch()
-    // Entity request → GET
     .add(client.people("scott").toBatchOperation())
-
-    // Entity request → PATCH (sends only the tracked changes, like patch();
-    // pass an ETag for a conditional PATCH: patchToBatchOperation(entity, etag))
+    .add(client.people("scott").select(Person.FIRST_NAME)
+        .expand(Person.TRIPS).toBatchOperation())
     .add(client.people("scott").patchToBatchOperation(updatedPerson))
-
-    // Entity request → GET with query options (same URL as get())
-    .add(client.people("scott").select(Person.FIRST_NAME).expand(Person.TRIPS).toBatchOperation())
-
-    // Entity request → DELETE
-    .add(client.people("louis").deleteToBatchOperation())
-
-    // Collection request → GET
+    .add(client.people("scott").deleteToBatchOperation())
     .add(client.people().top(5).toBatchOperation())
-
     .execute();
 ```
 
-## Accessing Results
+Collection requests expose `create(...)` for HTTP execution and `postToBatchOperation(...)` for batch use. Entity requests expose `putToBatchOperation(...)`, `patchToBatchOperation(...)`, `deleteToBatchOperation()`, and `toBatchOperation()`. The generated batch GET uses the request's current read options.
 
-### By Index
-
-```java
-BatchResult<?> result = response.get(0);
-System.out.println(result.statusCode());  // 200
-System.out.println(result.getText());     // JSON string
-```
-
-### Deserializing
+## Reading Results
 
 ```java
-Person person = response.get(0, Person.class).getEntity(context.serializer());
+BatchResult<?> raw = response.get(0);
+String text = raw.getText();
+boolean successful = raw.isSuccessful();
+int status = raw.statusCode();
+
+Person person = response.get(0, Person.class)
+    .getEntity(ctx.serializer());
 ```
 
-Typed views (`get(i, type)`, `getAll(type)`) keep every field of the original
-result — including the part-level `contentId()` — so correlation survives the
-raw → typed transition.
+Typed views preserve Content-ID, related-ID, group, and wire-index fields. Both `getEntity` overloads capture a response `ETag` header when the deserialized entity has no body ETag; pass the generated `SchemaInfo` when the declared entity type may be polymorphic:
 
-### Iterating
+```java
+Person person = response.getEntity(
+    0,
+    Person.class,
+    ctx.serializer(),
+    com.example.trippin.schema.SchemaInfo.INSTANCE);
+```
+
+The response is iterable and can be inspected in positional order:
 
 ```java
 for (BatchResult<?> result : response) {
@@ -176,55 +169,11 @@ for (BatchResult<?> result : response) {
 
 ## Error Handling
 
-Individual operations can fail without failing the entire batch:
+A non-2xx outer batch response, a missing boundary, malformed part, or correlation mismatch throws `ODataException`. Individual operation failures inside an otherwise successful multipart response remain available through `BatchResult` values.
 
-```java
-BatchResponse response = ctx.batch()
-    .add(BatchOperation.get("People('nonexistent')"))  // 404
-    .add(BatchOperation.get("People('scottketchum')"))  // 200
-    .execute();
+## Continue on Error
 
-// First result: 404 Not Found
-// Second result: 200 OK
-```
-
-Check individual status codes:
-
-```java
-for (BatchResult<?> result : response) {
-    if (!result.isSuccessful()) {
-        System.out.println("Failed: " + result.statusCode());
-    }
-}
-```
-
-## Correlating Changeset Results by Content-ID
-
-Changeset operations are numbered with unique `Content-ID`s (batch-wide). On the
-response side, `getByContentId(String)` finds a specific operation's result — essential
-when a changeset fails, because the server collapses the failed group into a single
-error part:
-
-```java
-BatchResponse response = ctx.batch()
-    .addChangeset(new Changeset(List.of(
-        BatchOperation.post("Customers", customerJson),   // Content-ID: 1
-        BatchOperation.post("Orders", orderJson)          // Content-ID: 2
-    )))
-    .add(BatchOperation.get("Customers"))
-    .execute();
-
-BatchResult<?> orderResult = response.getByContentId("2");
-if (orderResult != null && !orderResult.isSuccessful()) {
-    System.err.println("Order creation failed: " + orderResult.statusCode());
-}
-```
-
-## Partial Processing (continue-on-error)
-
-By default a batch aborts at the first failed operation. `continueOnError()` sends
-`Prefer: continue-on-error=true` (OData 4.01) so the service processes the remaining
-operations and reports each result individually:
+`continueOnError()` adds the OData 4.01 preference header:
 
 ```java
 BatchResponse response = ctx.batch()
@@ -232,11 +181,6 @@ BatchResponse response = ctx.batch()
     .add(BatchOperation.get("People('ronaldmundy')"))
     .continueOnError()
     .execute();
-
-for (BatchResult<?> result : response) {
-    System.out.println(result.statusCode() + " " + (result.contentId() != null
-            ? "Content-ID " + result.contentId() : "(standalone)"));
-}
 ```
 
 ## Async Execution
@@ -245,13 +189,13 @@ for (BatchResult<?> result : response) {
 ctx.batch()
     .add(BatchOperation.get("People('scottketchum')"))
     .executeAsync()
-    .thenAccept(response -> {
-        BatchResult<?> result = response.get(0);
-        System.out.println(result.statusCode());
-    });
+    .thenAccept(result -> System.out.println(result.get(0).statusCode()));
 ```
+
+Synchronous and asynchronous batch failures are delivered through the corresponding synchronous exception or failed future.
 
 ## What's Next
 
-- [Perform CRUD Operations](crud.md) — Single operation patterns
-- [Handle Errors Gracefully](error-handling.md) — Error handling strategies
+- [Perform CRUD Operations](crud.md)
+- [Handle Errors Gracefully](error-handling.md)
+- [Batch API Reference](../reference/batch-api.md)

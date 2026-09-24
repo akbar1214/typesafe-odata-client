@@ -20,7 +20,7 @@ class ExpandableTest {
     @Test
     void bareCollectionPropertyRendersPlainSegment() {
         Expandable<Object> expandable =
-                new CollectionProperty<>("Friends", Object.class, Object.class);
+                new NavCollectionProperty<>("Friends", Object.class, Object.class);
         assertEquals("Friends", expandable.toODataExpand());
     }
 

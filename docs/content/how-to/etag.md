@@ -29,8 +29,9 @@ without dropping to raw HTTP. A body annotation always wins over the header.
 PersonEntityRequest request = client.people("scottketchum");
 Person person = request.get();
 
-// Make your changes
+// Make your changes with a complete Builder value
 Person updated = Person.builder()
+    .userName(person.getUserName())
     .firstName("Scotty")
     .build();
 
@@ -40,8 +41,8 @@ request.patchWithETag(updated, person.getETag().orElse(null));
 
 ### What Happens
 
-1. If the ETag matches → update succeeds (HTTP 204)
-2. If the ETag doesn't match → update rejected (HTTP 412 Precondition Failed)
+1. If the ETag matches → the service returns a successful 2xx response, commonly `204 No Content`
+2. If the ETag doesn't match → the service rejects the write, commonly with `412 Precondition Failed`
 
 ## Without ETag
 

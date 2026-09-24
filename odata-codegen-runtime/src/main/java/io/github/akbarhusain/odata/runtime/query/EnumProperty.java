@@ -11,6 +11,20 @@ public final class EnumProperty<E, V extends Enum<V>> implements PropertyExpress
     }
 
     public EnumProperty(String edmName, Class<E> entityType, Class<V> enumType, String typeName) {
+        if (edmName == null || edmName.isBlank()) {
+            throw new IllegalArgumentException("enum property name must not be blank");
+        }
+        if (typeName != null) {
+            if (typeName.isBlank()) {
+                throw new IllegalArgumentException("enum type name must not be blank");
+            }
+            for (int i = 0; i < typeName.length(); i++) {
+                char c = typeName.charAt(i);
+                if (c < 0x20 || c == 0x7f || "?#&/".indexOf(c) >= 0) {
+                    throw new IllegalArgumentException("enum type name contains an invalid character");
+                }
+            }
+        }
         this.edmName = edmName;
         this.entityType = entityType;
         this.enumType = enumType;
@@ -33,12 +47,6 @@ public final class EnumProperty<E, V extends Enum<V>> implements PropertyExpress
 
     @Override
     public OrderExpression<E, V> desc() { return cast(new OrderedProperty(edmName, false)); }
-
-    @Override
-    public OrderExpression<E, V> nullsFirst() { return cast(new OrderedProperty(edmName, true, true, false)); }
-
-    @Override
-    public OrderExpression<E, V> nullsLast() { return cast(new OrderedProperty(edmName, true, false, true)); }
 
     public FilterExpression<E> equalTo(V value) {
         if (value == null) {

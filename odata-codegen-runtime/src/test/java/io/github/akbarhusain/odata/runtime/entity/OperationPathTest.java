@@ -123,6 +123,8 @@ class OperationPathTest {
     void collectionParameterEmptyCollectionRendersEmptyArrayLiteral() {
         assertEquals("[]", OperationPath.collectionParameter(java.util.List.of(), "Edm.String"),
                 "empty list is a meaningful value — distinct from omitting a nullable parameter");
+        assertThrows(IllegalArgumentException.class,
+                () -> OperationPath.collectionParameter(java.util.List.of(), null));
     }
 
     @Test

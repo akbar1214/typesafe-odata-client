@@ -1,95 +1,49 @@
 # Entity Immutability
 
-Why OData Codegen uses truly immutable entities.
+Generated model classes are immutable-by-contract rather than Java records with final fields. They expose copy-on-write methods for application updates while retaining the public setters and no-argument constructor required by Jackson.
 
-## The Problem with Mutable Entities
+## Model Contract
 
-Many OData clients generate mutable entities:
+A generated entity has protected fields, typed setters, and immutable views at its public data boundaries:
 
 ```java
-// Traditional mutable entity (NOT our approach)
-public class Person {
-    protected String firstName;  // Not final!
-    protected Long age;
-    private Set<String> changedFields = new HashSet<>();
+public final class Person implements ODataEntityType {
+    protected String userName;
+    protected String firstName;
+    protected List<String> emails;
 
-    public void setFirstName(String firstName) {
-        this.firstName = firstName;
-        changedFields.add("firstName");
+    @JsonProperty("FirstName")
+    public void setFirstName(String value) {
+        this.firstName = value;
+    }
+
+    public String getUserName() {
+        return userName;
+    }
+
+    public List<String> getEmails() {
+        return emails == null ? List.of() : Collections.unmodifiableList(emails);
     }
 }
 ```
 
-### Issues
+A property declared `Nullable="true"` gets an `Optional<T>` getter. A non-nullable scalar or key getter returns its boxed Java type directly. This distinction follows the CSDL declaration; callers should not assume that every getter returns `Optional`.
 
-1. **Thread safety** — Multiple threads can modify the same instance
-2. **Hidden state** — `changedFields` tracks mutations, adding complexity
-3. **Null risks** — Fields can be null even when the schema requires them
-4. **Framework coupling** — Often requires `@JacksonInject`, `@JsonProperty`, etc.
+Generated entity and complex-type classes are annotated with Jackson `@JsonProperty` on their setters. Derived types also emit a getter-only `@JsonProperty("@odata.type")` for subtype payloads. Lifecycle values such as `changedFields`, `getKey()`, `getETag()`, and context paths are excluded from wire serialization by runtime interface annotations.
 
-## Our Approach: Immutable-by-Contract Classes
+## Copy-on-Write Updates
 
-OData Codegen generates `final` classes with copy-on-write semantics:
+When `generateWithMethods` is enabled, each `with*()` method creates a new instance, copies the remaining state, defensively copies collections and dynamic-property maps, and merges the changed CSDL name into `changedFields`:
 
 ```java
-public final class Person implements ODataEntityType {
-    public static final StringProperty<Person> FIRST_NAME = new StringProperty<>("FirstName", Person.class);
-    public static final StringProperty<Person> LAST_NAME = new StringProperty<>("LastName", Person.class);
-    public static final CollectionProperty<Person, Trip, Trip.Filterable> TRIPS = new CollectionProperty<>("Trips", Person.class, Trip.class, Trip.Filterable::new);
-
-    protected String userName;
-    protected String firstName;
-    protected String lastName;
-    protected List<String> emails;
-    protected Long age;
-    protected List<Trip> trips;
-    // Builder, with*() copy-on-write, getters return unmodifiableList / Optional, Jackson @JsonProperty setters
-}
-```
-
-### Benefits
-
-1. **Immutability by contract** — `with*()` copy-on-write and `Builder` are the only mutation paths; protected fields are mutated only via Jackson setters (deserialization) or `with*()` defensive copies
-2. **Thread safe** — Instances are effectively immutable after construction (`List.copyOf` / `Collections.unmodifiableList`, immutable `unmappedFields` copies)
-3. **No hidden state leaks** — `changedFields` is tracked separately for `patch()` and not exposed as mutable
-4. **Jackson-annotated, serializer-pluggable** — `@JsonProperty` setters for deserialization, `Serializer` interface for custom JSON handling
-5. **Concise** — 30+ entity types without boilerplate
-
-## Copy-on-Write with Builders
-
-To "modify" an entity, create a new instance:
-
-```java
-Person original = Person.builder()
-    .userName("scott")
-    .firstName("Scott")
-    .lastName("Ketchum")
-    .build();
-
-// "Update" by creating new instance
 Person updated = original.withFirstName("Scotty");
-// original is unchanged
 ```
 
-### How with*() Works
+The original instance is not changed. A patch generated from a Builder-created or `with*()`-created entity can therefore send only the tracked fields. Public setters used for ordinary updates deliberately do not mark fields as changed; that path uses full-body PATCH semantics.
 
-```java
-// Generated in each entity
-public Person withFirstName(String firstName) {
-    return new Person(
-        this.userName,
-        firstName,           // Changed
-        this.lastName,
-        this.emails,
-        this.age,
-        this.trips
-    );
-}
-```
+## Builders
 
-## Builder Pattern
-
-For constructing new entities:
+Concrete top-level entities and complex types receive a static `builder()` method. Subtypes and abstract types do not receive a conflicting subtype builder; use inherited state and `with*()` methods where applicable.
 
 ```java
 Person person = Person.builder()
@@ -97,47 +51,18 @@ Person person = Person.builder()
     .firstName("Scott")
     .lastName("Ketchum")
     .emails(List.of("scott@example.com"))
-    .age(42L)
     .build();
 ```
 
-### Builder is a Separate Class
-
-The builder is a static inner class:
-
-```java
-public static class Builder {
-    private String userName;
-    private String firstName;
-    // ...
-
-    public Builder userName(String userName) {
-        this.userName = userName;
-        return this;
-    }
-
-    public Person build() {
-        return new Person(userName, firstName, ...);
-    }
-}
-```
+Builder-created entities track every field set through the builder. This is what makes a later generated `patch(...)` call a partial update when the entity also has a non-empty changed-field set.
 
 ## Serialization
 
-Generated entities have no Jackson/Gson annotations. Serialization is handled by the pluggable `Serializer` interface:
+`JacksonSerializer` is the default implementation. It uses the OData JSON configuration for ISO 8601 temporal values, preserves service offsets, serializes generated enum wire names, and omits lifecycle metadata and empty collections from ordinary write bodies. A custom `Serializer` can be supplied through `Context.builder().serializer(...)`, but it must implement the same model and OData wire contract.
 
-```java
-// Jackson (default, only built-in implementation)
-Serializer jackson = new JacksonSerializer();
+## Enabling `with*()` Methods
 
-// Gson / Jakarta JSON-B: implement the Serializer interface yourself
-```
-
-This means the same entity works with any JSON library.
-
-## Configuration: `generateWithMethods`
-
-Copy-on-write `with*()` methods are **optional** and disabled by default. Enable them in the Maven plugin:
+The Maven plugin default is `false`:
 
 ```xml
 <configuration>
@@ -145,49 +70,9 @@ Copy-on-write `with*()` methods are **optional** and disabled by default. Enable
 </configuration>
 ```
 
-### Why Disabled by Default?
-
-For schemas with hundreds of entity types, `with*()` methods add significant
-code volume — each method copies all properties (including inherited and
-navigation properties) into a new instance, defensively deep-copying
-collections and `unmappedFields`. With 1700+ entity types, this can add
-hundreds of thousands of lines of generated code and slow down generation.
-
-The `Builder` (generated for root-level concrete types) and Jackson setters
-(input streams deserialize directly into fields) cover all common mutation
-patterns. Use `with*()` only if you need the fluent copy-on-write style.
-
-### With the Flag Disabled (default)
-
-```java
-// Use Builder for new instances and setters for updates
-Person person = Person.builder()
-    .userName("scott")
-    .firstName("Scott")
-    .build();
-
-// Update via Jackson setters (for deserialized entities)
-person.setFirstName("Scotty");
-```
-
-### With the Flag Enabled
-
-```java
-// Fluent copy-on-write
-Person updated = person
-    .withFirstName("Scotty")
-    .withAge(43L);
-```
+Disabling the option reduces generated source size for large schemas. Builders and setters remain available, and requests still support CRUD, media, `$ref`, and batch operations.
 
 ## What's Next
 
-- [CSDL Metadata Parsing](csdl-parsing.md) — How metadata is processed
-- [Generated Code Reference](../reference/generated-code.md) — Complete structure
-
-## Why `changedFields` Exists
-
-The tracking set is not dead weight: `patch()` serializes **only the tracked fields**
-when it is non-empty, so `builder()`- and `with*()`-built entities get true partial
-updates over the wire. Entities deserialized from a `get()` and modified via setters
-deliberately track nothing (setter-side tracking would mark deserialization itself as a
-change) and fall back to a full-body merge — legal OData either way.
+- [CSDL Metadata Parsing](csdl-parsing.md) — Metadata model
+- [Generated Code Structure](../reference/generated-code.md) — Detailed model and request output

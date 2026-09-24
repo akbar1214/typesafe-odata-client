@@ -67,9 +67,7 @@ try {
 }
 ```
 
-Structured error details are available on every `ODataException` via `getError()`:
-`error.code`, `error.message`, `error.target`, and `error.details[]` (a list of
-`{code, message, target}` maps) when the service sends the canonical OData error body.
+Structured error details are available on every `ODataException` through `getError()`. For a syntactically valid but structurally malformed `error` property, the runtime returns a non-null `ODataError` with null fields and empty details (for example, `{"error":"not an object"}`); empty bodies, invalid JSON, and responses without an `error` property return `null`. When present, use `ODataError.getCode()`, `getMessage()`, `getTarget()`, and `getDetails()`; the details map contains the parsed `details[]` entries and supported inner-error fields.
 
 ## Precondition Failed (ETag Conflict)
 

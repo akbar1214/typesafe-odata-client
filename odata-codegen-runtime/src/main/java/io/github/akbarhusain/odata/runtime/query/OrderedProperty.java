@@ -3,18 +3,13 @@ package io.github.akbarhusain.odata.runtime.query;
 class OrderedProperty implements OrderExpression<Object, Object> {
     private final String expression;
     private final boolean ascending;
-    private final boolean nullsFirstValue;
-    private final boolean nullsLastValue;
 
     OrderedProperty(String expression, boolean ascending) {
-        this(expression, ascending, false, false);
-    }
-
-    OrderedProperty(String expression, boolean ascending, boolean nullsFirst, boolean nullsLast) {
+        if (expression == null || expression.isBlank()) {
+            throw new IllegalArgumentException("order expression must not be blank");
+        }
         this.expression = expression;
         this.ascending = ascending;
-        this.nullsFirstValue = nullsFirst;
-        this.nullsLastValue = nullsLast;
     }
 
     @Override
@@ -22,30 +17,16 @@ class OrderedProperty implements OrderExpression<Object, Object> {
 
     @Override
     public String getODataPath() {
-        StringBuilder sb = new StringBuilder(expression);
-        if (!ascending) sb.append(" desc");
-        if (nullsFirstValue) sb.append(" nulls first");
-        if (nullsLastValue) sb.append(" nulls last");
-        return sb.toString();
+        return ascending ? expression : expression + " desc";
     }
 
     @Override
     public OrderExpression<Object, Object> asc() {
-        return new OrderedProperty(expression, true, nullsFirstValue, nullsLastValue);
+        return new OrderedProperty(expression, true);
     }
 
     @Override
     public OrderExpression<Object, Object> desc() {
-        return new OrderedProperty(expression, false, nullsFirstValue, nullsLastValue);
-    }
-
-    @Override
-    public OrderExpression<Object, Object> nullsFirst() {
-        return new OrderedProperty(expression, ascending, true, false);
-    }
-
-    @Override
-    public OrderExpression<Object, Object> nullsLast() {
-        return new OrderedProperty(expression, ascending, false, true);
+        return new OrderedProperty(expression, false);
     }
 }

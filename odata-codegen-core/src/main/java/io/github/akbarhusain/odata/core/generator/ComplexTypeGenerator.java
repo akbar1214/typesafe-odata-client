@@ -19,6 +19,7 @@ public class ComplexTypeGenerator extends AbstractTypeGenerator {
 
     private Map<String, ComplexTypeModel> complexTypeMap;
     private Map<String, ComplexTypeModel> complexTypeByQualifiedName;
+    private Map<String, List<ComplexTypeModel>> complexSimpleNameIndex;
     // Keyed by model IDENTITY (not class name): two schemas may declare same-named
     // types that a simple-name key collapses last-wins; records have value equality,
     // so only identity distinguishes equal-valued distinct types.
@@ -66,11 +67,21 @@ public class ComplexTypeGenerator extends AbstractTypeGenerator {
 
         List<NavigationPropertyModel> allNavs = mergeOwnWinsNavs(inheritedNavs, ownNavs);
 
+        resetConstantNames();
         allocateConstantNames(allProps, allNavs);
+        validateTypeUsages("complex type '" + complexType.name() + "'", allProps, allNavs, schema);
+        boolean openType = openTypeResolved(complexType);
+        List<String> generatedMethods = new ArrayList<>(List.of(
+                "odataTypeName", "odataTypeAnnotation", "getUnmappedFields", "getContextPath",
+                "toString", "builder"));
+        if (openType) {
+            generatedMethods.addAll(List.of("setDynamicProperty", "putDynamicProperty",
+                    "hasDynamicProperty", "getDynamicProperty"));
+        }
         checkMemberNameCollisions(className, allProps, allNavs);
+        checkGeneratedMethodCollisions(className, allProps, allNavs, generatedMethods);
 
         // OpenType dynamic-property support: capture undeclared JSON fields into unmappedFields.
-        boolean openType = openTypeResolved(complexType);
         boolean firstOpen = openType && (base == null || !openTypeResolved(base));
         boolean rootMutableMap = base == null && subtreeHasOpen(complexType);
         // hierarchyHasOpen: true when any type in the hierarchy is open.
@@ -234,8 +245,9 @@ public class ComplexTypeGenerator extends AbstractTypeGenerator {
         if (!complexType.abstractType() && generateWithMethods) {
             for (PropertyModel prop : allProps) {
                 sb.append(generateWithMethod(prop, allProps, allNavs, className, hierarchyHasOpen, schema));
-            }
-            for (NavigationPropertyModel nav : allNavs) {
+        }
+        imports.remove(pkg + "." + className);
+        for (NavigationPropertyModel nav : allNavs) {
                 sb.append(generateNavWithMethod(nav, allProps, allNavs, className, hierarchyHasOpen, schema));
             }
         }
@@ -265,6 +277,7 @@ public class ComplexTypeGenerator extends AbstractTypeGenerator {
         }
         if (openType) {
             sb.append("    @com.fasterxml.jackson.annotation.JsonAnyGetter\n");
+            sb.append("    @com.fasterxml.jackson.annotation.JsonInclude(content = com.fasterxml.jackson.annotation.JsonInclude.Include.ALWAYS)\n");
         }
         sb.append("    @Override\n");
         sb.append("    public java.util.Map<String, Object> getUnmappedFields() {\n");
@@ -275,10 +288,17 @@ public class ComplexTypeGenerator extends AbstractTypeGenerator {
         // Generated only at the topmost open type in the chain to avoid duplicate any-setters.
         if (firstOpen) {
             sb.append("    @com.fasterxml.jackson.annotation.JsonAnySetter\n");
-            sb.append("    protected void putDynamicProperty(String name, Object value) {\n");
-            sb.append("        if (name != null && !name.startsWith(\"@\")) {\n");
+            sb.append("    public void setDynamicProperty(String name, Object value) {\n");
+            sb.append("        if (name == null || name.isBlank()) {\n");
+            sb.append("            throw new IllegalArgumentException(\"dynamic property name must not be blank\");\n");
+            sb.append("        }\n");
+            sb.append("        if (!name.startsWith(\"@\")) {\n");
             sb.append("            unmappedFields.put(name, value);\n");
             sb.append("        }\n");
+            sb.append("    }\n\n");
+
+            sb.append("    public boolean hasDynamicProperty(String name) {\n");
+            sb.append("        return name != null && unmappedFields.containsKey(name);\n");
             sb.append("    }\n\n");
 
             sb.append("    public Optional<Object> getDynamicProperty(String name) {\n");
@@ -286,6 +306,7 @@ public class ComplexTypeGenerator extends AbstractTypeGenerator {
             sb.append("    }\n\n");
 
             sb.append("    public <T> Optional<T> getDynamicProperty(String name, Class<T> type) {\n");
+            sb.append("        if (!unmappedFields.containsKey(name)) return Optional.empty();\n");
             sb.append("        Object v = unmappedFields.get(name);\n");
             sb.append("        return v == null ? Optional.empty()\n");
             sb.append("                : Optional.of(io.github.akbarhusain.odata.runtime.serialization.DynamicPropertyConverter.convert(v, type));\n");
@@ -328,7 +349,7 @@ public class ComplexTypeGenerator extends AbstractTypeGenerator {
             String pfn = Names.toJavaFieldName(p.name());
             if (Names.isCollectionType(p.edmType())) {
                 sb.append("        e.").append(pfn).append(" = this.").append(pfn)
-                  .append(" == null ? null : List.copyOf(this.").append(pfn).append(");\n");
+                  .append(" == null ? null : java.util.Collections.unmodifiableList(new java.util.ArrayList<>(this.").append(pfn).append("));\n");
             } else {
                 sb.append("        e.").append(pfn).append(" = this.").append(pfn).append(";\n");
             }
@@ -337,7 +358,7 @@ public class ComplexTypeGenerator extends AbstractTypeGenerator {
             String nfn = Names.toJavaFieldName(nav.name());
             if (Names.isCollectionType(nav.type())) {
                 sb.append("        e.").append(nfn).append(" = this.").append(nfn)
-                  .append(" == null ? null : List.copyOf(this.").append(nfn).append(");\n");
+                  .append(" == null ? null : java.util.Collections.unmodifiableList(new java.util.ArrayList<>(this.").append(nfn).append("));\n");
             } else {
                 sb.append("        e.").append(nfn).append(" = this.").append(nfn).append(";\n");
             }
@@ -345,7 +366,11 @@ public class ComplexTypeGenerator extends AbstractTypeGenerator {
         if (hierarchyHasOpen) {
             sb.append("        e.unmappedFields = unmappedFields == null ? null : new java.util.HashMap<>(unmappedFields);\n");
         }
-        sb.append("        e.").append(fn).append(" = value;\n");
+        sb.append("        e.").append(fn).append(" = value");
+        if (Names.isCollectionType(prop.edmType())) {
+            sb.append(" == null ? null : java.util.Collections.unmodifiableList(new java.util.ArrayList<>(value))");
+        }
+        sb.append(";\n");
         sb.append("        return e;\n");
         sb.append("    }\n\n");
         return sb.toString();
@@ -374,7 +399,11 @@ public class ComplexTypeGenerator extends AbstractTypeGenerator {
             String javaType = resolvePropertyJavaType(prop, schema);
             String fn = Names.toJavaFieldName(prop.name());
             sb.append("        public Builder ").append(fn).append("(").append(javaType).append(" value) {\n");
-            sb.append("            this.").append(fn).append(" = value;\n");
+            if (Names.isCollectionType(prop.edmType())) {
+                sb.append("            this.").append(fn).append(" = value == null ? null : java.util.Collections.unmodifiableList(new java.util.ArrayList<>(value));\n");
+            } else {
+                sb.append("            this.").append(fn).append(" = value;\n");
+            }
             sb.append("            return this;\n");
             sb.append("        }\n\n");
         }
@@ -383,7 +412,11 @@ public class ComplexTypeGenerator extends AbstractTypeGenerator {
             String javaType = navJavaType(nav, schema);
             String fn = Names.toJavaFieldName(nav.name());
             sb.append("        public Builder ").append(fn).append("(").append(javaType).append(" value) {\n");
-            sb.append("            this.").append(fn).append(" = value;\n");
+            if (Names.isCollectionType(nav.type())) {
+                sb.append("            this.").append(fn).append(" = value == null ? null : java.util.Collections.unmodifiableList(new java.util.ArrayList<>(value));\n");
+            } else {
+                sb.append("            this.").append(fn).append(" = value;\n");
+            }
             sb.append("            return this;\n");
             sb.append("        }\n\n");
         }
@@ -392,11 +425,19 @@ public class ComplexTypeGenerator extends AbstractTypeGenerator {
         sb.append("            ").append(className).append(" e = new ").append(className).append("();\n");
         for (PropertyModel prop : allProps) {
             String fn = Names.toJavaFieldName(prop.name());
-            sb.append("            e.").append(fn).append(" = ").append(fn).append(";\n");
+            sb.append("            e.").append(fn).append(" = ").append(fn);
+            if (Names.isCollectionType(prop.edmType())) {
+                sb.append(" == null ? null : java.util.Collections.unmodifiableList(new java.util.ArrayList<>(").append(fn).append("))");
+            }
+            sb.append(";\n");
         }
         for (NavigationPropertyModel nav : navs) {
             String fn = Names.toJavaFieldName(nav.name());
-            sb.append("            e.").append(fn).append(" = ").append(fn).append(";\n");
+            sb.append("            e.").append(fn).append(" = ").append(fn);
+            if (Names.isCollectionType(nav.type())) {
+                sb.append(" == null ? null : java.util.Collections.unmodifiableList(new java.util.ArrayList<>(").append(fn).append("))");
+            }
+            sb.append(";\n");
         }
         if (mutableUnmappedFields) {
             sb.append("            e.unmappedFields = unmappedFields;\n");
@@ -420,6 +461,12 @@ public class ComplexTypeGenerator extends AbstractTypeGenerator {
             }
         }
         complexTypeByQualifiedName = crossSchemaMap;
+        complexSimpleNameIndex = new HashMap<>();
+        for (SchemaModel s : effectiveSchemas) {
+            for (ComplexTypeModel ct : s.complexTypes()) {
+                complexSimpleNameIndex.computeIfAbsent(ct.name(), ignored -> new ArrayList<>()).add(ct);
+            }
+        }
         java.util.Map<ComplexTypeModel, String> ctNs = new java.util.IdentityHashMap<>();
         for (SchemaModel s : effectiveSchemas) {
             for (ComplexTypeModel ct : s.complexTypes()) {
@@ -515,14 +562,8 @@ public class ComplexTypeGenerator extends AbstractTypeGenerator {
         if (baseType != null && !Names.namespaceFromFullName(baseType).isEmpty()) {
             return baseType;
         }
-        for (SchemaModel s : effectiveSchemas) {
-            for (ComplexTypeModel ct : s.complexTypes()) {
-                if (ct == base) {
-                    return s.namespace() + "." + base.name();
-                }
-            }
-        }
-        return schema.namespace() + "." + base.name();
+        String namespace = namespaceOf(base);
+        return (namespace.isEmpty() ? schema.namespace() : namespace) + "." + base.name();
     }
 
     /**
@@ -556,40 +597,34 @@ public class ComplexTypeGenerator extends AbstractTypeGenerator {
         if (bt == null || bt.isBlank()) {
             return null;
         }
-        // Prefer qualified-name lookup (cross-schema)
-        ComplexTypeModel base = complexTypeByQualifiedName.get(bt);
-        if (base != null) return base;
-        // Fallback: same-schema by simple name
-        ComplexTypeModel sameSchema = complexTypeMap.get(Names.complexTypeClassName(Names.simpleNameFromFullName(bt)));
-        if (sameSchema != null) return sameSchema;
-        // Cross-schema unqualified fallback
-        return findBaseGlobal(bt);
+        return findBaseGlobal(bt, namespaceOf(complexType) + "." + complexType.name());
     }
 
-    private ComplexTypeModel findBaseGlobal(String bt) {
+    private ComplexTypeModel findBaseGlobal(String bt, String owner) {
         if (bt == null || bt.isBlank()) return null;
         ComplexTypeModel base = complexTypeByQualifiedName.get(bt);
         if (base != null) return base;
-        String simple = Names.simpleNameFromFullName(bt);
-        String className = Names.complexTypeClassName(simple);
-        // Ambiguous matches must fail loudly (same policy as container Extends and the
-        // type-kind map): first-wins would make generation order-dependent.
-        ComplexTypeModel found = null;
-        int matches = 0;
-        for (SchemaModel s : effectiveSchemas) {
-            for (ComplexTypeModel ct : s.complexTypes()) {
-                if (Names.complexTypeClassName(ct.name()).equals(className)) {
-                    found = ct;
-                    matches++;
-                }
+        if (!bt.contains(".")) {
+            List<ComplexTypeModel> matches = complexSimpleNameIndex.getOrDefault(bt, List.of());
+            String ownerNamespace = Names.namespaceFromFullName(owner);
+            List<ComplexTypeModel> local = matches.stream()
+                    .filter(candidate -> ownerNamespace.equals(namespaceOf(candidate)))
+                    .toList();
+            if (local.size() == 1) return local.get(0);
+            if (local.size() > 1) {
+                throw new IllegalArgumentException("Ambiguous unqualified BaseType '" + bt
+                        + "' on complex type '" + owner + "': matches " + local.size()
+                        + " complex types in namespace '" + ownerNamespace + "'; use a qualified name");
+            }
+            if (matches.size() == 1) return matches.get(0);
+            if (matches.size() > 1) {
+                throw new IllegalArgumentException("Ambiguous unqualified BaseType '" + bt
+                        + "' on complex type '" + owner + "': matches " + matches.size()
+                        + " complex types; use a qualified name");
             }
         }
-        if (matches > 1) {
-            throw new IllegalArgumentException(
-                    "Ambiguous unqualified BaseType '" + bt + "': matches " + matches
-                            + " complex types with that simple name across schemas; use a qualified name (Namespace.Type)");
-        }
-        return found;
+        throw new IllegalStateException("Cannot generate complex type '" + owner
+                + "': unknown BaseType '" + bt + "'");
     }
 
     private String generateNavWithMethod(NavigationPropertyModel nav, List<PropertyModel> allProps, List<NavigationPropertyModel> allNavs, String className, boolean hierarchyHasOpen, SchemaModel schema) {
@@ -603,7 +638,7 @@ public class ComplexTypeGenerator extends AbstractTypeGenerator {
             String pfn = Names.toJavaFieldName(p.name());
             if (Names.isCollectionType(p.edmType())) {
                 sb.append("        e.").append(pfn).append(" = this.").append(pfn)
-                  .append(" == null ? null : List.copyOf(this.").append(pfn).append(");\n");
+                  .append(" == null ? null : java.util.Collections.unmodifiableList(new java.util.ArrayList<>(this.").append(pfn).append("));\n");
             } else {
                 sb.append("        e.").append(pfn).append(" = this.").append(pfn).append(";\n");
             }
@@ -611,10 +646,14 @@ public class ComplexTypeGenerator extends AbstractTypeGenerator {
         for (NavigationPropertyModel n : allNavs) {
             String nfn = Names.toJavaFieldName(n.name());
             if (n.name().equals(nav.name())) {
-                sb.append("        e.").append(nfn).append(" = value;\n");
+                if (Names.isCollectionType(n.type())) {
+                    sb.append("        e.").append(nfn).append(" = value == null ? null : java.util.Collections.unmodifiableList(new java.util.ArrayList<>(value));\n");
+                } else {
+                    sb.append("        e.").append(nfn).append(" = value;\n");
+                }
             } else if (Names.isCollectionType(n.type())) {
                 sb.append("        e.").append(nfn).append(" = this.").append(nfn)
-                  .append(" == null ? null : List.copyOf(this.").append(nfn).append(");\n");
+                  .append(" == null ? null : java.util.Collections.unmodifiableList(new java.util.ArrayList<>(this.").append(nfn).append("));\n");
             } else {
                 sb.append("        e.").append(nfn).append(" = this.").append(nfn).append(";\n");
             }

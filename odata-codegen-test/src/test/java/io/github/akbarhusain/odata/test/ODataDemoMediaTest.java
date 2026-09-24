@@ -15,6 +15,7 @@ import org.junit.jupiter.api.Test;
 import java.io.InputStream;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /**
  * Exercises generated media-stream support (improvement #3) against the live OData Demo service:
@@ -38,7 +39,7 @@ class ODataDemoMediaTest {
     @Test
     void advertisement_streamMediaReadable() throws Exception {
         CollectionPage<Advertisement> page = client.advertisements().top(1).get();
-        if (page.currentPage().isEmpty()) return; // service has no advertisements
+        assumeTrue(!page.currentPage().isEmpty(), "OData Demo returned no advertisements to exercise");
         Advertisement ad = page.currentPage().get(0);
 
         try (InputStream is = client.advertisements(ad.getID()).streamMedia()) {
@@ -51,7 +52,7 @@ class ODataDemoMediaTest {
     @Test
     void personDetail_photoStreamReadable() throws Exception {
         CollectionPage<PersonDetail> page = client.personDetails().top(1).get();
-        if (page.currentPage().isEmpty()) return; // service has no person details
+        assumeTrue(!page.currentPage().isEmpty(), "OData Demo returned no person details to exercise");
         PersonDetail pd = page.currentPage().get(0);
 
         try (InputStream is = client.personDetails(pd.getPersonID()).streamPhoto()) {

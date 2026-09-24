@@ -162,13 +162,24 @@ public final class Names {
         return result;
     }
 
+    public static String toOperationParameterName(String edmName) {
+        String result = toJavaFieldName(edmName);
+        return switch (result) {
+            case "context", "body", "basePath" -> result + "_";
+            case "contextPath" -> result;
+            default -> result;
+        };
+    }
+
     public static String toJavaMethodName(String edmName, String prefix) {
         String name = sanitizeIdentifier(edmName);
         return prefix + Character.toUpperCase(name.charAt(0)) + name.substring(1);
     }
 
     public static String getterMethod(PropertyModel prop) {
-        String name = "get" + capitalize(sanitizeIdentifier(prop.name()));
+        String field = toJavaFieldName(prop.name());
+        String name = "get" + (isReservedMemberField(field)
+                ? capitalize(field) : capitalize(sanitizeIdentifier(prop.name())));
         if (isObjectMethodName(name)) name = name + "_";
         return name;
     }
@@ -178,9 +189,16 @@ public final class Names {
     }
 
     public static String navGetterMethod(String navName) {
-        String name = "get" + capitalize(sanitizeIdentifier(navName));
+        String field = toJavaFieldName(navName);
+        String name = "get" + (isReservedMemberField(field)
+                ? capitalize(field) : capitalize(sanitizeIdentifier(navName)));
         if (isObjectMethodName(name)) name = name + "_";
         return name;
+    }
+
+    private static boolean isReservedMemberField(String field) {
+        if (RESERVED_MEMBER_NAMES.contains(field)) return true;
+        return field.endsWith("_") && RESERVED_MEMBER_NAMES.contains(field.substring(0, field.length() - 1));
     }
 
     public static String navWithMethod(String navName) {
@@ -222,7 +240,31 @@ public final class Names {
     }
 
     public static boolean isPrimitiveType(String edmType) {
-        return edmType.startsWith("Edm.");
+        return edmType != null && edmType.startsWith("Edm.");
+    }
+
+    public static boolean isKnownEdmType(String edmType) {
+        return switch (edmType) {
+            case "Edm.Binary", "Edm.Boolean", "Edm.Byte", "Edm.SByte", "Edm.Int16", "Edm.Int32",
+                 "Edm.Int64", "Edm.Single", "Edm.Double", "Edm.Decimal", "Edm.Guid", "Edm.String",
+                 "Edm.Date", "Edm.DateTimeOffset", "Edm.TimeOfDay", "Edm.Duration", "Edm.Stream",
+                 "Edm.Geography", "Edm.GeographyPoint", "Edm.GeographyLineString", "Edm.GeographyPolygon",
+                 "Edm.GeographyMultiPoint", "Edm.GeographyMultiLineString", "Edm.GeographyMultiPolygon",
+                 "Edm.GeographyCollection", "Edm.Geometry", "Edm.GeometryPoint", "Edm.GeometryLineString",
+                 "Edm.GeometryPolygon", "Edm.GeometryMultiPoint", "Edm.GeometryMultiLineString",
+                 "Edm.GeometryMultiPolygon", "Edm.GeometryCollection", "Edm.AnnotationPath",
+                 "Edm.PrimitiveType", "Edm.ComplexType", "Edm.EntityType", "Edm.Untyped", "Edm.Json" -> true;
+            default -> false;
+        };
+    }
+
+    public static boolean isKeyScalarType(String edmType) {
+        return switch (edmType) {
+            case "Edm.Boolean", "Edm.Byte", "Edm.SByte", "Edm.Int16", "Edm.Int32", "Edm.Int64",
+                 "Edm.Single", "Edm.Double", "Edm.Decimal", "Edm.Guid", "Edm.String", "Edm.Date",
+                 "Edm.DateTimeOffset", "Edm.TimeOfDay", "Edm.Duration" -> true;
+            default -> false;
+        };
     }
 
     public static String edmTypeToSimpleJavaType(String edmType) {
@@ -303,17 +345,25 @@ public final class Names {
     // JDK class names that would shadow java.lang.* if used as generated class names,
     // plus names that collide with members the generator itself emits (Builder, Filterable).
     private static final java.util.Set<String> JDK_CLASS_NAMES = java.util.Set.of(
-            "Object", "String", "System", "Class", "Number", "Enum",
-            "Record", "Void", "Math", "Thread", "Throwable", "Error",
-            "Exception", "Runnable", "Comparable", "Iterable", "Override",
-            "Deprecated", "SuppressWarnings", "SafeVarargs", "FunctionalInterface",
-            "Builder", "Filterable",
-            // runtime query classes: generated types import runtime.query.* on demand, so a
-            // same-named generated class would silently shadow them within the file
-            "StringProperty", "NumberProperty", "BooleanProperty", "DateTimeProperty",
-            "GuidProperty", "EnumProperty", "CollectionProperty", "NavQuery", "Expandable",
-            "NumberExpression", "FilterExpression", "RawFilterExpression",
-            "PropertyExpression", "OrderExpression", "OrderedProperty", "ApplyBuilder"
+            "Object", "String", "System", "Class", "Number", "Enum", "Boolean", "Byte", "Short",
+            "Integer", "Long", "Float", "Double", "Character", "Record", "Void", "Math", "Thread",
+            "Throwable", "Error", "Exception", "RuntimeException", "IllegalArgumentException",
+            "IllegalStateException", "Runnable", "Comparable", "Iterable", "CharSequence",
+            "Cloneable", "AutoCloseable", "Override", "Deprecated", "SuppressWarnings",
+            "SafeVarargs", "FunctionalInterface", "Builder", "Filterable", "Selector",
+            "Optional", "List", "Map", "HashMap", "LinkedHashMap", "TreeMap", "Set",
+            "HashSet", "LinkedHashSet", "TreeSet", "Collections", "Objects", "Arrays", "Stream",
+            "ArrayList", "InputStream", "CompletableFuture", "Function", "Predicate", "Supplier",
+            "Collection", "Iterator", "Comparator", "Locale", "Path", "Files", "IOException",
+            "BigDecimal", "BigInteger", "LocalDate", "LocalDateTime", "OffsetDateTime", "LocalTime",
+            "Duration", "Instant", "ZoneOffset", "Charset", "StandardCharsets", "UUID", "Base64",
+            "Context", "ContextPath", "EntityUtil", "ODataEntityType", "ODataType", "SchemaInfo",
+            "ODataEnumValue", "EntityOperations", "BatchOperation", "CollectionPage", "OperationPath",
+            "HttpMethod", "DynamicPropertyConverter", "StringProperty", "NumberProperty",
+            "BooleanProperty", "DateTimeProperty", "GuidProperty", "EnumProperty", "CollectionProperty",
+            "NavCollectionProperty", "NavQuery", "Expandable", "NumberExpression", "FilterExpression", "RawFilterExpression",
+            "PropertyExpression", "OrderExpression", "OrderedProperty", "ApplyBuilder", "ApplyExpression",
+            "RawApplyExpression", "Expression", "FilterableElement"
     );
 
     private static boolean isJdkClassName(String name) {
@@ -436,28 +486,45 @@ public final class Names {
             "notify", "notifyAll", "wait"
     );
 
-    private static boolean isObjectMethodName(String name) {
+    public static boolean isObjectMethodName(String name) {
         return OBJECT_METHOD_NAMES.contains(name);
     }
 
     public enum TypeKind { ENTITY, COMPLEX, ENUM, UNKNOWN }
 
-    // Identity-based key wrapper: avoids expensive List.hashCode() that traverses
-    // the entire model tree (2000 entities × 10 properties = 20k recursive hashes
-    // per lookup) when the same list reference is reused throughout generation.
-    private record SchemaListKey(List<SchemaModel> list) {
-        @Override public boolean equals(Object o) {
-            return o instanceof SchemaListKey k && list == k.list;
+    private static final class SchemaListKey {
+        private final java.lang.ref.WeakReference<List<SchemaModel>> reference;
+        private final int hash;
+
+        private SchemaListKey(List<SchemaModel> list) {
+            reference = new java.lang.ref.WeakReference<>(list);
+            hash = System.identityHashCode(list);
         }
-        @Override public int hashCode() {
-            return System.identityHashCode(list);
+
+        private List<SchemaModel> list() {
+            return reference.get();
+        }
+
+        @Override
+        public boolean equals(Object other) {
+            return this == other || other instanceof SchemaListKey key
+                    && list() != null && list() == key.list();
+        }
+
+        @Override
+        public int hashCode() {
+            return hash;
         }
     }
 
     private static final java.util.concurrent.ConcurrentHashMap<SchemaListKey, java.util.Map<String, TypeKind>> TYPE_KIND_CACHE = new java.util.concurrent.ConcurrentHashMap<>();
 
     public static TypeKind resolveTypeKind(String edmType, List<SchemaModel> allSchemas) {
-        java.util.Map<String, TypeKind> cache = TYPE_KIND_CACHE.computeIfAbsent(new SchemaListKey(allSchemas), k -> buildTypeKindMap(k.list));
+        SchemaListKey key = new SchemaListKey(allSchemas);
+        java.util.Map<String, TypeKind> cache = TYPE_KIND_CACHE.computeIfAbsent(key, k -> {
+            List<SchemaModel> schemas = k.list();
+            return schemas == null ? java.util.Map.of() : buildTypeKindMap(schemas);
+        });
         TypeKind kind = cache.get(edmType);
         return kind != null ? kind : TypeKind.UNKNOWN;
     }

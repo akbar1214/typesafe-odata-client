@@ -27,6 +27,13 @@ class TypedKeyFormatTest {
     }
 
     @Test
+    void untypedUuidKeysRetainLegacyGuidHeuristic() {
+        assertEquals(BASE + "/Things(0c5a0f6d-f3e8-4e11-9e4c-7d2a9a61b001)",
+                new ContextPath(BASE).addSegment("Things")
+                        .addKey("Id", "0c5a0f6d-f3e8-4e11-9e4c-7d2a9a61b001").toUrl());
+    }
+
+    @Test
     void guidKeysAreUnquoted() {
         String url = new ContextPath(BASE).addSegment("Things")
                 .addKey("Id", "0c5a0f6d-f3e8-4e11-9e4c-7d2a9a61b001", "Edm.Guid").toUrl();

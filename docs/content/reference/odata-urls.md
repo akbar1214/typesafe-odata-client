@@ -1,208 +1,106 @@
 # OData URL Patterns
 
-How OData Codegen builds OData URLs.
+OData Codegen builds request URLs with `ContextPath`. Path segments, key predicates, and query options are kept separate and rendered in a stable order.
 
-## URL Structure
+## Resource and Navigation URLs
 
-```
+```text
+{baseUrl}/{entitySet}
 {baseUrl}/{entitySet}({key})
-    /{navigationProperty}
-    ?$filter=...
-    &$select=...
-    &$expand=...
-    &$orderby=...
-    &$top=...
-    &$skip=...
-    &$count=true
+{baseUrl}/{entitySet}({key})/{navigation}
+{baseUrl}/{entitySet}({key})/{navigation}({key})
 ```
 
-## Entity Set URLs
+Examples:
 
-### List Entities
-
-```
+```text
 GET /V4/TripPinService/People
-```
-
-### Single Entity by Key
-
-```
 GET /V4/TripPinService/People('scottketchum')
-```
-
-### Composite Key
-
-```
-GET /V4/TripPinService/OrderDetails(OrderId=1,ProductId=5)
-```
-
-## Navigation URLs
-
-### Navigation Property
-
-```
 GET /V4/TripPinService/People('scottketchum')/Trips
+GET /V4/TripPinService/People('scottketchum')/Trips(1)
 ```
 
-### Nested Navigation
+## Query Options
 
-```
-GET /V4/TripPinService/People('scottketchum')/Trips(1)/Items
-```
+Generated collection requests can render:
 
-## Query Parameters
-
-### $filter
-
-```
-GET /People?$filter=FirstName eq 'Scott' and Age gt 25
-```
-
-### $select
-
-```
-GET /People?$select=FirstName,LastName
+```text
+?$filter=FirstName eq 'Scott'
+?$select=FirstName,LastName
+?$orderby=LastName desc,FirstName asc
+?$expand=Trips($select=Name;$top=5)
+?$top=10&$skip=20
+?$count=true
+?$search=bread
+?$apply=groupby((Category))/aggregate(Price with sum as Total)
 ```
 
-### $orderby
-
-```
-GET /People?$orderby=LastName asc,FirstName desc
-```
-
-### $expand
-
-```
-GET /People?$expand=Trips
-```
-
-### $top and $skip
-
-```
-GET /People?$top=10&$skip=20
-```
-
-### $count
-
-```
-GET /People?$count=true
-```
-
-### Combined
-
-```
-GET /People?$filter=Age gt 25&$select=FirstName,LastName&$orderby=LastName asc&$top=10
-```
+Queries are collected from all path segments and rendered once at the end, after the complete resource path. This matters when a next-link query is followed by another segment such as `$ref`.
 
 ## Key Rules
 
-### Single-Key Entities
+A single-key entity uses the nameless form:
 
-**Omit the key name:**
-
-```
-✓ People('scottketchum')
-✗ People(UserName='scottketchum')
+```text
+People('scottketchum')
 ```
 
-OData v4 convention: for single-key entities, the key name is implicit.
+A composite key includes each property name:
 
-### Composite Keys
-
-**Include key names:**
-
-```
-✓ OrderDetails(OrderId=1,ProductId=5)
-✗ OrderDetails(1,5)
+```text
+OrderDetails(OrderId=1,ProductId=5)
 ```
 
-### URL Encoding
-
-- Spaces → `%20`
-- `$` → `%24` (in some contexts)
-- Preserve: `'`, `(`, `)`, `,`, `=`
-
-## Special Characters
-
-### $ in URLs
-
-The `$` prefix is part of OData query syntax:
-
-```
-GET /People?$filter=FirstName eq 'Scott'
-GET /People?$count=true
-```
-
-### Quotes in Values
-
-Use single quotes for string values:
-
-```
-GET /People?$filter=FirstName eq 'Scott'
-```
-
-### Parentheses in Keys
-
-Use parentheses for key predicates:
-
-```
-GET /People('scottketchum')
-GET /Trips(1)
-```
-
-## URL Building with ContextPath
+Generated accessors call the typed form:
 
 ```java
 ContextPath path = ctx.basePath()
     .addSegment("People")
-    .addKey("UserName", "scottketchum")
+    .addKey("UserName", "scottketchum", "Edm.String")
     .addSegment("Trips");
-
-// Produces: People('scottketchum')/Trips
 ```
 
-### Key Segment Rules
+The Edm type controls the literal:
 
-- `addKey(name, value)` — adds to the last segment; single keys render nameless,
-  composite keys render `(Name1=value1,Name2=value2)`
-- `addKey(name, value, edmType)` — the typed form generated code uses; the literal is
-  formatted from the Edm type instead of guessed from the value:
+| Edm type | Rendering |
+|----------|-----------|
+| `Edm.String` | Always single-quoted, including UUID-shaped text |
+| `Edm.Guid` | Bare validated 8-4-4-4-12 value |
+| `Edm.Date` / `Edm.DateTimeOffset` | Bare ISO value |
+| `Edm.TimeOfDay` | `HH:mm:ss` value |
+| `Edm.Duration` | `duration'...'` value |
+| Enum type | Qualified `Namespace.Enum'Member'` value |
 
-| Edm type | Literal | Example |
-|---|---|---|
-| `Edm.String` | always quoted (even UUID-shaped) | `People('0c5a…')` |
-| `Edm.Guid` | bare 8-4-4-4-12 | `Advertisements(0c5a…)` |
-| `Edm.Date` / `Edm.DateTimeOffset` | bare ISO | `Events(2024-01-01T10:00Z)` |
-| `Edm.TimeOfDay` | `HH:mm:ss` | `Shifts(10:15:00)` |
-| `Edm.Duration` | `duration'...'` | `Waits(duration'PT2H')` |
-| Enum type | qualified | `Things(Ns.Color'Red')` |
+The two-argument `addKey(name, value)` overload is retained for direct runtime callers. Generated keyed request methods use the Edm-typed overload.
 
-### Query Parameters
+## URL Encoding
 
-Query options are collected across all segments and rendered once, after the whole
-path — chaining options onto a `nextPage(...)` link produces a single valid `?...`
-(never a double `?`).
+Spaces are encoded as `%20`. OData-safe characters restored in query values include `$`, `'`, `(`, `)`, `,`, `/`, `:`, and `@`.
 
-## Batch Requests
+The query parameter separator remains a literal `=`:
 
-### $batch Endpoint
-
+```text
+?$filter=Name eq 'a%3Db'
 ```
+
+A second `=` inside a query value is encoded as `%3D`; restoring it would make the value look like another query parameter. String key values also encode path-sensitive `/` and `+` characters (`%2F` and `%2B`).
+
+## Next Links
+
+`ContextPath.fromNextLink(...)` accepts absolute or service-root-relative links, splits the query string on `&` only, and percent-decodes values without treating `+` as a space. A link containing nested semicolon-separated expand options therefore remains one query option.
+
+## Batch URL
+
+The runtime posts a `multipart/mixed` request to:
+
+```text
 POST /V4/TripPinService/$batch
 ```
 
-### Request Format
-
-```json
-{
-    "requests": [
-        {"method": "GET", "url": "People('scottketchum')"},
-        {"method": "GET", "url": "People('keithcombs')"}
-    ]
-}
-```
+It does not send the JSON batch request shape. See [Batch API](batch-api.md) for the multipart framing and response correlation contract.
 
 ## What's Next
 
-- [Package Structure](packages.md) — Module organization
-- [Contributing](../contributing.md) — How to contribute
+- [Package Structure](packages.md)
+- [Batch API](batch-api.md)
+- [Contributing](../contributing.md)

@@ -20,6 +20,7 @@ public class EntityGenerator extends AbstractTypeGenerator {
 
     private Map<String, EntityTypeModel> entityTypeMap;
     private Map<String, EntityTypeModel> entityTypeByQualifiedName;
+    private Map<String, List<EntityTypeModel>> entitySimpleNameIndex;
     // Keyed by model IDENTITY (not class name, not the record itself): two schemas
     // may declare same-named types (split-merge) that a simple-name key collapses
     // last-wins, and records have value equality (equal-valued distinct types would
@@ -51,6 +52,17 @@ public class EntityGenerator extends AbstractTypeGenerator {
         this(basePackage, Map.of());
     }
 
+    public void validateTypeDefinitions(SchemaModel schema) {
+        initEffectiveSchemas(schema);
+        for (SchemaModel candidate : effectiveSchemas) {
+            for (var definition : candidate.typeDefinitions()) {
+                requireKnownType(definition.underlyingType(), candidate,
+                        "TypeDefinition '" + candidate.namespace() + "." + definition.name() + "'",
+                        "underlying type");
+            }
+        }
+    }
+
     public String generate(EntityTypeModel entityType, SchemaModel schema) {
         initEffectiveSchemas(schema);
         ensureSchemaCache(schema);
@@ -75,14 +87,24 @@ public class EntityGenerator extends AbstractTypeGenerator {
         List<NavigationPropertyModel> allNavs = mergeOwnWinsNavs(inheritedNavs, entityType.navigationProperties());
         List<NavigationPropertyModel> ownNavs = entityType.navigationProperties();
 
+        resetConstantNames();
         allocateConstantNames(allProps, allNavs);
+        validateTypeUsages("entity '" + entityType.name() + "'", allProps, allNavs, schema);
+        boolean openType = openTypeResolved(entityType);
+        List<String> generatedMethods = new ArrayList<>(List.of(
+                "odataTypeName", "odataTypeAnnotation", "getETag", "applyETagFromResponse",
+                "getUnmappedFields", "getContextPath", "getChangedFields", "getKey", "toString",
+                "setEtag", "builder"));
+        if (openType) {
+            generatedMethods.addAll(List.of("setDynamicProperty", "putDynamicProperty",
+                    "hasDynamicProperty", "getDynamicProperty"));
+        }
         checkMemberNameCollisions(className, allProps, allNavs);
-        checkKeyPropertyRefs(entityType, className, allProps);
-
+        checkGeneratedMethodCollisions(className, allProps, allNavs, generatedMethods);
         List<KeyModel> keys = resolvedKeys(entityType);
+        validateKeyProperties("entity '" + entityType.name() + "'", keys, allProps, schema);
 
         // OpenType dynamic-property support: capture undeclared JSON fields into unmappedFields.
-        boolean openType = openTypeResolved(entityType);
         boolean firstOpen = openType && (base == null || !openTypeResolved(base));
         boolean rootMutableMap = base == null && subtreeHasOpen(entityType);
 
@@ -99,7 +121,9 @@ public class EntityGenerator extends AbstractTypeGenerator {
         imports.add("io.github.akbarhusain.odata.runtime.entity.ODataEntityType");
         imports.add("io.github.akbarhusain.odata.runtime.entity.ContextPath");
         imports.add("io.github.akbarhusain.odata.runtime.entity.EntityUtil");
-        imports.add("io.github.akbarhusain.odata.runtime.serialization.DynamicPropertyConverter");
+        if (openType) {
+            imports.add("io.github.akbarhusain.odata.runtime.serialization.DynamicPropertyConverter");
+        }
         imports.add("io.github.akbarhusain.odata.runtime.query.*");
 
         // Reference resolution FIRST: two schemas may contribute the same simple name
@@ -111,9 +135,6 @@ public class EntityGenerator extends AbstractTypeGenerator {
                 : baseQualifiedNameOf(base, entityType.baseType(), schema);
         List<String> refCandidates = new ArrayList<>();
         for (NavigationPropertyModel nav : allNavs) {
-            if (isBuiltinType(Names.simpleNameFromFullName(Names.unwrapCollectionType(nav.type())))) {
-                continue;
-            }
             String fqn = navTargetFqn(nav, schema);
             if (fqn != null) {
                 refCandidates.add(fqn);
@@ -136,10 +157,6 @@ public class EntityGenerator extends AbstractTypeGenerator {
         this.typeRefs = TypeRefs.resolve(refCandidates);
 
         for (NavigationPropertyModel nav : allNavs) {
-            if (isBuiltinType(Names.simpleNameFromFullName(Names.unwrapCollectionType(nav.type())))) {
-                continue;
-            }
-            // Skip self-referencing navs: importing the class being generated is a compile error
             String fqn = navTargetFqn(nav, schema);
             if (fqn == null || fqn.equals(pkg + "." + className)) {
                 continue;
@@ -165,6 +182,7 @@ public class EntityGenerator extends AbstractTypeGenerator {
         for (PropertyModel prop : allProps) {
             addPropertyImports(prop, imports, schema);
         }
+        imports.remove(pkg + "." + className);
         if (baseQualifiedName != null && !isContested(baseQualifiedName, schema)) {
             imports.add(typeFqnOf(baseQualifiedName, schema));
         }
@@ -342,6 +360,7 @@ public class EntityGenerator extends AbstractTypeGenerator {
 
         if (openType) {
             sb.append("    @com.fasterxml.jackson.annotation.JsonAnyGetter\n");
+            sb.append("    @com.fasterxml.jackson.annotation.JsonInclude(content = com.fasterxml.jackson.annotation.JsonInclude.Include.ALWAYS)\n");
         }
         sb.append("    @Override\n    public java.util.Map<String, Object> getUnmappedFields() {\n");
         sb.append("        return Collections.unmodifiableMap(unmappedFields);\n");
@@ -353,9 +372,26 @@ public class EntityGenerator extends AbstractTypeGenerator {
         if (firstOpen) {
             sb.append("    @com.fasterxml.jackson.annotation.JsonAnySetter\n");
             sb.append("    public void setDynamicProperty(String name, Object value) {\n");
-            sb.append("        if (name != null && !name.startsWith(\"@\")) {\n");
+            sb.append("        if (name == null || name.isBlank()) {\n");
+            sb.append("            throw new IllegalArgumentException(\"dynamic property name must not be blank\");\n");
+            sb.append("        }\n");
+            sb.append("        if (!name.startsWith(\"@\")) {\n");
             sb.append("            unmappedFields.put(name, value);\n");
             sb.append("        }\n");
+            sb.append("    }\n\n");
+
+            sb.append("    public void putDynamicProperty(String name, Object value) {\n");
+            sb.append("        if (name == null || name.isBlank()) {\n");
+            sb.append("            throw new IllegalArgumentException(\"dynamic property name must not be blank\");\n");
+            sb.append("        }\n");
+            sb.append("        if (!name.startsWith(\"@\")) {\n");
+            sb.append("            unmappedFields.put(name, value);\n");
+            sb.append("            changedFields.add(name);\n");
+            sb.append("        }\n");
+            sb.append("    }\n\n");
+
+            sb.append("    public boolean hasDynamicProperty(String name) {\n");
+            sb.append("        return name != null && unmappedFields.containsKey(name);\n");
             sb.append("    }\n\n");
 
             sb.append("    public Optional<Object> getDynamicProperty(String name) {\n");
@@ -363,6 +399,7 @@ public class EntityGenerator extends AbstractTypeGenerator {
             sb.append("    }\n\n");
 
             sb.append("    public <T> Optional<T> getDynamicProperty(String name, Class<T> type) {\n");
+            sb.append("        if (!unmappedFields.containsKey(name)) return Optional.empty();\n");
             sb.append("        Object v = unmappedFields.get(name);\n");
             sb.append("        return v == null ? Optional.empty()\n");
             sb.append("                : Optional.of(io.github.akbarhusain.odata.runtime.serialization.DynamicPropertyConverter.convert(v, type));\n");
@@ -374,7 +411,7 @@ public class EntityGenerator extends AbstractTypeGenerator {
         sb.append("    }\n\n");
 
         sb.append("    @Override\n    public Set<String> getChangedFields() {\n");
-        sb.append("        return changedFields;\n");
+        sb.append("        return Set.copyOf(changedFields);\n");
         sb.append("    }\n\n");
 
         sb.append("    @Override\n    public Object getKey() {\n");
@@ -428,6 +465,12 @@ public class EntityGenerator extends AbstractTypeGenerator {
             }
         }
         entityTypeByQualifiedName = crossSchemaMap;
+        entitySimpleNameIndex = new HashMap<>();
+        for (SchemaModel s : effectiveSchemas) {
+            for (EntityTypeModel et : s.entityTypes()) {
+                entitySimpleNameIndex.computeIfAbsent(et.name(), ignored -> new ArrayList<>()).add(et);
+            }
+        }
         entityNamespaces = nsMap;
         schemaExtendedBases = new java.util.HashMap<>();
         schemaOpenRootNames = new java.util.HashMap<>();
@@ -450,7 +493,7 @@ public class EntityGenerator extends AbstractTypeGenerator {
                 for (EntityTypeModel et : s.entityTypes()) {
                     String bt = et.baseType();
                     if (bt != null && !bt.isBlank()) {
-                        EntityTypeModel base = findBaseGlobal(bt);
+                        EntityTypeModel base = findBaseGlobal(bt, s.namespace() + "." + et.name());
                         // The base's namespace must be resolved EXACTLY (written qualified
                         // form, else identity scan) — the simple-name-keyed entityNamespace
                         // map returns ONE namespace when two schemas declare the same
@@ -473,31 +516,32 @@ public class EntityGenerator extends AbstractTypeGenerator {
         });
     }
 
-    private EntityTypeModel findBaseGlobal(String bt) {
+    private EntityTypeModel findBaseGlobal(String bt, String owner) {
         if (bt == null || bt.isBlank()) return null;
         EntityTypeModel base = entityTypeByQualifiedName.get(bt);
         if (base != null) return base;
         String simple = Names.simpleNameFromFullName(bt);
-        String className = Names.entityClassName(simple);
-        // Search across all schemas for simple name (handles unqualified cross-schema).
-        // Ambiguous matches must fail loudly (same policy as container Extends and the
-        // type-kind map): first-wins would make generation order-dependent.
-        EntityTypeModel found = null;
-        int matches = 0;
-        for (SchemaModel s : effectiveSchemas) {
-            for (EntityTypeModel et : s.entityTypes()) {
-                if (Names.entityClassName(et.name()).equals(className)) {
-                    found = et;
-                    matches++;
-                }
+        if (!bt.contains(".")) {
+            List<EntityTypeModel> matches = entitySimpleNameIndex.getOrDefault(simple, List.of());
+            String ownerNamespace = Names.namespaceFromFullName(owner);
+            List<EntityTypeModel> local = matches.stream()
+                    .filter(candidate -> ownerNamespace.equals(namespaceOf(candidate)))
+                    .toList();
+            if (local.size() == 1) return local.get(0);
+            if (local.size() > 1) {
+                throw new IllegalArgumentException("Ambiguous unqualified BaseType '" + bt
+                        + "' on entity '" + owner + "': matches " + local.size()
+                        + " entity types in namespace '" + ownerNamespace + "'; use a qualified name");
+            }
+            if (matches.size() == 1) return matches.get(0);
+            if (matches.size() > 1) {
+                throw new IllegalArgumentException("Ambiguous unqualified BaseType '" + bt
+                        + "' on entity '" + owner + "': matches " + matches.size()
+                        + " entity types; use a qualified name");
             }
         }
-        if (matches > 1) {
-            throw new IllegalArgumentException(
-                    "Ambiguous unqualified BaseType '" + bt + "': matches " + matches
-                            + " entity types with that simple name across schemas; use a qualified name (Namespace.Type)");
-        }
-        return found;
+        throw new IllegalStateException("Cannot generate entity '" + owner
+                + "': unknown BaseType '" + bt + "'");
     }
 
     private Set<String> openRootNamesForSchema(String namespace) {
@@ -576,14 +620,8 @@ public class EntityGenerator extends AbstractTypeGenerator {
         if (baseType != null && !Names.namespaceFromFullName(baseType).isEmpty()) {
             return baseType;
         }
-        for (SchemaModel s : effectiveSchemas) {
-            for (EntityTypeModel et : s.entityTypes()) {
-                if (et == base) {
-                    return s.namespace() + "." + base.name();
-                }
-            }
-        }
-        return schema.namespace() + "." + base.name();
+        String namespace = namespaceOf(base);
+        return (namespace.isEmpty() ? schema.namespace() : namespace) + "." + base.name();
     }
 
     /**
@@ -617,14 +655,7 @@ public class EntityGenerator extends AbstractTypeGenerator {
         if (bt == null || bt.isBlank()) {
             return null;
         }
-        // Prefer qualified-name lookup (cross-schema)
-        EntityTypeModel base = entityTypeByQualifiedName.get(bt);
-        if (base != null) return base;
-        // Fallback: same-schema by simple name
-        EntityTypeModel sameSchema = entityTypeMap.get(Names.entityClassName(Names.simpleNameFromFullName(bt)));
-        if (sameSchema != null) return sameSchema;
-        // Cross-schema unqualified fallback: search all schemas for simple name
-        return findBaseGlobal(bt);
+        return findBaseGlobal(bt, namespaceOf(entityType) + "." + entityType.name());
     }
 
     private List<PropertyModel> inheritedProperties(EntityTypeModel entityType) {
@@ -699,47 +730,51 @@ public class EntityGenerator extends AbstractTypeGenerator {
     }
 
     private String generatePropertyConstant(PropertyModel prop, String className, SchemaModel schema) {
+        SchemaModel owner = schemaForProperty(prop, schema);
         String edmType = prop.edmType();
         String constantName = constantNameFor(prop.name());
 
         if (Names.isCollectionType(edmType)) {
             String elementType = Names.unwrapCollectionType(edmType);
-            String elementClassName = resolveClassNameForConstant(elementType, schema);
-            Names.TypeKind kind = Names.resolveTypeKind(elementType, effectiveSchemas);
+            String elementClassName = resolveClassNameForConstant(elementType, owner);
+            Names.TypeKind kind = resolveTypeKind(elementType, schemaForProperty(prop, schema));
             if (kind == Names.TypeKind.ENTITY) {
                 return "    public static final CollectionProperty<" + className + ", " + elementClassName
                         + ", " + elementClassName + ".Filterable, " + elementClassName + ".Selector> " + constantName
                         + " = new CollectionProperty<>(\"" + Names.escapeJavaString(prop.name()) + "\", " + className + ".class, "
-                        + elementClassName + ".class, " + elementClassName + ".Filterable::new, " + elementClassName + ".Selector::new);\n";
+                        + elementClassName + ".class, " + elementClassName + ".Filterable::new, " + elementClassName + ".Selector::new, "
+                        + collectionElementEdmTypeLiteral(prop.edmType(), owner) + ");\n";
             } else if (kind == Names.TypeKind.COMPLEX) {
                 // complex elements have no Selector (no request class targets them) — wildcard
                 return "    public static final CollectionProperty<" + className + ", " + elementClassName
                         + ", " + elementClassName + ".Filterable, ?> " + constantName
                         + " = new CollectionProperty<>(\"" + Names.escapeJavaString(prop.name()) + "\", " + className + ".class, "
-                        + elementClassName + ".class, " + elementClassName + ".Filterable::new);\n";
+                        + elementClassName + ".class, " + elementClassName + ".Filterable::new, null, "
+                        + collectionElementEdmTypeLiteral(prop.edmType(), owner) + ");\n";
             } else {
                 return "    public static final CollectionProperty<" + className + ", " + elementClassName
                         + ", CollectionProperty.FilterableElement<" + elementClassName + ">, ?> " + constantName
                         + " = new CollectionProperty<>(\"" + Names.escapeJavaString(prop.name()) + "\", " + className + ".class, "
-                        + elementClassName + ".class, CollectionProperty.FilterableElement::new);\n";
+                        + elementClassName + ".class, CollectionProperty.FilterableElement::new, null, "
+                        + collectionElementEdmTypeLiteral(prop.edmType(), owner) + ");\n";
             }
         }
 
-        String constantType = getPropertyConstantType(edmType, schema);
+        String constantType = getPropertyConstantType(edmType, owner);
         if (constantType == null) {
             return ""; // Binary, Stream, Geography, Geometry — not filterable
         }
         String typeParams = switch (constantType) {
-            case "EnumProperty" -> "<" + className + ", " + resolveClassNameForConstant(edmType, schema) + ">";
-            case "NumberProperty" -> "<" + className + ", " + getNumberJavaType(resolveTypeDefinition(edmType, schema)) + ">";
+            case "EnumProperty" -> "<" + className + ", " + resolveClassNameForConstant(edmType, owner) + ">";
+            case "NumberProperty" -> "<" + className + ", " + getNumberJavaType(resolveTypeDefinition(edmType, owner)) + ">";
             default -> "<" + className + ">";
         };
 
         String extra = "";
         if (constantType.equals("EnumProperty")) {
-            extra = ", " + resolveClassNameForConstant(edmType, schema) + ".class, \"" + Names.escapeJavaString(qualifiedEdmName(resolveTypeDefinition(edmType, schema), schema)) + "\"";
-        } else if (constantType.equals("NumberProperty")) {
-            extra = ", \"" + Names.escapeJavaString(resolveTypeDefinition(edmType, schema)) + "\"";
+            extra = ", " + resolveClassNameForConstant(edmType, owner) + ".class, \"" + Names.escapeJavaString(qualifiedEdmName(resolveTypeDefinition(edmType, owner), owner)) + "\"";
+        } else if (constantType.equals("NumberProperty") || constantType.equals("DateTimeProperty")) {
+            extra = ", \"" + Names.escapeJavaString(resolveTypeDefinition(edmType, owner)) + "\"";
         }
         return "    public static final " + constantType + typeParams + " "
                 + constantName
@@ -749,22 +784,23 @@ public class EntityGenerator extends AbstractTypeGenerator {
     }
 
     private String generateNavConstant(NavigationPropertyModel nav, String className, SchemaModel schema) {
+        SchemaModel owner = schemaForNavigation(nav, schema);
         boolean isCollection = Names.isCollectionType(nav.type());
         String unwrapped = Names.unwrapCollectionType(nav.type());
         // Complex-target navs (possible through TypeDefinition chains) are skipped:
         // complex types have no Selector, so the constants could not compile. Valid
         // CSDL navigations always target entity types.
-        if (Names.resolveTypeKind(resolveTypeDefinition(unwrapped, schema), effectiveSchemas)
+        if (resolveTypeKind(resolveTypeDefinition(unwrapped, owner), owner)
                 != Names.TypeKind.ENTITY) {
             return "";
         }
-        String elementClassName = refFor(resolveTypeDefinition(unwrapped, schema), schema);
+        String elementClassName = refFor(resolveTypeDefinition(unwrapped, owner), owner);
         String constantName = constantNameFor(nav.name());
 
         if (isCollection) {
-            return "    public static final CollectionProperty<" + className + ", "
+            return "    public static final NavCollectionProperty<" + className + ", "
                     + elementClassName + ", " + elementClassName + ".Filterable, " + elementClassName + ".Selector> " + constantName
-                    + " = new CollectionProperty<>(\"" + Names.escapeJavaString(nav.name()) + "\", " + className + ".class, "
+                    + " = new NavCollectionProperty<>(\"" + Names.escapeJavaString(nav.name()) + "\", " + className + ".class, "
                     + elementClassName + ".class, " + elementClassName + ".Filterable::new, " + elementClassName + ".Selector::new);\n";
         } else {
             return "    public static final NavQuery<" + className + ", "
@@ -807,8 +843,8 @@ public class EntityGenerator extends AbstractTypeGenerator {
                     className, schema));
         }
         for (NavigationPropertyModel nav : allNavs) {
-            if (Names.resolveTypeKind(resolveTypeDefinition(Names.unwrapCollectionType(nav.type()), schema),
-                    effectiveSchemas) != Names.TypeKind.ENTITY) {
+            if (resolveTypeKind(resolveTypeDefinition(Names.unwrapCollectionType(nav.type()),
+                    schemaForNavigation(nav, schema)), schemaForNavigation(nav, schema)) != Names.TypeKind.ENTITY) {
                 continue;
             }
             sb.append(generateSelectorNavField(nav, ownNavNames.contains(nav.name()),
@@ -826,48 +862,52 @@ public class EntityGenerator extends AbstractTypeGenerator {
 
     private String generateSelectorPropertyField(PropertyModel prop, boolean own,
                                                  String className, SchemaModel schema) {
+        SchemaModel owner = schemaForProperty(prop, schema);
         String edmType = prop.edmType();
         String constantName = constantNameFor(prop.name());
         String shared = className + "." + constantName;
         if (Names.isCollectionType(edmType)) {
             String elementType = Names.unwrapCollectionType(edmType);
-            String elementClassName = resolveClassNameForConstant(elementType, schema);
-            Names.TypeKind kind = Names.resolveTypeKind(elementType, effectiveSchemas);
+            String elementClassName = resolveClassNameForConstant(elementType, owner);
+            Names.TypeKind kind = resolveTypeKind(elementType, schemaForProperty(prop, schema));
             if (kind == Names.TypeKind.ENTITY) {
                 return "    public final CollectionProperty<" + className + ", " + elementClassName
                         + ", " + elementClassName + ".Filterable, " + elementClassName + ".Selector> " + constantName
                         + " = " + (own ? shared
                         : "new CollectionProperty<>(\"" + Names.escapeJavaString(prop.name()) + "\", " + className + ".class, "
-                        + elementClassName + ".class, " + elementClassName + ".Filterable::new, " + elementClassName + ".Selector::new)") + ";\n";
+                        + elementClassName + ".class, " + elementClassName + ".Filterable::new, " + elementClassName + ".Selector::new, "
+                        + collectionElementEdmTypeLiteral(edmType, owner) + ")") + ";\n";
             } else if (kind == Names.TypeKind.COMPLEX) {
                 return "    public final CollectionProperty<" + className + ", " + elementClassName
                         + ", " + elementClassName + ".Filterable, ?> " + constantName
                         + " = " + (own ? shared
                         : "new CollectionProperty<>(\"" + Names.escapeJavaString(prop.name()) + "\", " + className + ".class, "
-                        + elementClassName + ".class, " + elementClassName + ".Filterable::new)") + ";\n";
+                        + elementClassName + ".class, " + elementClassName + ".Filterable::new, null, "
+                        + collectionElementEdmTypeLiteral(edmType, owner) + ")") + ";\n";
             } else {
                 return "    public final CollectionProperty<" + className + ", " + elementClassName
                         + ", CollectionProperty.FilterableElement<" + elementClassName + ">, ?> " + constantName
                         + " = " + (own ? shared
                         : "new CollectionProperty<>(\"" + Names.escapeJavaString(prop.name()) + "\", " + className + ".class, "
-                        + elementClassName + ".class, CollectionProperty.FilterableElement::new)") + ";\n";
+                        + elementClassName + ".class, CollectionProperty.FilterableElement::new, null, "
+                        + collectionElementEdmTypeLiteral(edmType, owner) + ")") + ";\n";
             }
         }
 
-        String constantType = getPropertyConstantType(edmType, schema);
+        String constantType = getPropertyConstantType(edmType, owner);
         if (constantType == null) {
             return ""; // Binary, Stream, Geography, Geometry — not filterable, no constant
         }
         String typeParams = switch (constantType) {
-            case "EnumProperty" -> "<" + className + ", " + resolveClassNameForConstant(edmType, schema) + ">";
-            case "NumberProperty" -> "<" + className + ", " + getNumberJavaType(resolveTypeDefinition(edmType, schema)) + ">";
+            case "EnumProperty" -> "<" + className + ", " + resolveClassNameForConstant(edmType, owner) + ">";
+            case "NumberProperty" -> "<" + className + ", " + getNumberJavaType(resolveTypeDefinition(edmType, owner)) + ">";
             default -> "<" + className + ">";
         };
         String extra = "";
         if (constantType.equals("EnumProperty")) {
-            extra = ", " + resolveClassNameForConstant(edmType, schema) + ".class, \"" + Names.escapeJavaString(qualifiedEdmName(resolveTypeDefinition(edmType, schema), schema)) + "\"";
-        } else if (constantType.equals("NumberProperty")) {
-            extra = ", \"" + Names.escapeJavaString(resolveTypeDefinition(edmType, schema)) + "\"";
+            extra = ", " + resolveClassNameForConstant(edmType, owner) + ".class, \"" + Names.escapeJavaString(qualifiedEdmName(resolveTypeDefinition(edmType, owner), owner)) + "\"";
+        } else if (constantType.equals("NumberProperty") || constantType.equals("DateTimeProperty")) {
+            extra = ", \"" + Names.escapeJavaString(resolveTypeDefinition(edmType, owner)) + "\"";
         }
         return "    public final " + constantType + typeParams + " " + constantName
                 + " = " + (own ? shared
@@ -876,16 +916,17 @@ public class EntityGenerator extends AbstractTypeGenerator {
     }
 
     private String generateSelectorNavField(NavigationPropertyModel nav, boolean own,
-                                            String className, SchemaModel schema) {
+                                             String className, SchemaModel schema) {
+        SchemaModel owner = schemaForNavigation(nav, schema);
         String unwrapped = Names.unwrapCollectionType(nav.type());
-        String elementClassName = refFor(resolveTypeDefinition(unwrapped, schema), schema);
+        String elementClassName = refFor(resolveTypeDefinition(unwrapped, owner), owner);
         String constantName = constantNameFor(nav.name());
         String shared = className + "." + constantName;
         if (Names.isCollectionType(nav.type())) {
-            return "    public final CollectionProperty<" + className + ", "
+            return "    public final NavCollectionProperty<" + className + ", "
                     + elementClassName + ", " + elementClassName + ".Filterable, " + elementClassName + ".Selector> " + constantName
                     + " = " + (own ? shared
-                    : "new CollectionProperty<>(\"" + Names.escapeJavaString(nav.name()) + "\", " + className + ".class, "
+                    : "new NavCollectionProperty<>(\"" + Names.escapeJavaString(nav.name()) + "\", " + className + ".class, "
                     + elementClassName + ".class, " + elementClassName + ".Filterable::new, " + elementClassName + ".Selector::new)") + ";\n";
         }
         return "    public final NavQuery<" + className + ", "
@@ -952,8 +993,9 @@ public class EntityGenerator extends AbstractTypeGenerator {
     }
 
     private List<EntitySubtype> subtypesFor(NavigationPropertyModel nav, SchemaModel schema) {
-        String target = resolveTypeDefinition(Names.unwrapCollectionType(nav.type()), schema);
-        if (Names.resolveTypeKind(target, effectiveSchemas) != Names.TypeKind.ENTITY) {
+        SchemaModel owner = schemaForNavigation(nav, schema);
+        String target = resolveTypeDefinition(Names.unwrapCollectionType(nav.type()), owner);
+        if (resolveTypeKind(target, owner) != Names.TypeKind.ENTITY) {
             return List.of();
         }
         return subtypesByBase.getOrDefault(target, List.of());
@@ -1033,7 +1075,7 @@ public class EntityGenerator extends AbstractTypeGenerator {
             String pfn = Names.toJavaFieldName(p.name());
             if (Names.isCollectionType(p.edmType())) {
                 sb.append("        e.").append(pfn).append(" = this.").append(pfn)
-                  .append(" == null ? null : List.copyOf(this.").append(pfn).append(");\n");
+                  .append(" == null ? null : java.util.Collections.unmodifiableList(new java.util.ArrayList<>(this.").append(pfn).append("));\n");
             } else {
                 sb.append("        e.").append(pfn).append(" = this.").append(pfn).append(";\n");
             }
@@ -1041,10 +1083,14 @@ public class EntityGenerator extends AbstractTypeGenerator {
         for (NavigationPropertyModel n : allNavs) {
             String nfn = Names.toJavaFieldName(n.name());
             if (n.name().equals(nav.name())) {
-                sb.append("        e.").append(nfn).append(" = value;\n");
+                if (Names.isCollectionType(n.type())) {
+                    sb.append("        e.").append(nfn).append(" = value == null ? null : java.util.Collections.unmodifiableList(new java.util.ArrayList<>(value));\n");
+                } else {
+                    sb.append("        e.").append(nfn).append(" = value;\n");
+                }
             } else if (Names.isCollectionType(n.type())) {
                 sb.append("        e.").append(nfn).append(" = this.").append(nfn)
-                  .append(" == null ? null : List.copyOf(this.").append(nfn).append(");\n");
+                  .append(" == null ? null : java.util.Collections.unmodifiableList(new java.util.ArrayList<>(this.").append(nfn).append("));\n");
             } else {
                 sb.append("        e.").append(nfn).append(" = this.").append(nfn).append(";\n");
             }
@@ -1089,7 +1135,11 @@ public class EntityGenerator extends AbstractTypeGenerator {
             String javaType = resolvePropertyJavaType(prop, schema, true);
             String fn = Names.toJavaFieldName(prop.name());
             sb.append("        public Builder ").append(fn).append("(").append(javaType).append(" value) {\n");
-            sb.append("            this.").append(fn).append(" = value;\n");
+            if (Names.isCollectionType(prop.edmType())) {
+                sb.append("            this.").append(fn).append(" = value == null ? null : java.util.Collections.unmodifiableList(new java.util.ArrayList<>(value));\n");
+            } else {
+                sb.append("            this.").append(fn).append(" = value;\n");
+            }
             sb.append("            changed.add(\"").append(Names.escapeJavaString(prop.name())).append("\");\n");
             sb.append("            return this;\n");
             sb.append("        }\n\n");
@@ -1099,7 +1149,11 @@ public class EntityGenerator extends AbstractTypeGenerator {
             String javaType = navJavaType(nav, schema);
             String fn = Names.toJavaFieldName(nav.name());
             sb.append("        public Builder ").append(fn).append("(").append(javaType).append(" value) {\n");
-            sb.append("            this.").append(fn).append(" = value;\n");
+            if (Names.isCollectionType(nav.type())) {
+                sb.append("            this.").append(fn).append(" = value == null ? null : java.util.Collections.unmodifiableList(new java.util.ArrayList<>(value));\n");
+            } else {
+                sb.append("            this.").append(fn).append(" = value;\n");
+            }
             // nav changes must be tracked like property changes, or partial PATCH drops them
             sb.append("            changed.add(\"").append(Names.escapeJavaString(nav.name())).append("\");\n");
             sb.append("            return this;\n");
@@ -1118,11 +1172,19 @@ public class EntityGenerator extends AbstractTypeGenerator {
         sb.append("            e.etag = etag;\n");
         for (PropertyModel prop : props) {
             String fn = Names.toJavaFieldName(prop.name());
-            sb.append("            e.").append(fn).append(" = ").append(fn).append(";\n");
+            sb.append("            e.").append(fn).append(" = ").append(fn);
+            if (Names.isCollectionType(prop.edmType())) {
+                sb.append(" == null ? null : java.util.Collections.unmodifiableList(new java.util.ArrayList<>(").append(fn).append("))");
+            }
+            sb.append(";\n");
         }
         for (NavigationPropertyModel nav : navs) {
             String fn = Names.toJavaFieldName(nav.name());
-            sb.append("            e.").append(fn).append(" = ").append(fn).append(";\n");
+            sb.append("            e.").append(fn).append(" = ").append(fn);
+            if (Names.isCollectionType(nav.type())) {
+                sb.append(" == null ? null : java.util.Collections.unmodifiableList(new java.util.ArrayList<>(").append(fn).append("))");
+            }
+            sb.append(";\n");
         }
         sb.append("            e.unmappedFields = unmappedFields;\n");
         sb.append("            e.changedFields = new java.util.HashSet<>(changed);\n");
@@ -1146,10 +1208,14 @@ public class EntityGenerator extends AbstractTypeGenerator {
         for (PropertyModel p : allProps) {
             String pfn = Names.toJavaFieldName(p.name());
             if (p.name().equals(prop.name())) {
-                sb.append("        e.").append(pfn).append(" = value;\n");
+                if (Names.isCollectionType(p.edmType())) {
+                    sb.append("        e.").append(pfn).append(" = value == null ? null : java.util.Collections.unmodifiableList(new java.util.ArrayList<>(value));\n");
+                } else {
+                    sb.append("        e.").append(pfn).append(" = value;\n");
+                }
             } else if (Names.isCollectionType(p.edmType())) {
                 sb.append("        e.").append(pfn).append(" = this.").append(pfn)
-                  .append(" == null ? null : List.copyOf(this.").append(pfn).append(");\n");
+                  .append(" == null ? null : java.util.Collections.unmodifiableList(new java.util.ArrayList<>(this.").append(pfn).append("));\n");
             } else {
                 sb.append("        e.").append(pfn).append(" = this.").append(pfn).append(";\n");
             }
@@ -1158,7 +1224,7 @@ public class EntityGenerator extends AbstractTypeGenerator {
             String nfn = Names.toJavaFieldName(nav.name());
             if (Names.isCollectionType(nav.type())) {
                 sb.append("        e.").append(nfn).append(" = this.").append(nfn)
-                  .append(" == null ? null : List.copyOf(this.").append(nfn).append(");\n");
+                  .append(" == null ? null : java.util.Collections.unmodifiableList(new java.util.ArrayList<>(this.").append(nfn).append("));\n");
             } else {
                 sb.append("        e.").append(nfn).append(" = this.").append(nfn).append(";\n");
             }
@@ -1171,28 +1237,4 @@ public class EntityGenerator extends AbstractTypeGenerator {
         return sb.toString();
     }
 
-    private boolean isBuiltinType(String name) {
-        return switch (name) {
-            case "String", "Boolean", "Integer", "Long", "Float", "Double", "Byte", "Short" -> true;
-            default -> false;
-        };
-    }
-
-    /**
-     * Key property refs that name no existing (own or inherited) property previously
-     * produced Object-typed key accessors that only failed at URL-build time; fail at
-     * generation with the entity and the offending ref named.
-     */
-    private static void checkKeyPropertyRefs(EntityTypeModel entityType, String className,
-                                             List<PropertyModel> allProps) {
-        for (var key : entityType.keys()) {
-            for (String ref : key.propertyRefs()) {
-                boolean found = allProps.stream().anyMatch(pr -> pr.name().equals(ref));
-                if (!found) {
-                    throw new IllegalStateException("Entity " + className + ": key PropertyRef '"
-                            + ref + "' does not match any property (own or inherited)");
-                }
-            }
-        }
-    }
 }

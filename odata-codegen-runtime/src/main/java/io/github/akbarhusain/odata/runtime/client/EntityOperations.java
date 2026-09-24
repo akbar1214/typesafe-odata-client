@@ -1,7 +1,12 @@
 package io.github.akbarhusain.odata.runtime.client;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.JavaType;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.github.akbarhusain.odata.runtime.entity.Context;
 import io.github.akbarhusain.odata.runtime.entity.ContextPath;
 import io.github.akbarhusain.odata.runtime.entity.SchemaInfo;
@@ -12,6 +17,12 @@ import io.github.akbarhusain.odata.runtime.paging.CollectionPage;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
+import java.lang.reflect.Modifier;
+import java.lang.reflect.ParameterizedType;
+import java.lang.reflect.Type;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.*;
@@ -26,8 +37,11 @@ public class EntityOperations {
     private static final System.Logger LOG = System.getLogger(EntityOperations.class.getName());
 
     private static final ObjectMapper COLLECTION_MAPPER;
-    private static final JavaType MAP_TYPE;
     private static final ConcurrentHashMap<Class<?>, JavaType> LIST_TYPE_CACHE = new ConcurrentHashMap<>();
+    private static final Set<String> LIFECYCLE_JSON_NAMES = Set.of(
+            "changedfields", "unmappedfields", "contextpath", "etag", "key",
+            "getchangedfields", "getunmappedfields", "getcontextpath", "getetag", "getkey",
+            "odatatypename", "odatatypeannotation", "odatatype");
 
     static {
         // One OData-format configuration for every wire mapper (ISO temporal strings,
@@ -35,7 +49,6 @@ public class EntityOperations {
         // rather than the entity Serializer, so it must not drift from it
         ObjectMapper mapper = JacksonSerializer.newODataMapper();
         COLLECTION_MAPPER = mapper;
-        MAP_TYPE = mapper.getTypeFactory().constructMapType(HashMap.class, String.class, Object.class);
     }
 
     private EntityOperations() {}
@@ -84,40 +97,54 @@ public class EntityOperations {
         }
     }
 
-    @SuppressWarnings("unchecked")
-    private static <T> T deserializePolymorphic(byte[] body, Context context, Class<T> declaredType,
-                                                SchemaInfo schemaInfo) {
+    public static <T> T deserializeBatchEntity(byte[] body, io.github.akbarhusain.odata.runtime.serialization.Serializer serializer,
+                                               Type declaredType, SchemaInfo schemaInfo) {
+        Objects.requireNonNull(serializer, "serializer must not be null");
+        if (body == null || body.length == 0 || declaredType == null) {
+            return null;
+        }
+        if (schemaInfo == null || !(declaredType instanceof Class<?> declaredClass)) {
+            return serializer.deserialize(body, declaredType);
+        }
         try {
-            var node = COLLECTION_MAPPER.readTree(body);
-            if (node != null && node.isObject()) {
-                var typeNode = node.get("@odata.type");
-                if (typeNode != null && typeNode.isTextual()) {
-                    String typeName = stripTypeAnnotationPrefix(typeNode.asText());
-                    Class<?> actual = schemaInfo.getClassFromTypeWithNamespace(typeName);
-                    if (actual != null && declaredType.isAssignableFrom(actual)) {
-                        return (T) context.serializer().deserialize(body, actual);
-                    }
-                    LOG.log(System.Logger.Level.DEBUG,
-                            actual == null
-                                    ? "Ignoring unresolvable @odata.type '" + typeName
-                                            + "' for declared type " + declaredType.getName()
-                                            + "; deserializing as declared"
-                                    : "@odata.type '" + typeName + "' resolves to " + actual.getName()
-                                            + ", which is not a " + declaredType.getName()
-                                            + "; deserializing as declared");
+            JsonNode node = COLLECTION_MAPPER.readTree(body);
+            Class<?> target = declaredClass;
+            JsonNode typeNode = node != null && node.isObject() ? node.get("@odata.type") : null;
+            if (typeNode != null && typeNode.isTextual()) {
+                Class<?> actual = schemaInfo.getClassFromTypeWithNamespace(
+                        stripTypeAnnotationPrefix(typeNode.asText()));
+                if (actual != null && declaredClass.isAssignableFrom(actual)) {
+                    target = actual;
                 }
             }
+            return (T) serializer.deserialize(body, target);
         } catch (IOException e) {
-            // fall through to declared-type deserialization below
-            LOG.log(System.Logger.Level.DEBUG,
-                    "Polymorphic @odata.type sniffing failed; deserializing as declared", e);
+            throw new ODataException("Failed to parse batch response: " + e.getMessage(), e);
         }
-        return null;
     }
 
-    /** {@code @odata.type} values may be URL fragments: {@code #Namespace.Type}. */
+    @SuppressWarnings("unchecked")
+    private static <T> T deserializePolymorphic(byte[] body, Context context, Class<T> declaredType,
+                                                 SchemaInfo schemaInfo) {
+        try {
+            JsonNode node = COLLECTION_MAPPER.readTree(body);
+            if (node == null || node.isNull()) {
+                return null;
+            }
+            return (T) deserializeNode(node, declaredType, context, schemaInfo);
+        } catch (IOException e) {
+            LOG.log(System.Logger.Level.DEBUG,
+                    "Polymorphic @odata.type sniffing failed; deserializing as declared", e);
+            return null;
+        }
+    }
+
     private static String stripTypeAnnotationPrefix(String typeName) {
-        return typeName.startsWith("#") ? typeName.substring(1) : typeName;
+        if (typeName == null) {
+            return null;
+        }
+        int hash = typeName.lastIndexOf('#');
+        return hash >= 0 ? typeName.substring(hash + 1) : typeName;
     }
 
     @SuppressWarnings("unchecked")
@@ -126,7 +153,7 @@ public class EntityOperations {
         HttpResponse response = executeSync(context, HttpMethod.POST, path, body,
                 Map.of("Content-Type", "application/json"));
         checkResponse(response);
-        return deserializeOrNull(response, context, responseType);
+        return deserializeWriteResponse(response, context, responseType, entity);
     }
 
     @SuppressWarnings("unchecked")
@@ -135,7 +162,7 @@ public class EntityOperations {
         HttpResponse response = executeSync(context, HttpMethod.PUT, path, body,
                 Map.of("Content-Type", "application/json"));
         checkResponse(response);
-        return deserializeOrNull(response, context, responseType);
+        return deserializeWriteResponse(response, context, responseType, entity);
     }
 
     @SuppressWarnings("unchecked")
@@ -149,7 +176,7 @@ public class EntityOperations {
         }
         HttpResponse response = executeSync(context, HttpMethod.PUT, path, body, headers);
         checkResponse(response);
-        return deserializeOrNull(response, context, responseType);
+        return deserializeWriteResponse(response, context, responseType, entity);
     }
 
     /**
@@ -179,13 +206,20 @@ public class EntityOperations {
         return context.serializer().deserialize(response.body(), responseType);
     }
 
+    private static <T> T deserializeWriteResponse(HttpResponse response, Context context,
+                                                   Class<T> responseType, Object submittedEntity) {
+        T result = deserializeOrNull(response, context, responseType);
+        applyEtagHeader(result != null ? result : submittedEntity, response);
+        return result;
+    }
+
     @SuppressWarnings("unchecked")
     public static <T> T executePatchEntity(Context context, ContextPath path, Object entity, Class<T> responseType) {
         byte[] body = serializeForPatch(context, entity, responseType);
         HttpResponse response = executeSync(context, HttpMethod.PATCH, path, body,
                 Map.of("Content-Type", "application/json"));
         checkResponse(response);
-        return deserializeOrNull(response, context, responseType);
+        return deserializeWriteResponse(response, context, responseType, entity);
     }
 
     @SuppressWarnings("unchecked")
@@ -199,7 +233,7 @@ public class EntityOperations {
         }
         HttpResponse response = executeSync(context, HttpMethod.PATCH, path, body, headers);
         checkResponse(response);
-        return deserializeOrNull(response, context, responseType);
+        return deserializeWriteResponse(response, context, responseType, entity);
     }
 
     public static void executeDelete(Context context, ContextPath path) {
@@ -255,24 +289,22 @@ public class EntityOperations {
     }
 
     public static void removeRef(Context context, ContextPath navigationPath, String targetKey) {
-        ContextPath refPath = navigationPath.addSegment("$ref");
-        if (targetKey != null && !targetKey.isEmpty()) {
-            // Like @odata.id, the $id query parameter must be an absolute entity URI on
-            // strict services (TripPin resolves it as a query). Entity paths (containing
-            // a '/' or a key predicate) are resolved against the service root; bare key
-            // values are passed through as-is for services that accept them.
-            String id = targetKey;
-            if (!isAbsoluteHttpUrl(targetKey)
-                    && (targetKey.indexOf('/') >= 0 || targetKey.indexOf('(') >= 0)) {
-                id = trimTrailingSlash(context.baseUrl()) + "/" + trimLeadingSlash(targetKey);
-            }
-            refPath = refPath.addQuery("$id", id);
+        if (targetKey == null || targetKey.isBlank()) {
+            throw new IllegalArgumentException(
+                    "targetKey must not be null or blank (pass the target entity's absolute "
+                            + "or root-relative URI, e.g. People('key'))");
         }
+        ContextPath refPath = navigationPath.addSegment("$ref");
+        String id = targetKey;
+        if (!isAbsoluteHttpUrl(targetKey)
+                && (targetKey.indexOf('/') >= 0 || targetKey.indexOf('(') >= 0)) {
+            id = trimTrailingSlash(context.baseUrl()) + "/" + trimLeadingSlash(targetKey);
+        }
+        refPath = refPath.addQuery("$id", id);
         HttpResponse response = executeSync(context, HttpMethod.DELETE, refPath, null, null);
         checkResponse(response);
     }
 
-    @SuppressWarnings("unchecked")
     public static <T> CollectionPage<T> executeAndGetCollection(Context context, ContextPath path,
                                                                   Class<T> elementType) {
         return executeAndGetCollection(context, path, elementType, null);
@@ -288,88 +320,376 @@ public class EntityOperations {
         checkResponse(response);
 
         if (response.body() == null || response.body().length == 0) {
-            // 204/empty-bodied 2xx collection responses (documented TripPin behavior) mean no items
             return new CollectionPage<>(List.of(), null, null);
         }
 
         try {
-            Map<String, Object> envelope = COLLECTION_MAPPER.readValue(response.body(), MAP_TYPE);
+            JsonNode envelope = COLLECTION_MAPPER.readTree(response.body());
+            if (envelope == null || !envelope.isObject()) {
+                throw new ODataException("Invalid collection response: expected a JSON object");
+            }
+            JsonNode valueNode = envelope.get("value");
+            if (valueNode == null || !valueNode.isArray()) {
+                throw new ODataException("Invalid collection response: 'value' must be an array");
+            }
+            valueNode = sanitizeCollectionPayload(valueNode, elementType);
 
             String nextLink = null;
-            Object nextLinkObj = envelope.get("@odata.nextLink");
-            if (nextLinkObj instanceof String s && !s.isEmpty()) {
-                nextLink = s;
+            JsonNode nextLinkNode = envelope.get("@odata.nextLink");
+            if (nextLinkNode != null && nextLinkNode.isTextual() && !nextLinkNode.asText().isEmpty()) {
+                nextLink = nextLinkNode.asText();
             }
 
             Long count = null;
-            Object countObj = envelope.get("@odata.count");
-            if (countObj instanceof Number n) {
-                count = n.longValue();
+            JsonNode countNode = envelope.get("@odata.count");
+            if (countNode != null && countNode.isNumber()) {
+                count = countNode.asLong();
             }
 
             List<T> items;
-            Object valueObj = envelope.get("value");
-            if (valueObj instanceof List<?> rawList && !rawList.isEmpty()) {
-                boolean polymorphic = schemaInfo != null && rawList.stream()
-                        .anyMatch(e -> e instanceof Map<?, ?> m && m.containsKey("@odata.type"));
-                if (polymorphic) {
-                    items = new ArrayList<>(rawList.size());
-                    for (Object element : rawList) {
-                        items.add(deserializeElement(context, element, elementType, schemaInfo));
-                    }
-                } else if (context.serializer() instanceof JacksonSerializer) {
-                    // Fast path for the default serializer: in-memory conversion, no
-                    // re-serialization round trip (profiling lessons 34/37)
-                    JavaType listType = LIST_TYPE_CACHE.computeIfAbsent(
-                            elementType, t -> COLLECTION_MAPPER.getTypeFactory()
-                                    .constructCollectionType(List.class, t));
-                    items = COLLECTION_MAPPER.convertValue(rawList, listType);
-                } else {
-                    // Honor a pluggable Serializer: it sees each element's bytes. The
-                    // Serializer interface has no tree/convert API, so each element is
-                    // re-serialized and delegated (page sizes are small).
-                    items = new ArrayList<>(rawList.size());
-                    for (Object element : rawList) {
-                        try {
-                            items.add(context.serializer().deserialize(
-                                    COLLECTION_MAPPER.writeValueAsBytes(element), elementType));
-                        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
-                            throw new ODataException("Failed to parse collection response: " + e.getMessage(), e);
-                        }
-                    }
+            if (schemaInfo != null && containsTypeAnnotation(valueNode)) {
+                items = new ArrayList<>(valueNode.size());
+                for (JsonNode element : valueNode) {
+                    items.add(deserializeNode(element, elementType, context, schemaInfo));
+                }
+            } else if (context.serializer().getClass() == JacksonSerializer.class) {
+                JavaType listType = LIST_TYPE_CACHE.computeIfAbsent(
+                        elementType, t -> COLLECTION_MAPPER.getTypeFactory()
+                                .constructCollectionType(List.class, t));
+                try {
+                    items = COLLECTION_MAPPER.convertValue(valueNode, listType);
+                } catch (RuntimeException e) {
+                    throw conversionFailure(e);
                 }
             } else {
-                items = List.of();
+                items = new ArrayList<>(valueNode.size());
+                for (JsonNode element : valueNode) {
+                    items.add(deserializeNode(element, elementType, context, schemaInfo));
+                }
             }
 
             return new CollectionPage<>(items, nextLink, count);
+        } catch (ODataException e) {
+            throw e;
         } catch (IOException e) {
             throw new ODataException("Failed to parse collection response: " + e.getMessage(), e);
         }
     }
 
+    private static ODataException conversionFailure(RuntimeException cause) {
+        if (cause instanceof ODataException odataException) {
+            return odataException;
+        }
+        return new ODataException("Failed to convert collection response: " + cause.getMessage(), cause);
+    }
+
+    private static boolean containsTypeAnnotation(JsonNode node) {
+        if (node == null) {
+            return false;
+        }
+        if (node.isObject()) {
+            if (node.has("@odata.type")) {
+                return true;
+            }
+            for (JsonNode child : node) {
+                if (containsTypeAnnotation(child)) {
+                    return true;
+                }
+            }
+        } else if (node.isArray()) {
+            for (JsonNode child : node) {
+                if (containsTypeAnnotation(child)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     @SuppressWarnings("unchecked")
-    private static <T> T deserializeElement(Context context, Object element, Class<T> declaredType,
-                                            SchemaInfo schemaInfo) {
+    private static <T> T deserializeNode(JsonNode node, Class<T> declaredType,
+                                         Context context, SchemaInfo schemaInfo) {
+        if (node == null || node.isNull()) {
+            return null;
+        }
         Class<?> target = declaredType;
-        if (element instanceof Map<?, ?> m) {
-            Object typeName = m.get("@odata.type");
-            if (typeName instanceof String s) {
-                Class<?> actual = schemaInfo.getClassFromTypeWithNamespace(stripTypeAnnotationPrefix(s));
+        if (schemaInfo != null && node.isObject()) {
+            JsonNode typeNode = node.get("@odata.type");
+            if (typeNode != null && typeNode.isTextual()) {
+                Class<?> actual = schemaInfo.getClassFromTypeWithNamespace(
+                        stripTypeAnnotationPrefix(typeNode.asText()));
                 if (actual != null && declaredType.isAssignableFrom(actual)) {
                     target = actual;
                 }
             }
         }
-        try {
-            if (context.serializer() instanceof JacksonSerializer) {
-                return (T) COLLECTION_MAPPER.convertValue(element, target);
+        JsonNode safeNode = sanitizeNodeForTarget(node, target);
+        Object result = deserializeJsonValue(safeNode, target, context);
+        if (schemaInfo != null && result != null && safeNode.isObject() && containsTypeAnnotation(safeNode)) {
+            repairExpandedValues(result, safeNode, target, context, schemaInfo);
+        }
+        return (T) result;
+    }
+
+    private static Object deserializeValue(JsonNode node, Type declaredType,
+                                           Context context, SchemaInfo schemaInfo) {
+        if (node == null || node.isNull()) {
+            if (declaredType instanceof ParameterizedType parameterized
+                    && rawClass(parameterized.getRawType()) == Optional.class) {
+                return Optional.empty();
             }
-            return context.serializer().deserialize(COLLECTION_MAPPER.writeValueAsBytes(element), (Class<T>) target);
-        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
-            throw new ODataException("Failed to parse collection response: " + e.getMessage(), e);
+            return null;
+        }
+        if (declaredType instanceof ParameterizedType parameterized) {
+            Class<?> raw = rawClass(parameterized.getRawType());
+            if (Collection.class.isAssignableFrom(raw)) {
+                Type elementType = parameterized.getActualTypeArguments()[0];
+                Collection<Object> values = Set.class.isAssignableFrom(raw)
+                        ? new LinkedHashSet<>() : new ArrayList<>();
+                for (JsonNode element : node) {
+                    values.add(deserializeValue(element, elementType, context, schemaInfo));
+                }
+                return values;
+            }
+            if (Optional.class.isAssignableFrom(raw)) {
+                return Optional.ofNullable(deserializeValue(node,
+                        parameterized.getActualTypeArguments()[0], context, schemaInfo));
+            }
+        }
+        Class<?> raw = rawClass(declaredType);
+        if (node.isArray() && Collection.class.isAssignableFrom(raw)) {
+            List<Object> values = new ArrayList<>(node.size());
+            for (JsonNode element : node) {
+                values.add(deserializeValue(element, Object.class, context, schemaInfo));
+            }
+            return values;
+        }
+        return deserializeNode(node, raw, context, schemaInfo);
+    }
+
+    private static Object deserializeJsonValue(JsonNode node, Class<?> target, Context context) {
+        try {
+            if (context.serializer().getClass() == JacksonSerializer.class) {
+                return COLLECTION_MAPPER.convertValue(node, target);
+            }
+            return context.serializer().deserialize(COLLECTION_MAPPER.writeValueAsBytes(node), target);
+        } catch (ODataException e) {
+            throw e;
+        } catch (IOException | RuntimeException e) {
+            throw new ODataException("Failed to convert response to " + target.getName()
+                    + ": " + e.getMessage(), e);
         }
     }
+
+    private static Class<?> rawClass(Type type) {
+        if (type instanceof Class<?> clazz) {
+            return clazz;
+        }
+        if (type instanceof ParameterizedType parameterized
+                && parameterized.getRawType() instanceof Class<?> clazz) {
+            return clazz;
+        }
+        return Object.class;
+    }
+
+    private static void repairExpandedValues(Object bean, JsonNode node, Class<?> type,
+                                             Context context, SchemaInfo schemaInfo) {
+        Map<String, PropertyAccess> properties = propertyAccess(type);
+        var fields = node.fields();
+        while (fields.hasNext()) {
+            var entry = fields.next();
+            if (entry.getKey().startsWith("@")) {
+                continue;
+            }
+            PropertyAccess property = properties.get(entry.getKey());
+            if (isLifecycleJsonName(entry.getKey())
+                    && (property == null || !property.explicitlyMapped())) {
+                continue;
+            }
+            if (property == null || (!entry.getValue().isObject()
+                    && !entry.getValue().isArray() && !entry.getValue().isNull())) {
+                continue;
+            }
+            Object replacement = deserializeValue(entry.getValue(), property.type(), context, schemaInfo);
+            setProperty(bean, property, replacement);
+        }
+    }
+
+    private static JsonNode sanitizeCollectionPayload(JsonNode valueNode, Class<?> elementType) {
+        if (valueNode == null || !valueNode.isArray()) {
+            return valueNode;
+        }
+        ArrayNode copy = null;
+        for (int i = 0; i < valueNode.size(); i++) {
+            JsonNode original = valueNode.get(i);
+            JsonNode safe = sanitizeNodeForType(original, elementType);
+            if (safe != original) {
+                if (copy == null) {
+                    copy = (ArrayNode) valueNode.deepCopy();
+                }
+                copy.set(i, safe);
+            }
+        }
+        return copy == null ? valueNode : copy;
+    }
+
+    private static JsonNode sanitizeNodeForType(JsonNode node, Type type) {
+        if (node == null || node.isNull()) {
+            return node;
+        }
+        if (type instanceof ParameterizedType parameterized) {
+            Class<?> raw = rawClass(parameterized.getRawType());
+            if (Collection.class.isAssignableFrom(raw) && node.isArray()) {
+                Type elementType = parameterized.getActualTypeArguments()[0];
+                ArrayNode copy = null;
+                for (int i = 0; i < node.size(); i++) {
+                    JsonNode original = node.get(i);
+                    JsonNode safe = sanitizeNodeForType(original, elementType);
+                    if (safe != original) {
+                        if (copy == null) {
+                            copy = (ArrayNode) node.deepCopy();
+                        }
+                        copy.set(i, safe);
+                    }
+                }
+                return copy == null ? node : copy;
+            }
+            if (Optional.class.isAssignableFrom(raw)) {
+                return sanitizeNodeForTarget(node, rawClass(parameterized.getActualTypeArguments()[0]));
+            }
+        }
+        return sanitizeNodeForTarget(node, rawClass(type));
+    }
+
+    private static JsonNode sanitizeNodeForTarget(JsonNode node, Class<?> target) {
+        if (node == null || !node.isObject() || !io.github.akbarhusain.odata.runtime.entity.ODataType.class
+                .isAssignableFrom(target)) {
+            return node;
+        }
+        Map<String, PropertyAccess> properties = propertyAccess(target);
+        ObjectNode copy = null;
+        var fields = node.fields();
+        while (fields.hasNext()) {
+            var entry = fields.next();
+            PropertyAccess property = properties.get(entry.getKey());
+            boolean lifecycle = isLifecycleJsonName(entry.getKey())
+                    && (property == null || !property.explicitlyMapped());
+            if (lifecycle) {
+                if (copy == null) {
+                    copy = (ObjectNode) node.deepCopy();
+                }
+                copy.remove(entry.getKey());
+                continue;
+            }
+            if (property != null) {
+                JsonNode safe = sanitizeNodeForType(entry.getValue(), property.type());
+                if (safe != entry.getValue()) {
+                    if (copy == null) {
+                        copy = (ObjectNode) node.deepCopy();
+                    }
+                    copy.set(entry.getKey(), safe);
+                }
+            }
+        }
+        return copy == null ? node : copy;
+    }
+
+    private static boolean isLifecycleJsonName(String name) {
+        return name != null && LIFECYCLE_JSON_NAMES.contains(name.toLowerCase(Locale.ROOT));
+    }
+
+    private static Map<String, PropertyAccess> propertyAccess(Class<?> type) {
+        Map<String, PropertyAccess> result = new LinkedHashMap<>();
+        for (Class<?> current = type; current != null && current != Object.class;
+                current = current.getSuperclass()) {
+            Set<String> ignoredNames = ignoredPropertyNames(current);
+            for (Field field : current.getDeclaredFields()) {
+                if (Modifier.isStatic(field.getModifiers())
+                        || field.getAnnotation(JsonIgnore.class) != null) {
+                    continue;
+                }
+                JsonProperty annotation = field.getAnnotation(JsonProperty.class);
+                String name = annotation != null && !annotation.value().isEmpty()
+                        ? annotation.value() : field.getName();
+                if (ignoredNames.contains(name.toLowerCase(Locale.ROOT))
+                        || (isLifecycleJsonName(name) && annotation == null)) {
+                    continue;
+                }
+                result.putIfAbsent(name, new PropertyAccess(field, null, field.getGenericType(),
+                        annotation != null, false));
+            }
+            for (Method method : current.getDeclaredMethods()) {
+                if (Modifier.isStatic(method.getModifiers()) || method.getParameterCount() != 1
+                        || !method.getName().startsWith("set")
+                        || method.getName().length() <= 3
+                        || method.getAnnotation(JsonIgnore.class) != null) {
+                    continue;
+                }
+                String suffix = method.getName().substring(3);
+                String javaName = Character.toLowerCase(suffix.charAt(0)) + suffix.substring(1);
+                JsonProperty annotation = method.getAnnotation(JsonProperty.class);
+                String name = annotation != null && !annotation.value().isEmpty()
+                        ? annotation.value() : javaName;
+                boolean explicit = annotation != null;
+                if (ignoredNames.contains(name.toLowerCase(Locale.ROOT))
+                        || (isLifecycleJsonName(name) && !explicit)) {
+                    continue;
+                }
+                PropertyAccess existing = result.get(name);
+                if (existing == null) {
+                    result.put(name, new PropertyAccess(null, method, method.getGenericParameterTypes()[0],
+                            explicit, false));
+                } else if (existing.setter() == null) {
+                    result.put(name, new PropertyAccess(existing.field(), method,
+                            method.getGenericParameterTypes()[0], existing.explicitlyMapped() || explicit,
+                            existing.lifecycle()));
+                }
+            }
+        }
+        return result;
+    }
+
+    private static Set<String> ignoredPropertyNames(Class<?> type) {
+        Set<String> names = new HashSet<>();
+        for (Method method : type.getDeclaredMethods()) {
+            if (method.getParameterCount() != 0 || method.getAnnotation(JsonIgnore.class) == null) {
+                continue;
+            }
+            String name = method.getName();
+            if (name.startsWith("get") && name.length() > 3) {
+                name = name.substring(3);
+            } else if (name.startsWith("is") && name.length() > 2) {
+                name = name.substring(2);
+            } else {
+                continue;
+            }
+            names.add(Character.toLowerCase(name.charAt(0)) + name.substring(1)
+                    .toLowerCase(Locale.ROOT));
+        }
+        return names;
+    }
+
+    private static void setProperty(Object bean, PropertyAccess property, Object value) {
+        try {
+            if (property.setter() != null) {
+                if (!property.setter().canAccess(bean)) {
+                    property.setter().setAccessible(true);
+                }
+                property.setter().invoke(bean, value);
+            } else if (property.field() != null) {
+                if (!property.field().canAccess(bean)) {
+                    property.field().setAccessible(true);
+                }
+                property.field().set(bean, value);
+            }
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            throw new ODataException("Failed to materialize expanded value: " + e.getMessage(), e);
+        }
+    }
+
+    private record PropertyAccess(Field field, Method setter, Type type,
+                                  boolean explicitlyMapped, boolean lifecycle) {}
+
 
     public static long executeCount(Context context, ContextPath path) {
         ContextPath countPath = path.addCountSegment();
@@ -594,7 +914,7 @@ public class EntityOperations {
      */
     static com.fasterxml.jackson.databind.JsonNode unwrapValueEnvelope(
             com.fasterxml.jackson.databind.JsonNode root) {
-        if (!root.isObject() || !root.has("value")) {
+        if (root == null || root.isNull() || !root.isObject() || !root.has("value")) {
             return root;
         }
         for (var it = root.fieldNames(); it.hasNext(); ) {
@@ -617,19 +937,10 @@ public class EntityOperations {
             return null;
         }
         try {
-            var root = unwrapValueEnvelope(COLLECTION_MAPPER.readTree(bodyBytes));
-            Class<?> target = type;
-            if (schemaInfo != null && root.isObject()) {
-                var typeNode = root.get("@odata.type");
-                if (typeNode != null && typeNode.isTextual()) {
-                    Class<?> actual = schemaInfo.getClassFromTypeWithNamespace(
-                            stripTypeAnnotationPrefix(typeNode.asText()));
-                    if (actual != null && type.isAssignableFrom(actual)) {
-                        target = actual;
-                    }
-                }
-            }
-            return (T) context.serializer().deserialize(COLLECTION_MAPPER.writeValueAsBytes(root), target);
+            JsonNode root = unwrapValueEnvelope(COLLECTION_MAPPER.readTree(bodyBytes));
+            return (T) deserializeNode(root, type, context, schemaInfo);
+        } catch (ODataException e) {
+            throw e;
         } catch (IOException e) {
             throw new ODataException("Failed to parse operation result: " + e.getMessage(), e);
         }
@@ -683,23 +994,15 @@ public class EntityOperations {
 
     public static CompletableFuture<InputStream> streamMediaAsync(Context context, ContextPath path) {
         String url = path.toUrl();
-        Map<String, List<String>> headers = new LinkedHashMap<>();
-        for (var entry : context.authProvider().getHeaders().entrySet()) {
-            headers.put(entry.getKey(), new ArrayList<>(List.of(entry.getValue())));
-        }
-        // Request the raw media bytes, not JSON metadata — overwrites any
-        // same-named header case-insensitively so exactly one Accept goes out
-        setHeaderCaseInsensitive(headers, "Accept", "*/*");
-
         HttpRequest request = HttpRequest.builder()
                 .method(HttpMethod.GET)
                 .url(url)
-                .headers(headers)
+                .headers(requestHeaders(context, url, Map.of("Accept", "*/*"), "application/json"))
                 .connectTimeout(context.connectTimeout())
                 .readTimeout(context.readTimeout())
                 .build();
 
-        return buildTransportChain(context, context.transport()).stream(request);
+        return submitStream(buildTransportChain(context, context.transport()), request);
     }
 
     public static void putMedia(Context context, ContextPath path, byte[] body, String contentType, String etag) {
@@ -713,18 +1016,19 @@ public class EntityOperations {
         checkResponse(response);
     }
 
-    // Chains are cached per Context (records compare by value, so identical configurations
-    // share one chain) — building N wrappers per request was the last per-request
-    // allocation hotspot once interceptors are registered (M10)
-    private static final Map<Context, HttpTransport> CHAIN_CACHE =
+    private static final Map<Context, Map<HttpTransport, HttpTransport>> CHAIN_CACHE =
             java.util.Collections.synchronizedMap(new java.util.WeakHashMap<>());
 
     public static HttpTransport buildTransportChain(Context context, HttpTransport real) {
+        Objects.requireNonNull(context, "context must not be null");
+        Objects.requireNonNull(real, "real transport must not be null");
         if (context.interceptors().isEmpty()) {
             return real;
         }
         synchronized (CHAIN_CACHE) {
-            HttpTransport cached = CHAIN_CACHE.get(context);
+            Map<HttpTransport, HttpTransport> byTransport = CHAIN_CACHE.computeIfAbsent(
+                    context, ignored -> new IdentityHashMap<>());
+            HttpTransport cached = byTransport.get(real);
             if (cached != null) {
                 return cached;
             }
@@ -736,8 +1040,6 @@ public class EntityOperations {
                 transport = new HttpTransport() {
                     @Override
                     public CompletableFuture<HttpResponse> submit(HttpRequest request) {
-                        // Interceptor failures must complete the future exceptionally, not
-                        // escape synchronously — callers compose with exceptionally()/handle()
                         try {
                             return CompletableFuture.completedFuture(next.intercept(request, delegate));
                         } catch (RuntimeException e) {
@@ -747,21 +1049,136 @@ public class EntityOperations {
 
                     @Override
                     public CompletableFuture<InputStream> stream(HttpRequest request) {
-                        return next.stream(request, delegate);
+                        return submitInterceptorStream(next, request, delegate);
                     }
                 };
             }
-            CHAIN_CACHE.put(context, transport);
+            byTransport.put(real, transport);
             return transport;
         }
     }
 
-    /**
-     * Appends a value to the header entry whose name matches case-insensitively,
-     * creating it when absent. HTTP header names are case-insensitive (RFC 9110);
-     * exact-key merging would send "authorization" and "Authorization" as two
-     * headers. First-seen casing wins so output stays deterministic.
-     */
+    private static CompletableFuture<InputStream> submitStream(HttpTransport transport,
+                                                                HttpRequest request) {
+        try {
+            CompletableFuture<InputStream> result = transport.stream(request);
+            return result == null ? CompletableFuture.failedFuture(
+                    new NullPointerException("HTTP stream transport returned null future")) : result;
+        } catch (RuntimeException e) {
+            return CompletableFuture.failedFuture(e);
+        }
+    }
+
+    private static CompletableFuture<InputStream> submitInterceptorStream(HttpInterceptor interceptor,
+                                                                            HttpRequest request,
+                                                                            HttpTransport delegate) {
+        try {
+            CompletableFuture<InputStream> result = interceptor.stream(request, delegate);
+            return result == null ? CompletableFuture.failedFuture(
+                    new NullPointerException("HTTP stream interceptor returned null future")) : result;
+        } catch (RuntimeException e) {
+            return CompletableFuture.failedFuture(e);
+        }
+    }
+
+    private static final Set<String> REPLACED_PROTOCOL_HEADERS = Set.of(
+            "accept", "content-type", "if-match", "odata-version", "odata-maxversion");
+
+    public static Map<String, List<String>> requestHeaders(Context context, String url,
+                                                            Map<String, String> extraHeaders,
+                                                            String defaultAccept) {
+        Objects.requireNonNull(context, "context must not be null");
+        Map<String, String> authHeaders = Objects.requireNonNull(
+                context.authProvider().getHeaders(), "authentication headers must not be null");
+        validateAuthenticationOrigin(context, url, authHeaders, extraHeaders);
+
+        int headerCount = authHeaders.size() + (extraHeaders != null ? extraHeaders.size() : 0);
+        Map<String, List<String>> headers = new LinkedHashMap<>(Math.max(headerCount + 4, 8));
+        for (Map.Entry<String, String> entry : authHeaders.entrySet()) {
+            String name = HttpHeaders.requireRequestName(entry.getKey());
+            HttpHeaders.requireRequestValue(name, entry.getValue());
+            if (!REPLACED_PROTOCOL_HEADERS.contains(name.toLowerCase(Locale.ROOT))) {
+                putHeaderCaseInsensitive(headers, name, entry.getValue());
+            }
+        }
+        if (extraHeaders != null) {
+            for (Map.Entry<String, String> entry : extraHeaders.entrySet()) {
+                String name = HttpHeaders.requireRequestName(entry.getKey());
+                HttpHeaders.requireRequestValue(name, entry.getValue());
+                if (REPLACED_PROTOCOL_HEADERS.contains(name.toLowerCase(Locale.ROOT))) {
+                    setHeaderCaseInsensitive(headers, name, entry.getValue());
+                } else {
+                    putHeaderCaseInsensitive(headers, name, entry.getValue());
+                }
+            }
+        }
+        if (defaultAccept != null) {
+            ensureHeader(headers, "Accept", defaultAccept);
+        }
+        ensureHeader(headers, "OData-Version", "4.0");
+        ensureHeader(headers, "OData-MaxVersion", "4.01");
+        return headers;
+    }
+
+    private static void validateAuthenticationOrigin(Context context, String url,
+                                                       Map<String, String> authHeaders,
+                                                       Map<String, String> extraHeaders) {
+        boolean hasAuthentication = !authHeaders.isEmpty();
+        if (!hasAuthentication && extraHeaders != null) {
+            hasAuthentication = extraHeaders.keySet().stream().anyMatch(EntityOperations::isAuthenticationHeader);
+        }
+        if (!hasAuthentication) {
+            return;
+        }
+        final URI base;
+        final URI target;
+        try {
+            base = URI.create(context.baseUrl());
+            URI parsed = URI.create(url);
+            target = parsed.isAbsolute() ? parsed : base.resolve(parsed);
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("Request URL is not a valid absolute URI", e);
+        }
+        if (!sameOrigin(base, target)) {
+            throw new IllegalArgumentException(
+                    "Refusing to forward configured authentication to a cross-origin or HTTPS-downgrade URL");
+        }
+    }
+
+    private static boolean isAuthenticationHeader(String name) {
+        String lower = name.toLowerCase(Locale.ROOT);
+        return lower.equals("authorization")
+                || lower.equals("proxy-authorization")
+                || lower.equals("cookie")
+                || lower.contains("token")
+                || lower.contains("api-key")
+                || lower.contains("apikey")
+                || lower.contains("auth");
+    }
+
+    private static boolean sameOrigin(URI left, URI right) {
+        if (left.getScheme() == null || right.getScheme() == null
+                || left.getHost() == null || right.getHost() == null) {
+            return false;
+        }
+        return left.getScheme().equalsIgnoreCase(right.getScheme())
+                && left.getHost().equalsIgnoreCase(right.getHost())
+                && effectivePort(left) == effectivePort(right);
+    }
+
+    private static int effectivePort(URI uri) {
+        if (uri.getPort() >= 0) {
+            return uri.getPort();
+        }
+        if ("https".equalsIgnoreCase(uri.getScheme())) {
+            return 443;
+        }
+        if ("http".equalsIgnoreCase(uri.getScheme())) {
+            return 80;
+        }
+        return -1;
+    }
+
     private static void putHeaderCaseInsensitive(Map<String, List<String>> headers,
                                                  String name, String value) {
         for (String key : headers.keySet()) {
@@ -773,15 +1190,20 @@ public class EntityOperations {
         headers.put(name, new ArrayList<>(List.of(value)));
     }
 
-    /**
-     * Sets a header, replacing any existing entry whose name matches
-     * case-insensitively. For protocol-framing headers the runtime owns
-     * (media Accept, batch Content-Type) the forced value must win exactly once.
-     */
     private static void setHeaderCaseInsensitive(Map<String, List<String>> headers,
                                                  String name, String value) {
         headers.keySet().removeIf(key -> key.equalsIgnoreCase(name));
         headers.put(name, new ArrayList<>(List.of(value)));
+    }
+
+    private static boolean hasHeader(Map<String, List<String>> headers, String name) {
+        return headers.keySet().stream().anyMatch(key -> key.equalsIgnoreCase(name));
+    }
+
+    private static void ensureHeader(Map<String, List<String>> headers, String name, String value) {
+        if (!hasHeader(headers, name)) {
+            setHeaderCaseInsensitive(headers, name, value);
+        }
     }
 
     // Internal helpers
@@ -810,6 +1232,11 @@ public class EntityOperations {
             Thread.currentThread().interrupt();
             throw new ODataException(what + ": interrupted (" + ie.getMessage() + ")", ie);
         }
+        if (cause instanceof ODataException odataException
+                && odataException.getCause() instanceof InterruptedException) {
+            Thread.currentThread().interrupt();
+            throw odataException;
+        }
         if (cause instanceof RuntimeException re) throw re;
     }
 
@@ -817,34 +1244,22 @@ public class EntityOperations {
                                                                 ContextPath path, byte[] body,
                                                                 Map<String, String> extraHeaders) {
         String url = path.toUrl();
-        Map<String, String> authHeaders = context.authProvider().getHeaders();
-        int headerCount = authHeaders.size() + (extraHeaders != null ? extraHeaders.size() : 0);
-        Map<String, List<String>> headers = new LinkedHashMap<>(Math.max(headerCount + 1, 4));
-
-        for (var entry : authHeaders.entrySet()) {
-            headers.put(entry.getKey(), new ArrayList<>(List.of(entry.getValue())));
-        }
-
-        if (extraHeaders != null) {
-            for (var entry : extraHeaders.entrySet()) {
-                // Case-insensitive merge: auth "authorization" plus extra "Authorization"
-                // must become ONE header (the JDK joins duplicate keys "v1, v2" and
-                // breaks auth). First-seen casing wins; values append in order.
-                putHeaderCaseInsensitive(headers, entry.getKey(), entry.getValue());
-            }
-        }
-
         HttpRequest request = HttpRequest.builder()
                 .method(method)
                 .url(url)
-                .headers(headers)
+                .headers(requestHeaders(context, url, extraHeaders, "application/json"))
                 .body(body)
                 .connectTimeout(context.connectTimeout())
                 .readTimeout(context.readTimeout())
                 .build();
 
         HttpTransport transport = buildTransportChain(context, context.transport());
-
-        return transport.submit(request);
+        try {
+            CompletableFuture<HttpResponse> result = transport.submit(request);
+            return result == null ? CompletableFuture.failedFuture(
+                    new NullPointerException("HTTP transport returned null future")) : result;
+        } catch (RuntimeException e) {
+            return CompletableFuture.failedFuture(e);
+        }
     }
 }

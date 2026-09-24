@@ -1,31 +1,29 @@
 # Generated Code Structure
 
-What OData Codegen generates from your CSDL metadata.
+This page describes the source emitted for a base package such as `com.example.trippin`. Names and exact types depend on the CSDL metadata; the examples below use TripPin names that are present in the repository's generated fixtures.
 
-## Directory Structure
+## Directory Layout
 
-```
+```text
 com/example/trippin/
 ├── entity/
 │   ├── Person.java
 │   ├── Trip.java
-│   ├── Photo.java
-│   ├── Airline.java
-│   ├── Airport.java
-│   └── PlanItem.java
+│   └── ...
 ├── complex/
 │   ├── Location.java
 │   ├── City.java
-│   ├── AirportLocation.java
 │   └── ...
 ├── enums/
-│   ├── PersonGender.java
-│   └── TripPlanType.java
-├── request/
+│   └── PersonGender.java
+├── entity/request/
 │   ├── PersonEntityRequest.java
+│   └── ...
+├── collection/request/
 │   ├── PersonCollectionRequest.java
-│   ├── TripEntityRequest.java
-│   ├── TripCollectionRequest.java
+│   └── ...
+├── operation/
+│   ├── GetNearestAirportFunctionRequest.java
 │   └── ...
 ├── container/
 │   └── DefaultContainer.java
@@ -35,358 +33,213 @@ com/example/trippin/
 
 ## Entity Classes
 
-### Immutable class (not a record)
-
-Generated entities are `final class` (not Java `record`s) so they can implement
-`ODataEntityType`, carry Jackson deserialization annotations, and support
-inheritance. Fields are `protected` (not `final`) so Jackson setters and the
-no-args constructor can populate them; getters return immutable views.
+Entity classes implement `ODataEntityType`. They are classes rather than records and use protected fields because Jackson populates them through no-argument construction and setters. The no-argument constructor is public for concrete entity types and protected for abstract entity types.
 
 ```java
 public final class Person implements ODataEntityType {
-    // Static property constants (UPPER_CASE)
-    public static final StringProperty<Person> USER_NAME = ...;
-    public static final StringProperty<Person> FIRST_NAME = ...;
-    public static final NumberProperty<Person, Long> AGE = ...;
-    public static final CollectionProperty<Person, String, CollectionProperty.FilterableElement<String>> EMAILS = ...;
+    public static final StringProperty<Person> FIRST_NAME =
+        new StringProperty<>("FirstName", Person.class);
 
-    // Mutable fields (deserialized via public setters)
-    protected String userName;
+    public static final CollectionProperty<Person, String,
+        CollectionProperty.FilterableElement<String>, ?> EMAILS =
+        new CollectionProperty<>("Emails", Person.class, String.class,
+            CollectionProperty.FilterableElement::new, null, "Edm.String");
+
+    public static final NavCollectionProperty<Person, Trip,
+        Trip.Filterable, Trip.Selector> TRIPS =
+        new NavCollectionProperty<>("Trips", Person.class, Trip.class,
+            Trip.Filterable::new, Trip.Selector::new);
+
+    public static final NavQuery<Person, Photo, Photo.Selector> PHOTO =
+        NavQuery.of("Photo", Photo.Selector::new);
+
     protected String firstName;
-    // Navigation fields — hold expanded ($expand) data deserialized from JSON
+    protected List<String> emails;
     protected List<Trip> trips;
     protected Photo photo;
 
-    // Public no-args constructor for Jackson, Builder, and with*()
-    public Person() { ... }
+    public Person() {
+    }
 
-    // Jackson setters
-    @JsonProperty("UserName")
-    public void setUserName(String value) { this.userName = value; }
+    @JsonProperty("FirstName")
+    public void setFirstName(String value) {
+        this.firstName = value;
+    }
 
-    @JsonProperty("Trips")
-    public void setTrips(List<Trip> trips) { this.trips = trips; }
+    public String getFirstName() {
+        return firstName;
+    }
 
-    @JsonProperty("@odata.etag")
-    public void setEtag(String etag) { ... }
+    public List<String> getEmails() {
+        return emails == null ? List.of() : Collections.unmodifiableList(emails);
+    }
 
-    // Getters — nullable props return Optional<T>; collections are unmodifiable
-    public String getUserName() { return userName; }
-    public Optional<String> getFirstName() { return Optional.ofNullable(firstName); }
+    public List<Trip> getTrips() {
+        return trips == null ? List.of() : Collections.unmodifiableList(trips);
+    }
 
-    // Navigation getters — materialized expanded ($expand) data
-    public List<Trip> getTrips() { return trips == null ? List.of() : Collections.unmodifiableList(trips); }
-    public Optional<Photo> getPhoto() { return Optional.ofNullable(photo); }
-
-    // Copy-on-write (only when generateWithMethods=true — see note below)
-    public Person withFirstName(String firstName) { ... }
-    public Person withTrips(List<Trip> trips) { ... }
-
-    // Builder — only for concrete, top-level entities
-    public static Builder builder() { return new Builder(); }
+    public Optional<Photo> getPhoto() {
+        return Optional.ofNullable(photo);
+    }
 }
 ```
 
-### Builder
+A scalar getter returns `Optional<T>` when its CSDL property is nullable and returns the boxed type otherwise. Collection getters always return an unmodifiable, empty-safe list. Singleton navigation getters return `Optional<T>`.
+
+Generated query constants are type-specific: supported scalar and enum properties implement `PropertyExpression`; collection-valued properties use `CollectionProperty`; and entity navigations use `NavCollectionProperty` or `NavQuery`. Binary, stream, spatial, and single complex-valued properties do not receive a `PropertyExpression` constant, and complex-target navigation constants are not emitted.
+
+### Builders and copy-on-write
+
+Concrete top-level entity types receive `builder()`. `with*()` methods are emitted only when the plugin's `generateWithMethods` parameter is true. They copy collection fields and dynamic-property maps, and merge the changed CSDL name into `changedFields`. The copy-on-write calls below therefore assume that option was enabled for the generated output.
 
 ```java
 Person person = Person.builder()
     .userName("scott")
     .firstName("Scott")
-    .lastName("Ketchum")
-    .age(42L)
-    .emails(List.of("scott@example.com"))
     .build();
+
+Person renamed = person.withFirstName("Scotty");
 ```
 
-### Inheritance
+### Selector and Filterable views
 
-When a CSDL entity type declares a `BaseType`, the generated subclass emits a
-real Java `extends` clause. Inherited fields, keys, getters, navigation
-properties, and property constants all resolve up the base chain. The subclass
-uses the public no-args constructor and copies inherited fields by name in its
-`with*()` copy-on-write methods.
+Each entity exposes a `Selector` for request selector lambdas and a `Filterable` view for collection `any`/`all` lambdas. `Selector` fields share the static constants where possible. Entity navigation collections use `NavCollectionProperty`; structural primitive collections use `CollectionProperty.FilterableElement`.
+
+### Inheritance and open types
+
+CSDL `BaseType` values become Java `extends` clauses on model classes. Base properties, keys, and navigation members are inherited; request generators re-emit the applicable navigation, stream, key, and bound-operation members on subtype request classes. Abstract types remain abstract.
+
+Open types emit `@JsonAnySetter` and `@JsonAnyGetter` support, expose `getUnmappedFields()` and `getDynamicProperty(...)`, and filter `@odata.*` control fields. Derived types emit a getter-only `@JsonProperty("@odata.type")` carrying the qualified subtype name.
+
+## Entity Request Classes
+
+Entity requests are final classes. They support typed `select` and `expand` options, navigation requests, CRUD, `$ref`, and batch conversion; media and bound-operation methods are added when the metadata declares them.
 
 ```java
-// CSDL: Flight -> PublicTransportation -> PlanItem
-public final class Flight extends PublicTransportation {
-    // only Flight's own fields are declared here; base fields live in the parent
-    public static final NumberProperty<Flight, Integer> FLIGHT_NUMBER = ...;
+public final class PersonEntityRequest {
+    public PersonEntityRequest select(
+        PropertyExpression<? super Person, ?>... properties);
+    public PersonEntityRequest select(
+        Function<Person.Selector,
+            ? extends PropertyExpression<? super Person, ?>>... selectors);
 
-    public Flight withFlightNumber(Integer n) { ... }   // returns Flight, base fields preserved
+    public PersonEntityRequest expand(Expandable<? super Person>... expandables);
+    public PersonEntityRequest expand(
+        Function<Person.Selector, ? extends Expandable<? super Person>> query);
+
+    public Person get();
+    public Person patch(Person entity);
+    public Person patchWithETag(Person entity, String etag);
+    public Person put(Person entity);
+    public Person putWithETag(Person entity, String etag);
+    public void delete();
+    public void deleteWithETag(String etag);
+
+    public TripCollectionRequest trips();
+    public TripEntityRequest trips(Integer tripId);
 }
 ```
 
-## OpenType (Dynamic Properties)
+`get()` returns `Person` directly, not `Optional<Person>`. An empty response body can result in `null`.
 
-A CSDL type marked `OpenType="true"` (or inheriting openness from a base type) may
-carry JSON fields that are not declared in the metadata. The generated class captures
-those into a `unmappedFields` map and exposes them:
+Media-capable requests add methods such as `streamMedia()`, `setMedia(InputStream)`, `setMedia(InputStream, String etag)`, `streamPhoto()`, and `setPhoto(...)`.
+
+Batch conversion methods include `toBatchOperation()`, `postToBatchOperation(...)` on collection requests, and `patchToBatchOperation(...)`, `putToBatchOperation(...)`, and `deleteToBatchOperation()` on entity requests. The entity-request batch GET includes the request's current `$select` and `$expand` options.
+
+## Collection Request Classes
+
+Collection requests are final immutable-style request builders. Each option returns a new request instance.
 
 ```java
-// CSDL: <EntityType Name="Person" OpenType="true">
-public class Person implements ODataEntityType {
-    // ... declared final fields, builder, with*() ...
+public final class PersonCollectionRequest {
+    public PersonCollectionRequest filter(
+        FilterExpression<? super Person> predicate);
+    public PersonCollectionRequest filter(
+        Function<Person.Selector,
+            ? extends FilterExpression<? super Person>> predicate);
 
-    // Generated for OpenType types (and subtypes of an open base):
-    @com.fasterxml.jackson.annotation.JsonAnySetter
-    protected void putDynamicProperty(String name, Object value) { ... }
+    public PersonCollectionRequest select(
+        PropertyExpression<? super Person, ?>... properties);
+    public PersonCollectionRequest select(
+        Function<Person.Selector,
+            ? extends PropertyExpression<? super Person, ?>>... selectors);
 
-    @com.fasterxml.jackson.annotation.JsonAnyGetter
-    @Override
-    public Map<String, Object> getUnmappedFields() { ... }   // unmodifiable view
+    public PersonCollectionRequest expand(
+        Expandable<? super Person>... expandables);
+    public PersonCollectionRequest expand(
+        Function<Person.Selector,
+            ? extends Expandable<? super Person>> query);
 
-    public Optional<Object> getDynamicProperty(String name) { ... }
+    public PersonCollectionRequest orderBy(
+        OrderExpression<? super Person, ?>... expressions);
+    public PersonCollectionRequest top(int count);
+    public PersonCollectionRequest skip(int count);
+    public PersonCollectionRequest count();
+    public PersonCollectionRequest search(String term);
+    public PersonCollectionRequest apply(ApplyExpression expression);
+    public PersonCollectionRequest apply(String rawExpression);
 
-    // Typed coercion of the stored Jackson value into your class (nested objects -> POJOs,
-    // numbers coerce, e.g. Integer -> Long). Throws IllegalArgumentException on mismatch.
-    public <T> Optional<T> getDynamicProperty(String name, Class<T> type) { ... }
+    public CollectionPage<Person> get();
+    public Stream<Person> stream();
+    public List<Person> toList();
+    public Person create(Person entity);
+    public PersonCollectionRequest nextPage(String nextLink);
+    public long countValue();
 }
 ```
 
-Notes:
-- `@odata.*` control fields (`@odata.id`, `@odata.editLink`, ...) are filtered out and
-  never land in `unmappedFields`.
-- Types with a `BaseType` (entities and complex types) emit a getter-only
-  `@JsonProperty("@odata.type")` returning `"#Namespace.Type"`, so posting a `Flight`
-  to `PlanItems` (or an `EventLocation` inside `AddressInfo`) tells the service which
-  subtype to materialize. Root types emit no annotation.
-- `getUnmappedFields()` returns an unmodifiable view; dynamic properties are also
-  re-serialized (POST/PATCH) via the `@JsonAnyGetter`, so they round-trip.
-- Openness propagates down the inheritance chain. An open subtype of a non-open base
-  captures dynamic props into the base's `unmappedFields` (which is initialized mutable
-  only when the hierarchy contains an open type).
+`count()` adds `$count=true` to the collection response. `countValue()` uses the `/$count` endpoint and removes options that are not valid for a count-only request. Zero-argument `select()` and `orderBy()` bridges exist because the generated request has both constant and selector-lambda varargs overloads.
 
-## Request Classes
+## Container Classes
 
-### Entity Request
-
-```java
-public class PersonEntityRequest {
-    private final Context context;
-    private final ContextPath path;
-
-    public Person get() { ... }
-    public Person patch(Person person) { ... }
-    public Person patchWithETag(Person person, String etag) { ... }
-    public void delete() { ... }
-
-    // Navigation
-    public TripCollectionRequest trips() { ... }
-    public PersonCollectionRequest friends() { ... }
-
-    // Media streams (only when HasStream="true" or an Edm.Stream property exists)
-    // Media entity: bytes at .../<EntitySet>(key)/$value
-    public java.io.InputStream streamMedia() { ... }
-    public void setMedia(java.io.InputStream content) { ... }
-    public void setMedia(java.io.InputStream content, String etag) { ... }
-
-    // Named stream (Edm.Stream property "Photo"): bytes at .../<EntitySet>(key)/Photo
-    public java.io.InputStream streamPhoto() { ... }
-    public void setPhoto(java.io.InputStream content) { ... }
-    public void setPhoto(java.io.InputStream content, String etag) { ... }
-}
-```
-
-### Collection Request
-
-```java
-public class PersonCollectionRequest {
-    private final Context context;
-    private final ContextPath path;
-
-    public CollectionPage<Person> get() { ... }
-    public Person create(Person person) { ... }
-
-    // Query operations
-    public PersonCollectionRequest filter(FilterExpression<Person> predicate) { ... }
-    public PersonCollectionRequest select(PropertyExpression<? super Person, ?>... properties) { ... }
-    public PersonCollectionRequest orderBy(OrderExpression<? super Person, ?>... sorts) { ... }
-    public PersonCollectionRequest top(int count) { ... }
-    public PersonCollectionRequest skip(int count) { ... }
-    public PersonCollectionRequest count() { ... }                     // $count=true (inline count)
-    public long countValue() { ... }                                   // GET /People/$count
-    public PersonCollectionRequest expand(NavProperty<? super Person, ?>... navs) { ... }
-    public PersonCollectionRequest expand(NavProperty.NavQuery<? super Person, ?>... queries) { ... }
-    public PersonCollectionRequest search(String term) { ... }         // $search
-    public PersonCollectionRequest apply(ApplyExpression expr) { ... }  // $apply (aggregation / $compute)
-    public PersonCollectionRequest apply(String raw) { ... }           // $apply (raw)
-
-    // Pagination
-    public PersonCollectionRequest nextPage(String nextLink) { ... }   // @odata.nextLink
-}
-```
-
-## Container Class
+The generated container owns the `Context` and exposes one accessor per entity set, singleton, function import, and action import. Keyed entity sets receive overloads that return entity requests directly.
 
 ```java
 public class DefaultContainer {
-    private final Context context;
-
-    public DefaultContainer(Context context) { ... }
-
-    // Entity sets
-    public PersonCollectionRequest people() { ... }
-    public TripCollectionRequest trips() { ... }
-    public AirlineCollectionRequest airlines() { ... }
-    public AirportCollectionRequest airports() { ... }
-    public PhotoCollectionRequest photos() { ... }
-
-    // Keyed overloads (decision 95) — key the first segment directly:
-    public PersonEntityRequest people(String userName) { ... }
-    public TripEntityRequest trips(Integer tripId) { ... }
+    public PersonCollectionRequest people();
+    public PersonEntityRequest people(String userName);
+    public TripCollectionRequest trips();
+    public GetNearestAirportFunctionRequest getNearestAirport(
+        double lat, double lon);
+    public ResetDataSourceActionRequest resetDataSource();
 }
 ```
 
-Entity requests are reached by keying at any level — container overloads for the
-first segment, keyed nav overloads for deeper segments:
+Collection requests do not expose a separate keyed accessor family. Use the keyed container overload and, for navigation, the keyed overload on the containing entity request.
+
+## Complex Types
+
+Complex types implement `ODataType`, have protected fields and typed setters/getters, and use the same inheritance conventions as entities. Concrete complex types have a public no-argument constructor; abstract complex types have a protected one. They have no key and no request class. A concrete top-level complex type receives a `Builder`; concrete subtypes use copy-on-write methods where enabled.
+
+## Enums
+
+Generated enums implement `ODataEnumValue`. They retain the CSDL numeric value, expose `getValue()`, serialize using the original CSDL member wire name through `@JsonValue`, and deserialize strings or numbers through `fromJson(Object)`. Sanitized Java member names do not change the wire name.
+
+## SchemaInfo
+
+Each output package receives one aggregate registry:
 
 ```java
-// Container keyed overload
-PersonEntityRequest req = client.people("scottketchum");
+public class SchemaInfo
+        implements io.github.akbarhusain.odata.runtime.entity.SchemaInfo {
+    public static final SchemaInfo INSTANCE = new SchemaInfo();
 
-// Keyed nav overload on the entity request
-CollectionPage<Trip> trips = client.people("scottketchum").trips().get();
-Trip trip = client.people("scottketchum").trips(1).get();   // People('x')/Trips(1)
-```
-
-Keyless entity sets emit only the zero-arg collection accessor.
-
-## Complex Type Classes
-
-Complex types are keyless value types, generated as classes that implement
-`ODataType`. Fields are `protected` so Jackson setters can populate them.
-
-```java
-public class Location implements ODataType {
-    protected String address;
-    protected City city;
-    // Navigation fields — hold expanded ($expand) data deserialized from JSON
-    protected Airport airportRef;
-
-    // Public no-args constructor for Jackson, Builder, and with*()
-    public Location() { ... }
-
-    // Jackson setters
-    @JsonProperty("Address")
-    public void setAddress(String value) { this.address = value; }
-
-    @JsonProperty("City")
-    public void setCity(City value) { this.city = value; }
-
-    @JsonProperty("AirportRef")
-    public void setAirportRef(Airport value) { this.airportRef = value; }
-
-    public String getAddress() { return address; }
-    public City getCity() { return city; }
-
-    // Navigation getter — materialized expanded ($expand) data
-    public Optional<Airport> getAirportRef() { return Optional.ofNullable(airportRef); }
-
-    // Copy-on-write
-    public Location withAddress(String value) { ... }
-    public Location withAirportRef(Airport value) { ... }
-
-    // Builder — only for concrete, top-level complex types
-    public static Builder builder() { ... }
-}
-```
-
-### Copy-on-Write (`with*()`) Generation
-
-`with*()` copy-on-write methods are **optional** — controlled by the
-`generateWithMethods` Maven plugin parameter (default `false`). When disabled,
-entities and complex types omit all `with*()` and `withNav*()` methods,
-reducing generated code volume significantly for large schemas.
-
-The `Builder` is always generated for root-level concrete types regardless of
-this flag, so creating new instances uses the builder pattern while mutation
-uses Jackson setters directly.
-
-### Complex Type Inheritance
-
-Like entities, complex types honor `BaseType` and emit a real `extends` clause.
-Subtypes declare only their own fields (base fields live in the parent) and get
-`with*()` copy-on-write methods (only when `generateWithMethods=true`).
-
-The `Builder` is generated **only for concrete top-level complex types** — a
-static `builder()` in a subtype would clash with the inherited one (Java forbids
-hiding a static method with an incompatible return type). Subtypes use `with*()`.
-
-```java
-// CSDL: EventLocation BaseType="...Location"
-public class EventLocation extends Location {
-    protected String buildingInfo;
-
-    public EventLocation() { super(); }
-
-    @JsonProperty("BuildingInfo")
-    public void setBuildingInfo(String value) { this.buildingInfo = value; }
-
-    public Optional<String> getBuildingInfo() { return Optional.ofNullable(buildingInfo); }
-
-    // Copy-on-write (no Builder — reuses the inherited builder() via with*)
-    public EventLocation withBuildingInfo(String value) {
-        EventLocation e = new EventLocation();
-        e.address = this.address;
-        e.city = this.city;
-        e.airportRef = this.airportRef;
-        e.buildingInfo = value;
-        return e;
-    }
-}
-```
-
-## Enum Classes
-
-```java
-public enum PersonGender {
-    MALE("Male"),
-    FEMALE("Female"),
-    UNDEFINED("Unspecified");
-
-    private final String value;
-
-    PersonGender(String value) { this.value = value; }
-
-    public String getValue() { return value; }
-
-    // CSDL member name on the wire — even when the Java constant was sanitized
-    @JsonValue
-    @Override
-    public String wireName() { return wireName; }
-}
-```
-
-`Edm.Byte` (unsigned, 0..255) maps to `Short`; `Edm.SByte` maps to `Byte`.
-
-## Schema Info
-
-```java
-public class SchemaInfo implements SchemaInfo {
     @Override
     public Class<?> getClassFromTypeWithNamespace(String name) {
-        return switch (name) {
-            case "Person" -> Person.class;
-            case "Trip" -> Trip.class;
-            case "Location" -> Location.class;
-            // ... all types
-            default -> null;
-        };
+        return classes.get(name);
     }
 }
 ```
 
-## Naming Conventions
+The registry maps fully qualified CSDL type names to generated classes and is used for polymorphic `@odata.type` reads.
 
-| Input | Output |
-|-------|--------|
-| `Person` (entity type) | `Person.java` |
-| `FirstName` (property) | `firstName` (field), `FIRST_NAME` (constant) |
-| `GetTrips` (function) | `getTrips()` (method) |
-| `Microsoft.OData.SampleService.Models.TripPin` | `com.example.trippin` |
+## Naming and URL Rules
 
-## What's Next
+| Metadata name | Generated form |
+|---------------|----------------|
+| `Person` entity | `Person.java` |
+| `FirstName` property | `firstName` field, `FIRST_NAME` constant |
+| `GetTrips` function | `getTrips()` accessor where bound, or an operation request class |
+| Namespace `Microsoft.OData.SampleService.Models.TripPin` | configured base package plus generated suffix |
 
-- [Query Expression API](query-api.md) — Complete list of operations
-- [HTTP Transport](http-transport.md) — API details
+Single-key accessors use a nameless key predicate, while composite keys include property names. Generated key formatting uses the CSDL Edm type rather than guessing from the Java value shape.

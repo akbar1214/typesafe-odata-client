@@ -1,246 +1,116 @@
 # Query Expression API
 
-Complete reference for type-safe query operations.
+The runtime expression types are generic over the entity that owns a property. Generated constants pass the owning entity class, which gives request methods compile-time entity bounds.
 
 ## Property Types
 
-### StringProperty
+### `StringProperty<E>`
 
-| Method | OData | Description |
-|--------|-------|-------------|
-| `equalTo(value)` | `eq` | Exact match |
-| `notEqualTo(value)` | `ne` | Not equal |
-| `greaterThan(value)` | `gt` | Greater than |
-| `greaterThanOrEqualTo(value)` | `ge` | Greater than or equal |
-| `lessThan(value)` | `lt` | Less than |
-| `lessThanOrEqualTo(value)` | `le` | Less than or equal |
-| `contains(value)` | `contains()` | Contains substring |
-| `startsWith(value)` | `startswith()` | Starts with |
-| `endsWith(value)` | `endswith()` | Ends with |
-| `length()` | `length()` | String length |
-| `indexOf(value)` | `indexof()` | Find position |
-| `substring(start, end)` | `substring()` | Substring |
-| `trim()` | `trim()` | Remove whitespace |
-| `toLower()` | `tolower()` | Lowercase (OData `tolower`) |
-| `toUpper()` | `toupper()` | Uppercase (OData `toupper`) |
-| `concat(value)` | `concat()` | Concatenate |
+Equality and null checks use `eq`/`ne`. String-specific operations include:
 
-### NumberProperty\<T\>
+| Method | OData form |
+|--------|------------|
+| `contains(value)` | `contains(Property,value)` |
+| `startsWith(value)` | `startswith(Property,value)` |
+| `endsWith(value)` | `endswith(Property,value)` |
+| `matchesPattern(value)` | `matchesPattern(Property,value)` |
+| `length()` | `length(Property)` |
+| `indexOf(value)` | `indexof(Property,value)` |
+| `substring(start[, length])` | `substring(...)` |
+| `trim()` | `trim(Property)` |
+| `toLower()` / `toUpper()` | `tolower(...)` / `toupper(...)` |
+| `concat(valueOrProperty)` | `concat(...)` |
 
-| Method | OData | Description |
-|--------|-------|-------------|
-| `equalTo(value)` | `eq` | Exact match |
-| `notEqualTo(value)` | `ne` | Not equal |
-| `greaterThan(value)` | `gt` | Greater than |
-| `greaterThanOrEqualTo(value)` | `ge` | Greater than or equal |
-| `lessThan(value)` | `lt` | Less than |
-| `lessThanOrEqualTo(value)` | `le` | Less than or equal |
-| `add(value)` | `add` | Addition |
-| `subtract(value)` | `sub` | Subtraction |
-| `multiply(value)` | `mul` | Multiplication |
-| `divide(value)` | `div` / `divby` | Division — `div` for integer operands (truncating), `divby` for Double/Decimal/Single |
-| `mod(value)` | `mod` | Modulus |
-| `negate()` | `-` | Negate |
+`greaterThan`, `greaterThanOrEqualTo`, `lessThan`, and `lessThanOrEqualTo` are also valid lexicographic string comparisons.
 
-### BooleanProperty
+### `NumberProperty<E, N>` and `NumberExpression<N, E>`
 
-| Method | OData | Description |
-|--------|-------|-------------|
-| `equalTo(value)` | `eq` | Exact match |
-| `notEqualTo(value)` | `ne` | Not equal |
+Number expressions support `equalTo`, `notEqualTo`, `greaterThan`, `greaterThanOrEqualTo`, `lessThan`, `lessThanOrEqualTo`, `isNull`, and `isNotNull`, plus `add`, `subtract`, `multiply`, `divide`, `modulo`, `negate`, `ceiling`, `floor`, and `round`.
 
-### DateTimeProperty
+`NumberProperty` retains the Edm type. `divide` uses `divby` for floating `Edm.Single`, `Edm.Double`, or `Edm.Decimal` properties and `div` for integer operands. `INF`, `-INF`, and `BigDecimal` literals are rendered in the OData numeric form.
 
-Comparison operators accept pre-formatted strings (validated against the OData ABNF) or
-typed `LocalDate` / `OffsetDateTime` / `LocalTime` / `Duration` values, which are
-formatted per the ABNF automatically.
+### `BooleanProperty<E>`
 
-| Method | OData | Description |
-|--------|-------|-------------|
-| `equalTo(value)` | `eq` | Exact match |
-| `notEqualTo(value)` | `ne` | Not equal |
-| `greaterThan(value)` | `gt` | Greater than |
-| `greaterThanOrEqualTo(value)` | `ge` | Greater than or equal |
-| `lessThan(value)` | `lt` | Less than |
-| `lessThanOrEqualTo(value)` | `le` | Less than or equal |
-| `year()` | `year()` | Extract year |
-| `month()` | `month()` | Extract month |
-| `day()` | `day()` | Extract day |
-| `hour()` | `hour()` | Extract hour |
-| `minute()` | `minute()` | Extract minute |
-| `second()` | `second()` | Extract second |
-| `date()` | `date()` | Date part |
-| `time()` | `time()` | Time part |
+Use `equalTo`, `notEqualTo`, `isTrue`, `isFalse`, `isNull`, and `isNotNull`. A nullable `Boolean` passed to `equalTo` or `notEqualTo` is routed to the corresponding null predicate.
 
-### CollectionProperty\<T\>
+### `DateTimeProperty<E>`
 
-| Method | OData | Description |
-|--------|-------|-------------|
-| `any(lambda)` | `any()` | Check if any element matches |
-| `all(lambda)` | `all()` | Check if all elements match |
-| `contains(value)` | `Name/any(x: x eq value)` | Check if contains element (`contains()` is a string function in OData) |
-| `length()` | `Name/$count` | Collection size |
+Comparison operators accept validated OData temporal strings and typed `LocalDate`, `OffsetDateTime`, `LocalTime`, and `Duration` values. Values are rendered as bare OData temporal literals, including `duration'...'` for durations.
 
-## Logical Operators
+Date/time extraction methods include `year`, `month`, `day`, `hour`, `minute`, `second`, `fractionalSeconds`, `totalOffsetMinutes`, `totalSeconds`, `date`, and `time`. The generator supplies the Edm type so invalid function/type combinations fail clearly.
 
-### AND
+### `GuidProperty<E>`
+
+`equalTo` and `notEqualTo` accept an 8-4-4-4-12 string. The literal is emitted without quotes. Invalid GUID text throws `IllegalArgumentException`; `isNull` and `isNotNull` remain available.
+
+### `EnumProperty<E, V>`
+
+`equalTo` and `notEqualTo` render fully qualified enum literals such as `Namespace.Color'Red'`. `has(value)` is for enums declared with `IsFlags="true"`. Generated constants pass the qualified CSDL type name, so sanitized Java member names are converted back to their wire names.
+
+## Collection Properties
+
+`CollectionProperty<E, T, F, Sel>` has four type parameters. `F` is the generated target `Filterable` type used by `any`/`all`; `Sel` is the target selector type used by request selector lambdas. Primitive collection elements use `CollectionProperty.FilterableElement<T>`.
+
+`NavCollectionProperty<E, T, F, Sel>` is the generated subtype used for collection navigation constants. It extends `CollectionProperty` and implements `Expandable<E>`, so a bare navigation constant can be passed to `expand(...)` and can also open nested options.
+
+| Method | OData form |
+|--------|------------|
+| `any(predicate)` | `Name/any(alias: predicate)` |
+| `all(predicate)` | `Name/all(alias: predicate)` |
+| `contains(value)` | `Name/any(alias: alias eq value)` |
+| `length()` | `Name/$count` |
+| `select`, `filter`, `orderBy`, `top`, `skip`, `count`, `expand` | `Name($select=...;$filter=...)` |
+| `as(cast, subtype[, selectorFactory])` | `Name/Cast(...)` |
+
+`contains(value)` and `length()` use OData collection forms rather than the string functions with those names. Null collection elements and missing selector factories fail fast.
+
+## Logical Expressions
 
 ```java
-expression1.and(expression2)
+FilterExpression<Person> expression =
+    Person.FIRST_NAME.equalTo("Scott")
+        .or(Person.FIRST_NAME.equalTo("Keith"))
+        .and(Person.CONCURRENCY.greaterThan(25L));
 ```
 
-Produces: `expr1 and expr2`
+The expression renders:
 
-### OR
-
-```java
-expression1.or(expression2)
+```text
+(FirstName eq 'Scott' or FirstName eq 'Keith') and Concurrency gt 25
 ```
 
-Produces: `expr1 or expr2`
+`FilterExpression.of("...")` is the raw escape hatch.
 
-### NOT
+## Request Selector Lambdas
 
-```java
-expression.not()
-```
-
-Produces: `not expr`
-
-## Lambda Operators
-
-### any
-
-```java
-Person.TRIPS.any(trip ->
-    trip.BUDGET.greaterThan(500.0f)
-)
-```
-
-Produces: `Trips/any(x: x/Budget gt 500.0f)`
-
-### all
-
-```java
-Person.TRIPS.all(trip ->
-    trip.BUDGET.greaterThan(100.0f)
-)
-```
-
-Produces: `Trips/all(x: x/Budget gt 100.0f)`
-
-## Sort Expressions
-
-| Method | Description |
-|--------|-------------|
-| `property.asc()` | Ascending |
-| `property.desc()` | Descending |
-
-## Examples
-
-### Basic Filter
-
-```java
-Person.FIRST_NAME.equalTo("Scott")
-```
-
-Produces: `FirstName eq 'Scott'`
-
-### Complex Filter
-
-```java
-(Person.FIRST_NAME.equalTo("Scott").or(Person.FIRST_NAME.equalTo("Keith")))
-    .and(Person.CONCURRENCY.greaterThan(25))
-```
-
-Produces: `(FirstName eq 'Scott' or FirstName eq 'Keith') and Concurrency gt 25`
-
-### Lambda Expression
-
-```java
-Person.TRIPS.any(trip ->
-    trip.BUDGET.greaterThan(500.0f)
-    .and(trip.STARTS_AT.year().equalTo(2024))
-)
-```
-
-Produces: `Trips/any(x: x/Budget gt 500.0f and x/Duration gt duration'P7D')`
-
-## What's Next
-
-- [HTTP Transport](http-transport.md) — API details
-- [Serialization](serialization.md) — JSON library options
-
-### GuidProperty
-
-`Edm.Guid` properties. Literals are the bare 8-4-4-4-12 value (quoted strings are an
-OData type error); anything else throws `IllegalArgumentException`.
-
-| Method | OData | Description |
-|--------|-------|-------------|
-| `equalTo(guid)` | `eq` | GUID equality |
-| `notEqualTo(guid)` | `ne` | GUID inequality |
-| `isNull()` / `isNotNull()` | `eq/ne null` | Null predicates |
-| `asc()` / `desc()` | `$orderby` | Ordering |
-
-### EnumProperty\<E, V\>
-
-| Method | OData | Description |
-|--------|-------|-------------|
-| `equalTo(value)` | `eq` | `NS.Enum'Member'` literal (fully qualified) |
-| `notEqualTo(value)` | `ne` | Not equal |
-| `has(value)` | `has` | Flags membership (IsFlags enums) |
-| `isNull()` / `isNotNull()` | `eq/ne null` | Null predicates |
-
-### CollectionProperty\<E, T, F, Sel\>
-
-| Method | OData | Description |
-|--------|-------|-------------|
-| `any(predicate)` | `/any(x: ...)` | At least one element matches (typed `Filterable` lambda) |
-| `all(predicate)` | `/all(x: ...)` | Every element matches |
-| `contains(value)` | `Name/any(x: x eq value)` | Collection contains a value |
-| `length()` | `Name/$count` | Element count |
-| `select/filter/orderBy/top/skip/count/expand(...)` | `Name($select=...;...)` | Opens a `NavQuery` with chained expand options |
-| `as(qualifiedCast, subtype[, selectorFactory])` | `Name/Cast` | Element type cast (2-arg drops the selector factory, 3-arg swaps it) |
-
-### NavQuery\<S, T, Sel\>
-
-A navigation with chained expand options, rendered as `Name($select=...;$filter=...;...)`.
-Opened from a collection navigation constant (`Person.TRIPS.select(...)`) or
-`NavQuery.of(name, Target.Selector::new)`; `NavQuery.raw("A($expand=x)")` is the escape
-hatch. Constant builders (`select`/`filter`/`orderBy`/`top`/`skip`/`count`/`expand`)
-always work; the selector-lambda overloads need a factory (fail fast with a clear
-`IllegalStateException` otherwise).
-
-### Expandable\<E\>
-
-The sealed supertype of everything `expand(...)` accepts: `NavQuery` (nav + options)
-and `CollectionProperty` (bare segment). Generated requests emit one constant
-`expand(Expandable<? super E>...)` overload plus the selector-lambda
-`expand(Function<E.Selector, ? extends Expandable<? super E>>)` form.
-
-### Selector lambdas
-
-Every read-shaping option on generated requests — `select`, `orderBy`, `expand`,
-`filter` (`select`/`expand` only on entity requests) — has a lambda overload applying
-each lambda to a generated `Selector` view that shares the entity's constant
-instances:
+Generated request classes provide both constant and selector forms for `select`, `orderBy`, `expand`, and collection `filter`:
 
 ```java
 client.people()
     .filter(p -> p.FIRST_NAME.equalTo("Scott"))
     .select(p -> p.FIRST_NAME, p -> p.LAST_NAME)
-    .orderBy(p -> p.USER_NAME.asc())
+    .orderBy(p -> p.LAST_NAME.asc())
     .expand(p -> p.TRIPS.select(t -> t.NAME).top(2))
     .get();
 ```
 
-`Sel` rides as a class-level type parameter (`NavQuery<S, T, Sel>`,
-`CollectionProperty<E, T, F, Sel>`), which is what makes full-depth nesting compile:
-each hop's factory arrives with the value. Cross-entity member access is a compile
-error in both spellings; constants remain the short form.
+The selector type is part of `NavQuery` and `CollectionProperty` (`Sel`), so each nested value carries the factory needed for the next lambda hop. Cross-entity member access is rejected by the generated selector fields and the `? super` request bounds.
 
-!!! note
-    `$select` accepts structural property paths only — transformation results such as
-    `Person.FIRST_NAME.toUpper()` are rejected with a clear error (function calls
-    belong in `$filter` or `$compute`; `$orderby` accepts them, which is legal OData).
+## Sort Expressions
+
+Every property expression implements `OrderExpression` through `asc()` and `desc()`:
+
+```java
+client.people().orderBy(Person.LAST_NAME.asc()).get();
+```
+
+`$select` accepts generated scalar and enum property expressions only. Collection-valued structural properties and navigation properties are not `PropertyExpression` values, so they cannot be passed to `select(...)`. A transformation such as `Person.FIRST_NAME.toUpper()` is valid in filters and order expressions, but passing it to `select(...)` raises `IllegalArgumentException`.
+
+## Apply Expressions
+
+`ApplyExpression.builder()` returns an `ApplyBuilder` with `filter`, `groupBy`, `aggregate`, `compute`, `orderBy`, `top`, and `skip`. `ApplyExpression.of(raw)` creates a raw expression. The generated collection request accepts either form through `apply(...)`.
+
+## What's Next
+
+- [HTTP Transport](http-transport.md)
+- [Serialization](serialization.md)

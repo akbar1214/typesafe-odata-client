@@ -48,7 +48,7 @@ The `.filter()` method accepts a type-safe expression. `Person.FIRST_NAME` is a 
 
 ```java
 CollectionPage<Person> projected = client.people()
-    .select(Person.FIRST_NAME, Person.LAST_NAME, Person.EMAILS)
+    .select(Person.FIRST_NAME, Person.LAST_NAME)
     .get();
 ```
 
@@ -89,7 +89,7 @@ CollectionPage<Person> result = client.people()
 ## Get a Single Person
 
 ```java
-import com.example.trippin.request.PersonEntityRequest;
+import com.example.trippin.entity.request.PersonEntityRequest;
 
 PersonEntityRequest request = client.people("scottketchum");
 Person scott = request.get();
@@ -98,6 +98,8 @@ Person scott = request.get();
 ## Navigate to Related Data
 
 ```java
+import com.example.trippin.entity.Trip;
+
 // Get trips for a specific person
 CollectionPage<Trip> trips = client.people("scottketchum")
     .trips()
@@ -118,7 +120,7 @@ CollectionPage<Person> people = client.people()
     .count()
     .get();
 
-Optional<Long> total = people.count(); // Optional[8]
+long total = people.count().orElse(0L);
 ```
 
 ## Iterate Safely
