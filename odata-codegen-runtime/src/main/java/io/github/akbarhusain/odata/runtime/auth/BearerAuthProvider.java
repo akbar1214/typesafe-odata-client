@@ -20,9 +20,11 @@ public class BearerAuthProvider implements AuthProvider {
         if (token == null) {
             throw new IllegalArgumentException("Bearer token must not be null");
         }
+        if (token.isEmpty()) {
+            throw new IllegalArgumentException("Bearer token must not be empty");
+        }
         String value = "Bearer " + token;
-        HttpHeaders.requireName("Authorization");
-        HttpHeaders.requireValue("Authorization", value);
+        HttpHeaders.requireRequestValue("Authorization", value);
         return Map.of("Authorization", value);
     }
 }

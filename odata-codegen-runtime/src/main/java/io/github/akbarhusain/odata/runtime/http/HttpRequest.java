@@ -148,22 +148,22 @@ public record HttpRequest(
 
     private static boolean isSensitiveName(String name) {
         String lower = name.toLowerCase(java.util.Locale.ROOT);
+        // Exact/suffix matching so innocuous names (monkey, keyboard, $skiptoken, author)
+        // are not over-redacted, while real credential names still are.
         return lower.equals("authorization")
                 || lower.equals("proxy-authorization")
                 || lower.contains("cookie")
-                || lower.contains("key")
-                || lower.contains("auth")
-                || lower.contains("apikey")
-                || lower.contains("api_key")
-                || lower.contains("access-token")
-                || lower.contains("access_token")
-                || lower.contains("token")
-                || lower.contains("secret")
+                || lower.equals("api-key") || lower.equals("apikey") || lower.equals("api_key")
+                || lower.equals("x-api-key")
+                || lower.equals("key") || lower.endsWith("-key")
+                || lower.equals("token") || lower.endsWith("-token") || lower.endsWith("_token")
+                || lower.equals("access-token") || lower.equals("access_token")
+                || lower.equals("secret") || lower.endsWith("-secret")
                 || lower.contains("password")
-                || lower.contains("signature")
+                || lower.equals("signature") || lower.endsWith("-signature")
                 || lower.equals("sig")
-                || lower.contains("credential")
-                || lower.contains("session")
+                || lower.equals("credential") || lower.endsWith("-credential") || lower.endsWith("_credential")
+                || lower.equals("session") || lower.endsWith("-session") || lower.endsWith("_session")
                 || lower.startsWith("x-amz-")
                 || lower.equals("code");
     }

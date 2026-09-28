@@ -12,11 +12,14 @@ import java.util.Set;
 
 public final class HttpHeaders {
 
+    // Only headers the client cannot meaningfully control: the JDK HttpClient refuses to
+    // send caller-set values in this subset, and the rest are hop-by-hop/framing headers.
+    // Deliberately NOT blocked: content-encoding (gzip upload), content-range (partial
+    // upload), proxy-authorization (manual proxy auth) — all legal and useful.
     private static final Set<String> PROHIBITED_REQUEST_HEADERS = Set.of(
-            "connection", "keep-alive", "proxy-authenticate", "proxy-authorization",
-            "te", "trailer", "transfer-encoding", "upgrade", "host", "content-length",
-            "content-range", "content-encoding", "expect", "max-forwards",
-            "content-transfer-encoding", "content-id");
+            "connection", "content-length", "expect", "host", "upgrade",
+            "keep-alive", "proxy-authenticate", "te", "trailer", "transfer-encoding",
+            "max-forwards", "content-transfer-encoding");
 
     private HttpHeaders() {
     }

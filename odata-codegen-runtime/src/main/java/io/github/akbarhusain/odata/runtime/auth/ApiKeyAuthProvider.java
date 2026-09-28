@@ -13,7 +13,7 @@ public class ApiKeyAuthProvider implements AuthProvider {
 
     public ApiKeyAuthProvider(Supplier<String> apiKeySupplier, String headerName) {
         this.apiKeySupplier = Objects.requireNonNull(apiKeySupplier, "apiKeySupplier must not be null");
-        this.headerName = HttpHeaders.requireName(headerName);
+        this.headerName = HttpHeaders.requireRequestName(headerName);
     }
 
     public ApiKeyAuthProvider(Supplier<String> apiKeySupplier) {
@@ -25,6 +25,9 @@ public class ApiKeyAuthProvider implements AuthProvider {
         String key = apiKeySupplier.get();
         if (key == null) {
             throw new IllegalArgumentException("API key must not be null");
+        }
+        if (key.isEmpty()) {
+            throw new IllegalArgumentException("API key must not be empty");
         }
         HttpHeaders.requireValue(headerName, key);
         return Map.of(headerName, key);

@@ -96,9 +96,10 @@ public record Context(
         }
         if (!uri.isAbsolute() || uri.getScheme() == null
                 || !(uri.getScheme().equalsIgnoreCase("http") || uri.getScheme().equalsIgnoreCase("https"))
-                || uri.getHost() == null || uri.getRawQuery() != null || uri.getRawFragment() != null) {
-            throw new IllegalArgumentException(
-                    "Context baseUrl must be an absolute HTTP(S) service root without query or fragment");
+                || uri.getHost() == null || uri.getRawQuery() != null || uri.getRawFragment() != null
+                || uri.getRawUserInfo() != null) {
+            throw new IllegalArgumentException("Context baseUrl must be an absolute HTTP(S) service root "
+                    + "without query, fragment or userinfo");
         }
         return value;
     }

@@ -127,7 +127,8 @@ public class JdkHttpTransport implements HttpTransport, AutoCloseable {
                 }
             }, executor);
         } catch (RejectedExecutionException e) {
-            return CompletableFuture.failedFuture(e);
+            return CompletableFuture.failedFuture(
+                    new ODataException("HTTP executor rejected the request (thread pool saturated)", e));
         } catch (RuntimeException e) {
             return CompletableFuture.failedFuture(e);
         }
@@ -155,7 +156,8 @@ public class JdkHttpTransport implements HttpTransport, AutoCloseable {
                 }
             });
         } catch (RejectedExecutionException e) {
-            result.completeExceptionally(e);
+            result.completeExceptionally(
+                    new ODataException("HTTP executor rejected the request (thread pool saturated)", e));
         } catch (RuntimeException e) {
             result.completeExceptionally(e);
         }
@@ -326,7 +328,7 @@ public class JdkHttpTransport implements HttpTransport, AutoCloseable {
             }
             synchronized (lock) {
                 if (closed) {
-                    throw new IOException("stream is closed");
+                    throw closedException();
                 }
             }
             long nanos;
@@ -339,18 +341,21 @@ public class JdkHttpTransport implements HttpTransport, AutoCloseable {
             synchronized (lock) {
                 if (closed) {
                     future.cancel(false);
-                    throw new IOException("stream is closed");
+                    throw closedException();
                 }
                 pending = future;
             }
             try {
                 int result = delegate.read(bytes, offset, length);
-                if (timedOut) {
+                // A successful read that raced the timer must not be reported as a timeout:
+                // only convert when the timer genuinely won (cancel(false) is false once the
+                // task has started or completed).
+                if (!future.cancel(false) && timedOut()) {
                     throw new SocketTimeoutException("Response body read timed out after " + timeout);
                 }
                 return result;
             } catch (IOException e) {
-                if (timedOut) {
+                if (timedOut()) {
                     throw new SocketTimeoutException("Response body read timed out after " + timeout);
                 }
                 throw e;
@@ -361,6 +366,18 @@ public class JdkHttpTransport implements HttpTransport, AutoCloseable {
                     }
                 }
                 future.cancel(false);
+            }
+        }
+
+        private IOException closedException() {
+            return timedOut()
+                    ? new SocketTimeoutException("Response body read timed out after " + timeout)
+                    : new IOException("stream is closed");
+        }
+
+        private boolean timedOut() {
+            synchronized (lock) {
+                return timedOut;
             }
         }
 
