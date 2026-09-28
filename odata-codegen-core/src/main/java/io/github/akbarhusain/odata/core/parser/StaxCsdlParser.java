@@ -36,56 +36,82 @@ public class StaxCsdlParser {
 
     private final Map<String, String> globalAliasMap = new HashMap<>();
 
+    /**
+     * Every schema namespace seen so far, so an alias rewrite can tell a real qualified
+     * reference from a coincidental alias-prefix match. Populated in {@code parseSchema};
+     * a document-order reference to a schema parsed LATER is still correct because the
+     * alias reading is rejected on the {@code ns.startsWith(inner)} test.
+     */
+    private final Set<String> declaredNamespaces = new HashSet<>();
+
     private final List<String> warnings = new ArrayList<>();
 
     public CsdlModel parse(InputStream xml) throws XMLStreamException {
         currentNamespace = null;
         currentAlias = null;
         globalAliasMap.clear();
+        declaredNamespaces.clear();
         warnings.clear();
 
         XMLInputFactory factory = XMLInputFactory.newInstance();
         factory.setProperty(XMLInputFactory.IS_SUPPORTING_EXTERNAL_ENTITIES, false);
         factory.setProperty(XMLInputFactory.SUPPORT_DTD, false);
 
+        // The reader owns the parse buffers obtained from the factory and close() is the
+        // contract for releasing them. parse() has ~25 exit points — every requireAttr
+        // failure and every unsupported shape throws — so the reader must be closed on the
+        // failure paths too. (XMLEventReader extends Iterator, not AutoCloseable, so this
+        // cannot be try-with-resources; the finally is the equivalent.) The caller's
+        // InputStream is closed separately by the caller, which is not sufficient on its own.
         XMLEventReader reader = factory.createXMLEventReader(xml);
-        validateRootElement(reader);
-        List<SchemaModel> schemas = new ArrayList<>();
-        int dataServicesCount = 0;
+        try {
+            validateRootElement(reader);
+            List<SchemaModel> schemas = new ArrayList<>();
+            int dataServicesCount = 0;
 
-        while (reader.hasNext()) {
-            XMLEvent event = reader.nextEvent();
-            if (event.isStartElement()) {
-                StartElement el = event.asStartElement();
-                if (isEdmxElement(el, "DataServices")) {
-                    dataServicesCount++;
-                    if (dataServicesCount > 1) {
-                        throw new IllegalArgumentException(
-                                "Edmx must contain exactly one DataServices element; found multiple");
+            while (reader.hasNext()) {
+                XMLEvent event = reader.nextEvent();
+                if (event.isStartElement()) {
+                    StartElement el = event.asStartElement();
+                    if (isEdmxElement(el, "DataServices")) {
+                        dataServicesCount++;
+                        if (dataServicesCount > 1) {
+                            throw new IllegalArgumentException(
+                                    "Edmx must contain exactly one DataServices element; found multiple");
+                        }
+                        parseDataServices(reader, schemas);
+                    } else {
+                        warnIgnored("Edmx", el);
+                        skipElement(reader);
                     }
-                    parseDataServices(reader, schemas);
-                } else {
-                    warnIgnored("Edmx", el);
-                    skipElement(reader);
                 }
             }
-        }
 
-        if (dataServicesCount != 1) {
-            throw new IllegalArgumentException(
-                    "Edmx must contain exactly one DataServices element; found " + dataServicesCount);
-        }
-        if (schemas.isEmpty()) {
-            // A document with no parsable Schema previously produced an empty model
-            // with no signal — wrong-namespace feeds and empty documents all looked
-            // like "success with zero types"
-            throw new IllegalArgumentException(
-                    "No OData Schema found in document (expected <Schema> under <edmx:DataServices>)");
-        }
-        schemas = fixupCrossSchemaAliases(schemas);
-        validateTypeDefinitionCycles(schemas);
+            if (dataServicesCount != 1) {
+                throw new IllegalArgumentException(
+                        "Edmx must contain exactly one DataServices element; found " + dataServicesCount);
+            }
+            if (schemas.isEmpty()) {
+                // A document with no parsable Schema previously produced an empty model
+                // with no signal — wrong-namespace feeds and empty documents all looked
+                // like "success with zero types"
+                throw new IllegalArgumentException(
+                        "No OData Schema found in document (expected <Schema> under <edmx:DataServices>)");
+            }
+            // Every schema has been seen, so declaredNamespaces is complete before the
+            // post-pass: an alias rewrite can now distinguish a real qualified reference
+            // from a coincidental alias-prefix match regardless of document order.
+            schemas = fixupCrossSchemaAliases(schemas);
+            validateTypeDefinitionCycles(schemas);
 
-        return new CsdlModel(mergeContainerInheritance(schemas), List.copyOf(warnings));
+            return new CsdlModel(mergeContainerInheritance(schemas), List.copyOf(warnings));
+        } finally {
+            try {
+                reader.close();
+            } catch (XMLStreamException e) {
+                warnings.add("Failed to close the XML event reader: " + e.getMessage());
+            }
+        }
     }
 
     /**
@@ -277,11 +303,41 @@ public class StaxCsdlParser {
      * (post-pass): if the prefix before the first dot is a known document alias, returns
      * the name rewritten to that alias's real namespace; otherwise {@code null}.
      * Keeping one implementation prevents the two paths from drifting apart.
+     *
+     * <p>An alias is a prefix substitution for the schema that DECLARES it, and it never
+     * shadows a real namespace. Keying the rewrite on the first dot-separated segment
+     * alone therefore corrupts a legitimate fully-qualified reference whose leading
+     * segment happens to equal some schema's alias: with
+     * {@code Namespace="Contoso.Model" Alias="Contoso"}, another schema's
+     * {@code Contoso.Model.Address} was rewritten to {@code Contoso.Model.Model.Address}.
+     * A name that already resolves to a declared namespace is left untouched.
      */
     private String applyAliasMap(String inner, int dot) {
         String alias = inner.substring(0, dot);
         String ns = globalAliasMap.get(alias);
-        return ns != null ? ns + inner.substring(alias.length()) : null;
+        if (ns == null) {
+            return null;
+        }
+        String remainder = inner.substring(alias.length());
+        String rewritten = ns + remainder;
+        // Already fully qualified under the real namespace: the reference is not an alias
+        // use, it is a qualified name whose first segment coincidentally matches one.
+        // Re-applying the alias to it is what compounded the corruption across the
+        // parse-time rewrite and the post-pass.
+        if (inner.startsWith(ns)) {
+            return null;
+        }
+        return rewritten;
+    }
+
+    /**
+     * True when {@code candidate} is the namespace of some schema in this document. An
+     * alias is a prefix substitution for the schema that DECLARES it and never shadows a
+     * real namespace, so this distinguishes a genuine alias reference from a fully
+     * qualified name whose first segment happens to equal an alias.
+     */
+    private boolean isDeclaredNamespace(String candidate) {
+        return declaredNamespaces.contains(candidate);
     }
 
     /**
@@ -347,6 +403,7 @@ public class StaxCsdlParser {
         // while parsing this schema are normalized to the real namespace immediately
         this.currentNamespace = namespace;
         this.currentAlias = alias;
+        declaredNamespaces.add(namespace);
         if (alias != null && !alias.isBlank()) {
             String existingNs = globalAliasMap.putIfAbsent(alias, namespace);
             if (existingNs != null && !existingNs.equals(namespace)) {
