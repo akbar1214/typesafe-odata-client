@@ -86,7 +86,7 @@ public class RequestGenerator extends AbstractTypeGenerator {
         List<String> refCandidates = new ArrayList<>();
         List<String[]> navFqns = new ArrayList<>();
         for (NavigationPropertyModel nav : resolvedNavs(entityType)) {
-            if (isComplexTypeNav(nav, schema)) continue;
+            if (isNonEntityNav(nav, schema)) continue;
             // Resolve TypeDefinition chains: the typedef itself has no generated request
             // class — references must use the underlying type's name
             SchemaModel owner = schemaForNavigation(nav, schema);
@@ -238,7 +238,7 @@ public class RequestGenerator extends AbstractTypeGenerator {
         // Inherited navs included: request classes don't extend each other, so the base's
         // nav methods must be emitted on the subtype's request too
         for (NavigationPropertyModel nav : resolvedNavs(entityType)) {
-            if (isComplexTypeNav(nav, schema)) continue;
+            if (isNonEntityNav(nav, schema)) continue;
             sb.append(generateNavMethod(nav, schema));
         }
 
@@ -251,7 +251,7 @@ public class RequestGenerator extends AbstractTypeGenerator {
         // (inherited included); containment navs (ContainsTarget) manage contained entities
         // through the containment path, and $ref link operations are not defined for them
         for (NavigationPropertyModel nav : resolvedNavs(entityType)) {
-            if (isComplexTypeNav(nav, schema)) continue;
+            if (isNonEntityNav(nav, schema)) continue;
             if (nav.containsTarget()) continue;
             if (Names.isCollectionType(nav.type())) {
                 String refBase = Names.toJavaFieldName(nav.name());
@@ -1038,7 +1038,7 @@ public class RequestGenerator extends AbstractTypeGenerator {
             used.add("setMedia");
         }
         for (NavigationPropertyModel nav : resolvedNavs(entityType)) {
-            if (isComplexTypeNav(nav, findSchemaForEntity(entityType))) {
+            if (isNonEntityNav(nav, findSchemaForEntity(entityType))) {
                 continue;
             }
             used.add(Names.toJavaFieldName(nav.name()));
@@ -1085,7 +1085,7 @@ public class RequestGenerator extends AbstractTypeGenerator {
             methods.putIfAbsent("setMedia", "generated media method");
         }
         for (NavigationPropertyModel nav : resolvedNavs(entityType)) {
-            if (isComplexTypeNav(nav, schema)) continue;
+            if (isNonEntityNav(nav, schema)) continue;
             reserveRequestMethod(methods, Names.toJavaFieldName(nav.name()), nav.name());
             if (Names.isCollectionType(nav.type()) && !nav.containsTarget()) {
                 reserveRequestMethod(methods, "add" + Names.capitalize(Names.toJavaFieldName(nav.name())) + "Ref",
@@ -1121,7 +1121,7 @@ public class RequestGenerator extends AbstractTypeGenerator {
             methods.putIfAbsent("setMedia", "generated media method");
         }
         for (NavigationPropertyModel nav : navs) {
-            if (isComplexTypeNav(nav, schema)) continue;
+            if (isNonEntityNav(nav, schema)) continue;
             reserveRequestMethod(methods, Names.toJavaFieldName(nav.name()), nav.name());
             if (Names.isCollectionType(nav.type()) && !nav.containsTarget()) {
                 reserveRequestMethod(methods, "add" + Names.capitalize(Names.toJavaFieldName(nav.name())) + "Ref",
@@ -1151,15 +1151,38 @@ public class RequestGenerator extends AbstractTypeGenerator {
         }
     }
 
-    private boolean isComplexTypeNav(NavigationPropertyModel nav, SchemaModel schema) {
+    /**
+     * Whether a navigation property must be skipped by the REQUEST layer, because no
+     * request class exists for its target. Every other consumer of this decision uses the
+     * inverse test and bails on {@code != ENTITY}: EntityGenerator's nav constant and
+     * Selector field, and AbstractTypeGenerator's nav-target FQN (which returns null for
+     * anything that is not an entity). The request layer alone tested {@code == COMPLEX},
+     * so an ENUM or Edm-primitive nav target fell through and emitted
+     * {@code import ...ColorEntityRequest} / {@code List<Int32>} — classes that are never
+     * generated, so the client did not compile.
+     *
+     * <p>CSDL §12.2 requires a NavigationProperty to target an entity or complex type, so
+     * an enum or primitive target is invalid metadata and is rejected loudly rather than
+     * turned into uncompilable output.
+     */
+    private boolean isNonEntityNav(NavigationPropertyModel nav, SchemaModel schema) {
         // Unwrap Collection(...) first: the raw collection form ("Collection(NS.Type)")
-        // never matches the type-kind map, so collection navs to complex types would
-        // fall through and emit references to CollectionRequest classes that are only
-        // generated for entity types — uncompilable output.
-        // Also unwrap TypeDefinition chain: MyAddr -> NS.Shared.Address (complex) must be skipped
+        // never matches the type-kind map, so a collection nav would fall through and emit
+        // references to request classes that are only generated for entity types.
+        // Also unwrap the TypeDefinition chain: MyAddr -> NS.Shared.Address (complex).
         SchemaModel owner = schemaForNavigation(nav, schema);
         String unwrapped = Names.unwrapCollectionType(nav.type());
         String resolved = resolveTypeDefinition(unwrapped, owner);
-        return resolveTypeKind(resolved, owner) == Names.TypeKind.COMPLEX;
+        Names.TypeKind kind = resolveTypeKind(resolved, owner);
+        // ENUM is a named type, so it resolves to its own kind; an Edm primitive resolves
+        // to UNKNOWN (primitives are not in the type-kind map at all). Both are invalid
+        // NavigationProperty targets under CSDL 12.2, and both previously produced a
+        // reference to a request class that is never generated.
+        if (kind == Names.TypeKind.ENUM || kind == Names.TypeKind.UNKNOWN) {
+            throw new IllegalStateException("Navigation property '" + nav.name()
+                    + "' targets non-navigable type '" + nav.type()
+                    + "'; CSDL 12.2 requires an entity or complex type");
+        }
+        return kind != Names.TypeKind.ENTITY;
     }
 }

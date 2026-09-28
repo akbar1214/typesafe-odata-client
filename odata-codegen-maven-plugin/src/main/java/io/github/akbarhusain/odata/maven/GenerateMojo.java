@@ -266,12 +266,9 @@ public class GenerateMojo extends AbstractMojo {
                     if (location == null || location.isBlank()) {
                         throw new MojoFailureException("Redirect without Location header: HTTP " + status);
                     }
-                    URI next;
-                    try {
-                        next = resolveRedirectUri(current, location);
-                    } catch (IllegalArgumentException e) {
-                        throw new MojoFailureException("Invalid redirect URL", e);
-                    }
+                    // resolveRedirectUri already reports a redacted message; re-wrapping it
+                    // would restore the unredacted URI.create cause to the chain.
+                    URI next = resolveRedirectUri(current, location);
                     validateHttpUri(next);
                     if (!sameOrigin(initial, next) || isDowngrade(current, next)) {
                         forwardConfiguredHeaders = false;
@@ -323,8 +320,18 @@ public class GenerateMojo extends AbstractMojo {
         throw new MojoFailureException("Too many redirects downloading metadata from: " + redactUri(initial));
     }
 
-    static URI resolveRedirectUri(URI current, String location) {
-        URI loc = URI.create(location);
+    static URI resolveRedirectUri(URI current, String location) throws MojoFailureException {
+        final URI loc;
+        try {
+            loc = URI.create(location);
+        } catch (IllegalArgumentException e) {
+            // A redirect Location is attacker-influenced and commonly a pre-signed URL
+            // whose query IS the credential (sig=/se=/sp=). URI.create's message embeds it
+            // verbatim, so retaining the cause leaks the signature into the chain Maven
+            // prints with -e/-X. Redact here, consistent with the rest of this class.
+            throw new MojoFailureException("Invalid redirect URL: " + redactUrlText(location)
+                    + " (" + e.getClass().getSimpleName() + ")");
+        }
         return loc.isAbsolute() ? loc : current.resolve(loc);
     }
 
@@ -333,7 +340,12 @@ public class GenerateMojo extends AbstractMojo {
         try {
             uri = URI.create(value);
         } catch (IllegalArgumentException e) {
-            throw new MojoFailureException("Invalid metadata URL", e);
+            // URI.create's message embeds the offending string verbatim, and a configured
+            // metadataUrl can carry userinfo and a token in its query. Every other log
+            // path here redacts (see redactUri / redactUrlText), so retaining this cause
+            // leaked the credentials into the cause chain Maven prints with -e/-X.
+            throw new MojoFailureException("Invalid metadata URL: " + redactUrlText(value)
+                    + " (" + e.getClass().getSimpleName() + ")");
         }
         return validateHttpUri(uri);
     }

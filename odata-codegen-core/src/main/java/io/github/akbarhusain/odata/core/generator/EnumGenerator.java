@@ -31,6 +31,14 @@ public class EnumGenerator {
         List<String[]> renamed = new ArrayList<>();
         java.util.Map<String, Integer> usedCount = new java.util.HashMap<>();
         java.util.Set<String> usedNames = new java.util.HashSet<>();
+        // Seed with the members the generated enum itself declares. enumConstantName keeps
+        // a CSDL member verbatim when it is already a legal Java identifier, so a member
+        // named `value`, `wireName` or `BY_NAME` — all legal CSDL NCNames — would collide
+        // with the emitted `private final long value` / `wireName` fields or the static
+        // wire-name map, producing "variable value is already defined in enum X".
+        usedNames.add("value");
+        usedNames.add("wireName");
+        usedNames.add("BY_NAME");
         List<String> constants = new ArrayList<>();
         for (var member : enumType.members()) {
             String base = enumConstantName(member.name());
