@@ -18,6 +18,9 @@ public final class GuidProperty<E> implements PropertyExpression<E, String> {
     private final Class<E> entityType;
 
     public GuidProperty(String edmName, Class<E> entityType) {
+        if (edmName == null || edmName.isBlank()) {
+            throw new IllegalArgumentException("GUID property name must not be blank");
+        }
         this.edmName = edmName;
         this.entityType = entityType;
     }
@@ -36,12 +39,6 @@ public final class GuidProperty<E> implements PropertyExpression<E, String> {
 
     @Override
     public OrderExpression<E, String> desc() { return cast(new OrderedProperty(edmName, false)); }
-
-    @Override
-    public OrderExpression<E, String> nullsFirst() { return cast(new OrderedProperty(edmName, true, true, false)); }
-
-    @Override
-    public OrderExpression<E, String> nullsLast() { return cast(new OrderedProperty(edmName, true, false, true)); }
 
     @SuppressWarnings("unchecked")
     private OrderExpression<E, String> cast(OrderExpression<?, ?> expr) {

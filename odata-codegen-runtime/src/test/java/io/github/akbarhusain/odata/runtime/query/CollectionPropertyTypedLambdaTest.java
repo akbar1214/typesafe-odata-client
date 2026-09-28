@@ -28,8 +28,8 @@ class CollectionPropertyTypedLambdaTest {
     static class TripSelector {
         public final StringProperty<Trip> name = new StringProperty<>("Name", null);
         public final NumberProperty<Trip, Integer> budget = new NumberProperty<>("Budget", null);
-        public final CollectionProperty<Trip, PlanItem, PlanItemFilterable, PlanItemSelector> PLAN_ITEMS =
-                new CollectionProperty<>("PlanItems", Trip.class, PlanItem.class,
+        public final NavCollectionProperty<Trip, PlanItem, PlanItemFilterable, PlanItemSelector> PLAN_ITEMS =
+                new NavCollectionProperty<>("PlanItems", Trip.class, PlanItem.class,
                         PlanItemFilterable::new, PlanItemSelector::new);
     }
 
@@ -52,15 +52,60 @@ class CollectionPropertyTypedLambdaTest {
         public final StringProperty<Doc> title = new StringProperty<>("Title", null);
     }
 
-    private static CollectionProperty<Person, Trip, TripFilterable, TripSelector> trips() {
-        return new CollectionProperty<>("Trips", Person.class, Trip.class,
+    private static NavCollectionProperty<Person, Trip, TripFilterable, TripSelector> trips() {
+        return new NavCollectionProperty<>("Trips", Person.class, Trip.class,
                 TripFilterable::new, TripSelector::new);
+    }
+
+    enum Color { Red, Green }
+
+    @Test
+    void collectionCastAfterOptionsPreservesThem() {
+        NavCollectionProperty<Person, Trip, TripFilterable, TripSelector> trips = trips();
+
+        // Chaining an option returns a NavQuery; NavQuery.as() must carry the option across
+        // the cast (CollectionProperty.as() itself has no options to carry).
+        assertEquals("Trips/ABC.Doc($select=Name)",
+                trips.select(t -> t.name).as("ABC.Doc", Doc.class).toODataExpand());
+    }
+
+    @Test
+    void constantAnyPredicateIsLegal() {
+        NavCollectionProperty<Object, TripFilterable, TripFilterable, ?> trips =
+                new NavCollectionProperty<>("Trips", Object.class, TripFilterable.class, TripFilterable::new);
+
+        // any(x: true) is valid OData — the alias-reference requirement over-rejected it.
+        assertEquals("Trips/any(x: true)",
+                trips.any(t -> FilterExpression.of("true")).toODataExpression());
+    }
+
+    @Test
+    void nullReturningSelectorFactoryFailsFast() {
+        NavCollectionProperty<Person, Trip, TripFilterable, TripSelector> trips =
+                new NavCollectionProperty<>("Trips", Person.class, Trip.class, TripFilterable::new, () -> null);
+
+        IllegalStateException error = assertThrows(IllegalStateException.class,
+                () -> trips.select(t -> t.name));
+        assertTrue(error.getMessage().toLowerCase().contains("null"));
+    }
+
+    @Test
+    void containsRendersElementLiteralsUsingElementEdmType() {
+        CollectionProperty<Person, Color, CollectionProperty.FilterableElement<Color>, ?> colors =
+                new CollectionProperty<>("Colors", Person.class, Color.class,
+                        CollectionProperty.FilterableElement::new, null, "NS.Color");
+        assertEquals("Colors/any(x: x eq NS.Color'Red')", colors.contains(Color.Red).toODataExpression());
+
+        CollectionProperty<Person, String, CollectionProperty.FilterableElement<String>, ?> names =
+                new CollectionProperty<>("Names", Person.class, String.class,
+                        CollectionProperty.FilterableElement::new, null, "Edm.String");
+        assertEquals("Names/any(x: x eq 'a')", names.contains("a").toODataExpression());
     }
 
     @Test
     void anyWithTypedFilterable() {
-        CollectionProperty<Object, TripFilterable, TripFilterable, ?> trips =
-                new CollectionProperty<>("Trips", Object.class, TripFilterable.class, TripFilterable::new);
+        NavCollectionProperty<Object, TripFilterable, TripFilterable, ?> trips =
+                new NavCollectionProperty<>("Trips", Object.class, TripFilterable.class, TripFilterable::new);
 
         FilterExpression<Object> expr = trips.any(t -> t.budget.greaterThan(500));
 
@@ -69,8 +114,8 @@ class CollectionPropertyTypedLambdaTest {
 
     @Test
     void allWithTypedFilterable() {
-        CollectionProperty<Object, TripFilterable, TripFilterable, ?> trips =
-                new CollectionProperty<>("Trips", Object.class, TripFilterable.class, TripFilterable::new);
+        NavCollectionProperty<Object, TripFilterable, TripFilterable, ?> trips =
+                new NavCollectionProperty<>("Trips", Object.class, TripFilterable.class, TripFilterable::new);
 
         FilterExpression<Object> expr = trips.all(t -> t.name.startsWith("A"));
 
@@ -168,8 +213,8 @@ class CollectionPropertyTypedLambdaTest {
     void factorylessConstantsChainButLambdasFailFast() {
         // hand-built 4-arg form carries no selector factory, though the declared
         // type promises one — the fail-fast catches the lie at runtime, not silently
-        CollectionProperty<Person, Trip, TripFilterable, TripSelector> factoryless =
-                new CollectionProperty<>("Trips", Person.class, Trip.class, TripFilterable::new);
+        NavCollectionProperty<Person, Trip, TripFilterable, TripSelector> factoryless =
+                new NavCollectionProperty<>("Trips", Person.class, Trip.class, TripFilterable::new);
         assertEquals("Trips($top=2)", factoryless.top(2).toODataExpand(),
                 "constant builders must chain without a factory");
 
@@ -218,7 +263,7 @@ class CollectionPropertyTypedLambdaTest {
 
     @Test
     void collectionPropertyAsForms() {
-        CollectionProperty<Person, Trip, TripFilterable, TripSelector> versions = trips();
+        NavCollectionProperty<Person, Trip, TripFilterable, TripSelector> versions = trips();
 
         NavQuery<Person, Doc, ?> cast2 = versions.as("ABC.Doc", Doc.class);
         assertEquals("Trips", cast2.edmName());
@@ -249,8 +294,8 @@ class CollectionPropertyTypedLambdaTest {
 
     @Test
     void identicallyBuiltQueriesAssertEqualRenderingNeverInstances() {
-        CollectionProperty<Person, Trip, TripFilterable, TripSelector> a = trips();
-        CollectionProperty<Person, Trip, TripFilterable, TripSelector> b = trips();
+        NavCollectionProperty<Person, Trip, TripFilterable, TripSelector> a = trips();
+        NavCollectionProperty<Person, Trip, TripFilterable, TripSelector> b = trips();
 
         // The Supplier component makes record equality meaningless (method-ref suppliers
         // may or may not be cached — identity is unspecified), so the suite never asserts

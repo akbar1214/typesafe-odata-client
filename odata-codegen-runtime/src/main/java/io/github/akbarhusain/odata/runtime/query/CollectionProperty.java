@@ -1,5 +1,8 @@
 package io.github.akbarhusain.odata.runtime.query;
 
+import io.github.akbarhusain.odata.runtime.entity.ContextPath;
+
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Function;
@@ -19,44 +22,56 @@ import java.util.function.Supplier;
  * @param <F>   the filterable type used by any/all lambdas
  * @param <Sel> the element's selector type used by the NavQuery lambda overloads
  */
-public final class CollectionProperty<E, T, F, Sel> implements Expandable<E> {
+public non-sealed class CollectionProperty<E, T, F, Sel> implements Expandable<E> {
     private final String edmName;
     private final Class<E> entityType;
     private final Class<T> elementType;
     private final Supplier<F> filterableFactory;
     private final Supplier<Sel> selectorFactory;
+    private final String elementEdmType;
 
     public CollectionProperty(String edmName, Class<E> entityType) {
-        this(edmName, entityType, null, null, null);
+        this(edmName, entityType, null, null, null, null);
     }
 
     public CollectionProperty(String edmName, Class<E> entityType, Class<T> elementType) {
-        this(edmName, entityType, elementType, null, null);
+        this(edmName, entityType, elementType, null, null, null);
     }
 
     public CollectionProperty(String edmName, Class<E> entityType, Class<T> elementType, Supplier<F> filterableFactory) {
-        this(edmName, entityType, elementType, filterableFactory, null);
+        this(edmName, entityType, elementType, filterableFactory, null, null);
     }
 
     public CollectionProperty(String edmName, Class<E> entityType, Class<T> elementType,
                               Supplier<F> filterableFactory, Supplier<Sel> selectorFactory) {
+        this(edmName, entityType, elementType, filterableFactory, selectorFactory, null);
+    }
+
+    public CollectionProperty(String edmName, Class<E> entityType, Class<T> elementType,
+                              Supplier<F> filterableFactory, Supplier<Sel> selectorFactory,
+                              String elementEdmType) {
+        if (edmName == null || edmName.isBlank()) {
+            throw new IllegalArgumentException("collection property name must not be blank");
+        }
+        if (elementEdmType != null && elementEdmType.isBlank()) {
+            throw new IllegalArgumentException("collection element Edm type must not be blank");
+        }
         this.edmName = edmName;
         this.entityType = entityType;
         this.elementType = elementType;
         this.filterableFactory = filterableFactory;
         this.selectorFactory = selectorFactory;
+        this.elementEdmType = elementEdmType;
     }
+
+    @Override
+    public String toODataExpand() { return edmName; }
 
     public String getEdmName() { return edmName; }
     public Class<E> getEntityType() { return entityType; }
     public Class<T> getElementType() { return elementType; }
     public Supplier<F> getFilterableFactory() { return filterableFactory; }
-
-    /** A bare collection navigation expands to its plain segment: {@code Friends}. */
-    @Override
-    public String toODataExpand() {
-        return edmName;
-    }
+    public String getElementEdmType() { return elementEdmType; }
 
     // ------------------------------------------------------------------
     // Casts
@@ -83,13 +98,10 @@ public final class CollectionProperty<E, T, F, Sel> implements Expandable<E> {
     }
 
     private static String requireCast(String qualifiedCast, Object subtype) {
-        if (qualifiedCast == null || qualifiedCast.isBlank()) {
-            throw new IllegalArgumentException("qualifiedCast must not be blank");
-        }
         if (subtype == null) {
             throw new IllegalArgumentException("subtype must not be null");
         }
-        return qualifiedCast;
+        return NavQuery.requireQualifiedCast(qualifiedCast);
     }
 
     // ------------------------------------------------------------------
@@ -110,8 +122,10 @@ public final class CollectionProperty<E, T, F, Sel> implements Expandable<E> {
     }
 
     public NavQuery<E, T, Sel> select(PropertyExpression<? super T, ?>... properties) {
+        if (properties == null) throw new IllegalArgumentException("properties must not be null");
         List<String> selects = new ArrayList<>();
         for (var prop : properties) {
+            if (prop == null) throw new IllegalArgumentException("select property must not be null");
             selects.add(NavQuery.selectableName(prop));
         }
         return new NavQuery<>(edmName, selects, List.of(), List.of(), null, null, null,
@@ -119,13 +133,16 @@ public final class CollectionProperty<E, T, F, Sel> implements Expandable<E> {
     }
 
     public NavQuery<E, T, Sel> filter(FilterExpression<? super T> predicate) {
+        if (predicate == null) throw new IllegalArgumentException("filter predicate must not be null");
         return new NavQuery<>(edmName, List.of(), List.of(predicate.toODataExpression()),
                 List.of(), null, null, null, List.of(), null, selectorFactory);
     }
 
     public NavQuery<E, T, Sel> orderBy(OrderExpression<? super T, ?>... expressions) {
+        if (expressions == null) throw new IllegalArgumentException("order expressions must not be null");
         List<String> orderings = new ArrayList<>();
         for (var expr : expressions) {
+            if (expr == null) throw new IllegalArgumentException("order expression must not be null");
             orderings.add(expr.getODataPath());
         }
         return new NavQuery<>(edmName, List.of(), List.of(), orderings, null, null, null,
@@ -156,9 +173,12 @@ public final class CollectionProperty<E, T, F, Sel> implements Expandable<E> {
     }
 
     public NavQuery<E, T, Sel> expand(Expandable<? super T>... expandables) {
+        if (expandables == null) throw new IllegalArgumentException("expandables must not be null");
         List<String> expands = new ArrayList<>();
         for (var e : expandables) {
-            expands.add(e.toODataExpand());
+            if (e == null) throw new IllegalArgumentException("expandable must not be null");
+            String rendered = e.toODataExpand();
+            if (!expands.contains(rendered)) expands.add(rendered);
         }
         return new NavQuery<>(edmName, List.of(), List.of(), List.of(), null, null, null,
                 expands, null, selectorFactory);
@@ -171,9 +191,11 @@ public final class CollectionProperty<E, T, F, Sel> implements Expandable<E> {
     @SafeVarargs
     public final NavQuery<E, T, Sel> select(
             Function<? super Sel, ? extends PropertyExpression<? super T, ?>>... selectors) {
+        if (selectors == null) throw new IllegalArgumentException("select selectors must not be null");
         Sel selector = selector("select");
         PropertyExpression<? super T, ?>[] resolved = new PropertyExpression[selectors.length];
         for (int i = 0; i < selectors.length; i++) {
+            if (selectors[i] == null) throw new IllegalArgumentException("select selector must not be null");
             resolved[i] = selectors[i].apply(selector);
         }
         return select(resolved);
@@ -181,15 +203,18 @@ public final class CollectionProperty<E, T, F, Sel> implements Expandable<E> {
 
     public NavQuery<E, T, Sel> filter(
             Function<? super Sel, ? extends FilterExpression<? super T>> predicate) {
+        if (predicate == null) throw new IllegalArgumentException("filter selector must not be null");
         return filter(predicate.apply(selector("filter")));
     }
 
     @SafeVarargs
     public final NavQuery<E, T, Sel> orderBy(
             Function<? super Sel, ? extends OrderExpression<? super T, ?>>... expressions) {
+        if (expressions == null) throw new IllegalArgumentException("order selectors must not be null");
         Sel selector = selector("orderBy");
         OrderExpression<? super T, ?>[] resolved = new OrderExpression[expressions.length];
         for (int i = 0; i < expressions.length; i++) {
+            if (expressions[i] == null) throw new IllegalArgumentException("order selector must not be null");
             resolved[i] = expressions[i].apply(selector);
         }
         return orderBy(resolved);
@@ -197,6 +222,7 @@ public final class CollectionProperty<E, T, F, Sel> implements Expandable<E> {
 
     public NavQuery<E, T, Sel> expand(
             Function<? super Sel, ? extends Expandable<? super T>> query) {
+        if (query == null) throw new IllegalArgumentException("expand selector must not be null");
         return expand(query.apply(selector("expand")));
     }
 
@@ -207,7 +233,12 @@ public final class CollectionProperty<E, T, F, Sel> implements Expandable<E> {
                     + "Selector::new (generated property constants provide one) "
                     + "(operation: " + operation + ")");
         }
-        return selectorFactory.get();
+        Sel value = selectorFactory.get();
+        if (value == null) {
+            throw new IllegalStateException("selector factory returned null for CollectionProperty '"
+                    + edmName + "' (operation: " + operation + ")");
+        }
+        return value;
     }
 
     // ------------------------------------------------------------------
@@ -225,33 +256,38 @@ public final class CollectionProperty<E, T, F, Sel> implements Expandable<E> {
     private static final ThreadLocal<Integer> LAMBDA_DEPTH = ThreadLocal.withInitial(() -> 0);
 
     private FilterExpression<E> lambda(String operator, Function<F, FilterExpression<T>> predicate) {
+        if (predicate == null) {
+            throw new IllegalArgumentException(operator + " predicate must not be null");
+        }
         if (filterableFactory == null) {
             throw new IllegalStateException("CollectionProperty '" + edmName
                     + "' has no filterable factory; construct it with the element type's Filterable::new "
                     + "(generated property constants provide one)");
         }
         int depth = LAMBDA_DEPTH.get();
-        // Need element to know its base alias (FilterableElement may have custom prefix like "d")
-        // Create element first to determine base alias, then compute unique alias for this depth
         F probe = filterableFactory.get();
+        if (probe == null) {
+            throw new IllegalStateException("Filterable factory returned null for '" + edmName + "'");
+        }
         String baseAlias = probe instanceof FilterableElement<?> fe ? fe.prefix() : "x";
         String alias = depth == 0 ? baseAlias : baseAlias + depth;
-        if (alias.isEmpty() || !Character.isJavaIdentifierStart(alias.charAt(0))) {
-            throw new IllegalArgumentException("Invalid lambda alias '" + alias + "': must be a simple identifier");
-        }
-        for (int i = 1; i < alias.length(); i++) {
-            if (!Character.isJavaIdentifierPart(alias.charAt(i))) {
-                throw new IllegalArgumentException("Invalid lambda alias '" + alias + "': must be a simple identifier");
-            }
-        }
+        requireODataIdentifier(alias);
         LAMBDA_DEPTH.set(depth + 1);
         try {
-            // Reuse probe as element for predicate (already created)
             FilterExpression<T> result = predicate.apply(probe);
+            if (result == null) {
+                throw new IllegalArgumentException(operator + " predicate returned null");
+            }
             String expr = result.toODataExpression();
-            // Rebind hard-coded prefix to the unique alias for nested lambdas
             if (!baseAlias.equals(alias)) {
                 expr = rebindAlias(expr, baseAlias, alias);
+            }
+            // Reject only genuinely invalid predicates: a bare property path that is not
+            // qualified by the lambda variable (`any(x: Name eq 'a')`). Constant/alias-free
+            // predicates such as `any(x: true)` and `any(x: 1 eq 1)` are legal OData and pass.
+            if (referencesUnqualifiedPath(expr)) {
+                throw new IllegalArgumentException(operator + " predicate must reference the bound variable '"
+                        + alias + "/...'");
             }
             return new RawFilterExpression<>(edmName + "/" + operator + "(" + alias + ": " + expr + ")");
         } finally {
@@ -275,7 +311,6 @@ public final class CollectionProperty<E, T, F, Sel> implements Expandable<E> {
             if (inLiteral) {
                 out.append(c);
                 if (c == '\'') {
-                    // '' inside a literal is an escaped quote, not the terminator
                     if (i + 1 < expr.length() && expr.charAt(i + 1) == '\'') {
                         out.append('\'');
                         i++;
@@ -293,7 +328,7 @@ public final class CollectionProperty<E, T, F, Sel> implements Expandable<E> {
                 continue;
             }
             if (expr.startsWith(target, i)
-                    && (i == 0 || !isIdentifierPart(expr.charAt(i - 1)))) {
+                    && (i == 0 || !isODataIdentifierPart(expr.charAt(i - 1)))) {
                 out.append(newAlias).append('/');
                 i += target.length();
                 continue;
@@ -304,8 +339,98 @@ public final class CollectionProperty<E, T, F, Sel> implements Expandable<E> {
         return out.toString();
     }
 
-    private static boolean isIdentifierPart(char c) {
-        return Character.isJavaIdentifierPart(c);
+    private static final java.util.Set<String> LAMBDA_KEYWORDS = java.util.Set.of(
+            "and", "or", "not", "eq", "ne", "gt", "ge", "lt", "le", "in", "has",
+            "add", "sub", "mul", "div", "divby", "mod", "true", "false", "null");
+
+    /**
+     * True when {@code expression} contains an operand that is a bare property name not part of a
+     * path — e.g. {@code Name eq 'a'} instead of {@code x/Name eq 'a'} (invalid OData). Any
+     * {@code root/...} path (outer or nested-lambda alias), function calls, operators,
+     * boolean/null literals and qualified enum/namespace literals are accepted, so
+     * constant/alias-free predicates such as {@code true} are not rejected.
+     */
+    private static boolean referencesUnqualifiedPath(String expression) {
+        int i = 0;
+        while (i < expression.length()) {
+            char c = expression.charAt(i);
+            if (c == '\'') { // string / duration literal
+                i++;
+                while (i < expression.length()) {
+                    if (expression.charAt(i) == '\'') {
+                        if (i + 1 < expression.length() && expression.charAt(i + 1) == '\'') {
+                            i += 2;
+                            continue;
+                        }
+                        i++;
+                        break;
+                    }
+                    i++;
+                }
+                continue;
+            }
+            if (!isODataIdentifierStart(c)) {
+                i++;
+                continue;
+            }
+            int start = i;
+            i++;
+            while (i < expression.length() && isODataIdentifierPart(expression.charAt(i))) {
+                i++;
+            }
+            String token = expression.substring(start, i);
+            char prev = start > 0 ? expression.charAt(start - 1) : '\0';
+            if (prev == '.') {
+                continue; // namespace/enum segment
+            }
+            if (i < expression.length() && expression.charAt(i) == '/') {
+                // any path root is qualified (x/Name, x1/Value, ...) — consume the whole path
+                while (i < expression.length()
+                        && (expression.charAt(i) == '/' || isODataIdentifierPart(expression.charAt(i)))) {
+                    i++;
+                }
+                continue;
+            }
+            int j = i;
+            while (j < expression.length() && Character.isWhitespace(expression.charAt(j))) {
+                j++;
+            }
+            if (j < expression.length()) {
+                char next = expression.charAt(j);
+                if (next == '(' || next == '\'' || next == '.' || next == ':') {
+                    continue; // function call / enum literal / qualified name / lambda binding
+                }
+            }
+            if (LAMBDA_KEYWORDS.contains(token.toLowerCase(java.util.Locale.ROOT))) {
+                continue;
+            }
+            return true;
+        }
+        return false;
+    }
+
+    private static void requireODataIdentifier(String value) {
+        if (value == null || value.isEmpty() || !isODataIdentifierStart(value.charAt(0))) {
+            throw new IllegalArgumentException("Invalid OData lambda alias: " + value);
+        }
+        for (int i = 1; i < value.length(); i++) {
+            if (!isODataIdentifierPart(value.charAt(i))) {
+                throw new IllegalArgumentException("Invalid OData lambda alias: " + value);
+            }
+        }
+    }
+
+    private static boolean isODataIdentifierStart(char c) {
+        int type = Character.getType(c);
+        return c == '_' || Character.isLetter(c) || type == Character.LETTER_NUMBER;
+    }
+
+    private static boolean isODataIdentifierPart(char c) {
+        int type = Character.getType(c);
+        return isODataIdentifierStart(c) || Character.isDigit(c) || type == Character.LETTER_NUMBER
+                || type == Character.DECIMAL_DIGIT_NUMBER || type == Character.NON_SPACING_MARK
+                || type == Character.COMBINING_SPACING_MARK || type == Character.CONNECTOR_PUNCTUATION
+                || type == Character.FORMAT;
     }
 
     /**
@@ -320,6 +445,10 @@ public final class CollectionProperty<E, T, F, Sel> implements Expandable<E> {
             // elements explicitly (e.g. any(x: x eq null)) instead of passing null.
             throw new IllegalArgumentException("contains value must not be null");
         }
+        if ("Edm.Binary".equals(elementEdmType) || value instanceof byte[]) {
+            throw new IllegalArgumentException("contains() does not support Edm.Binary elements: "
+                    + "OData eq is invalid for binary values");
+        }
         // Unique per nesting depth so a contains() inside an any()/all() predicate never
         // shadows the enclosing lambda variable (same scheme as lambda())
         int depth = LAMBDA_DEPTH.get();
@@ -333,7 +462,11 @@ public final class CollectionProperty<E, T, F, Sel> implements Expandable<E> {
      * (URL Conventions §5.1.1.4). {@code length()} is a string function in OData.
      */
     public NumberExpression<Integer, E> length() {
-        return new NumberExpression<>(edmName + "/$count", entityType);
+        return new NumberExpression<>(edmName + "/$count", entityType, "Edm.Int32");
+    }
+
+    private static String queryString(String value) {
+        return "'" + value.replace("'", "''") + "'";
     }
 
     @SuppressWarnings("unchecked")
@@ -341,13 +474,48 @@ public final class CollectionProperty<E, T, F, Sel> implements Expandable<E> {
         if (value == null) {
             return "null";
         }
-        if (elementType != null && CharSequence.class.isAssignableFrom(elementType)) {
-            return "'" + String.valueOf(value).replace("'", "''") + "'";
+        if (elementEdmType != null) {
+            if ("Edm.String".equals(elementEdmType) && value instanceof String s) {
+                return queryString(s);
+            }
+            return ContextPath.formatTypedValue(value, elementEdmType);
         }
-        if (value instanceof String) {
-            return "'" + String.valueOf(value).replace("'", "''") + "'";
+        if (value instanceof CharSequence) {
+            return queryString(value.toString());
         }
-        return String.valueOf(value);
+        if (value instanceof byte[]) {
+            return ContextPath.formatTypedValue(value, "Edm.Binary");
+        }
+        if (value instanceof java.time.LocalDate) {
+            return ContextPath.formatTypedValue(value, "Edm.Date");
+        }
+        if (value instanceof java.time.LocalTime) {
+            return ContextPath.formatTypedValue(value, "Edm.TimeOfDay");
+        }
+        if (value instanceof java.time.OffsetDateTime) {
+            return ContextPath.formatTypedValue(value, "Edm.DateTimeOffset");
+        }
+        if (value instanceof Duration) {
+            return ContextPath.formatTypedValue(value, "Edm.Duration");
+        }
+        if (value instanceof Boolean) {
+            return ContextPath.formatTypedValue(value, "Edm.Boolean");
+        }
+        if (value instanceof Number) {
+            String type = value instanceof Float ? "Edm.Single"
+                    : value instanceof java.math.BigDecimal ? "Edm.Decimal"
+                    : value instanceof Double ? "Edm.Double"
+                    : value instanceof Long ? "Edm.Int64"
+                    : value instanceof Short ? "Edm.Int16"
+                    : value instanceof Byte ? "Edm.SByte" : "Edm.Int32";
+            return ContextPath.formatTypedValue(value, type);
+        }
+        if (value instanceof Enum<?> e) {
+            throw new IllegalArgumentException("collection element enum type is required for contains(): "
+                    + e.getClass().getName());
+        }
+        throw new IllegalArgumentException("collection element type is required for contains(): "
+                + value.getClass().getName());
     }
 
     /**
@@ -360,6 +528,7 @@ public final class CollectionProperty<E, T, F, Sel> implements Expandable<E> {
         public FilterableElement() {}
 
         public FilterableElement(String prefix) {
+            requireODataIdentifier(prefix);
             this.prefix = prefix;
         }
 
