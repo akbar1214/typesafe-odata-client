@@ -73,14 +73,16 @@ class HeaderCasingTest {
 
         // The fake throws synchronously, but only after the request was assembled
         // and captured — that is the assertion target.
-        assertThrows(UnsupportedOperationException.class,
+        CompletableFuture<java.io.InputStream> future = assertDoesNotThrow(
                 () -> EntityOperations.streamMediaAsync(ctx, ctx.basePath().addSegment("Ads")));
+        assertThrows(java.util.concurrent.CompletionException.class, future::join);
 
         long acceptKeys = transport.lastRequest.headers().keySet().stream()
                 .filter(k -> k.equalsIgnoreCase("accept"))
                 .count();
         assertEquals(1, acceptKeys, "one Accept header expected, got: "
                 + transport.lastRequest.headers());
+        assertEquals(List.of("*/*"), transport.lastRequest.headers().get("Accept"));
     }
 
     @Test

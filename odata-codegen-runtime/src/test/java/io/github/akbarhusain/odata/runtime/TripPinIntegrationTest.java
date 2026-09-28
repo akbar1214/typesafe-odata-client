@@ -47,15 +47,19 @@ class TripPinIntegrationTest {
         return response;
     }
 
-    private static boolean isTripPinLinkMutationFault(HttpResponse response) {
-        if (response.statusCode() != 500) {
-            return false;
+    private static String responseETag(HttpResponse response) {
+        for (var entry : response.headers().entrySet()) {
+            if (entry.getKey() != null
+                    && (entry.getKey().equalsIgnoreCase("ETag")
+                    || entry.getKey().equalsIgnoreCase("odata.etag"))) {
+                return entry.getValue().isEmpty() ? null : entry.getValue().get(0);
+            }
         }
-        String text = response.getText();
-        return text.contains("Property set method not found")
-                || text.isBlank()
-                || (text.contains("InternalServerError") && !text.contains("relative URI")
-                        && !text.contains("odata.context") && !text.contains("target"));
+        return null;
+    }
+
+    private static boolean isTripPinLinkMutationFault(HttpResponse response) {
+        return TripPinCleanupSupport.isTripPinLinkMutationFault(response);
     }
 
     static final class EntityOperationsTestHelper {
@@ -356,7 +360,7 @@ class TripPinIntegrationTest {
 
     @Test
     void createPerson() throws Exception {
-        String testUserName = "testuser_" + System.currentTimeMillis();
+        String testUserName = "testuser_" + java.util.UUID.randomUUID().toString().substring(0, 8);
         String personJson = """
                 {
                     "UserName": "%s",
@@ -369,41 +373,37 @@ class TripPinIntegrationTest {
 
         ContextPath path = tripPinContext.basePath()
                 .addSegment("People");
-
-        HttpResponse response = EntityOperations.executeSync(
-                tripPinContext,
-                io.github.akbarhusain.odata.runtime.http.HttpMethod.POST,
-                path,
-                personJson.getBytes(java.nio.charset.StandardCharsets.UTF_8),
-                java.util.Map.of("Content-Type", "application/json"));
-
-        assertEquals(201, response.statusCode());
-        assertTrue(response.isSuccessful());
-
-        JsonNode created = mapper.readTree(response.body());
-        assertEquals(testUserName, created.get("UserName").asText());
-        assertEquals("Test", created.get("FirstName").asText());
-
-        // Verify person exists via GET
         ContextPath getPath = tripPinContext.basePath()
                 .addSegment("People")
                 .addKey("UserName", testUserName);
-        HttpResponse getResponse = EntityOperations.executeSync(
-                tripPinContext,
-                io.github.akbarhusain.odata.runtime.http.HttpMethod.GET,
-                getPath, null, null);
-        assertEquals(200, getResponse.statusCode());
+        TripPinCleanupSupport.withCleanup(tripPinContext, getPath, cleanup -> {
+            cleanup.requireCleanup();
+            HttpResponse response = EntityOperations.executeSync(
+                    tripPinContext,
+                    io.github.akbarhusain.odata.runtime.http.HttpMethod.POST,
+                    path,
+                    personJson.getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                    java.util.Map.of("Content-Type", "application/json"));
 
-        // Cleanup: delete the test person
-        EntityOperations.executeSync(
-                tripPinContext,
-                io.github.akbarhusain.odata.runtime.http.HttpMethod.DELETE,
-                getPath, null, null);
+            assertEquals(201, response.statusCode());
+            assertTrue(response.isSuccessful());
+
+            JsonNode createdEntity = mapper.readTree(response.body());
+            assertEquals(testUserName, createdEntity.get("UserName").asText());
+            assertEquals("Test", createdEntity.get("FirstName").asText());
+
+            HttpResponse getResponse = EntityOperations.executeSync(
+                    tripPinContext,
+                    io.github.akbarhusain.odata.runtime.http.HttpMethod.GET,
+                    getPath, null, null);
+            assertEquals(200, getResponse.statusCode());
+            cleanup.setEtag(responseETag(getResponse));
+        });
     }
 
     @Test
     void updatePerson() throws Exception {
-        String testUserName = "testupdate_" + System.currentTimeMillis();
+        String testUserName = "testupdate_" + java.util.UUID.randomUUID().toString().substring(0, 8);
         String createJson = """
                 {
                     "UserName": "%s",
@@ -414,86 +414,60 @@ class TripPinIntegrationTest {
                 }
                 """.formatted(testUserName);
 
-        // Create person
         ContextPath basePath = tripPinContext.basePath().addSegment("People");
-        HttpResponse createResponse = EntityOperations.executeSync(
-                tripPinContext,
-                io.github.akbarhusain.odata.runtime.http.HttpMethod.POST,
-                basePath,
-                createJson.getBytes(java.nio.charset.StandardCharsets.UTF_8),
-                java.util.Map.of("Content-Type", "application/json"));
-        assertTrue(createResponse.statusCode() == 201 || createResponse.statusCode() == 204,
-                "Create person should succeed, got " + createResponse.statusCode()
-                        + ": " + createResponse.getText());
-
         ContextPath entityPath = tripPinContext.basePath()
                 .addSegment("People")
                 .addKey("UserName", testUserName);
+        TripPinCleanupSupport.withCleanup(tripPinContext, entityPath, cleanup -> {
+            cleanup.requireCleanup();
+            String cleanupEtag = null;
+            HttpResponse createResponse = EntityOperations.executeSync(
+                    tripPinContext,
+                    io.github.akbarhusain.odata.runtime.http.HttpMethod.POST,
+                    basePath,
+                    createJson.getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                    java.util.Map.of("Content-Type", "application/json"));
+            assertTrue(createResponse.statusCode() == 201 || createResponse.statusCode() == 204,
+                    "Create person should succeed, got " + createResponse.statusCode()
+                            + ": " + createResponse.getText());
 
-        // GET to obtain ETag (TripPin requires If-Match for PATCH). TripPin briefly
-        // returns 204 on reads immediately after writes (read-after-write lag) — poll.
-        HttpResponse getResponse = getUntilFound(entityPath);
-        assertEquals(200, getResponse.statusCode());
+            HttpResponse getResponse = getUntilFound(entityPath);
+            assertEquals(200, getResponse.statusCode());
+            cleanupEtag = responseETag(getResponse);
+            cleanup.setEtag(cleanupEtag);
 
-        String etag = null;
-        for (var entry : getResponse.headers().entrySet()) {
-            if (entry.getKey() != null &&
-                (entry.getKey().equalsIgnoreCase("ETag") || entry.getKey().equalsIgnoreCase("odata.etag"))) {
-                etag = entry.getValue().get(0);
-                break;
+            String patchJson = """
+                    {
+                        "FirstName": "Updated"
+                    }
+                    """;
+            java.util.Map<String, String> patchHeaders = new java.util.LinkedHashMap<>();
+            patchHeaders.put("Content-Type", "application/json");
+            if (cleanupEtag != null) {
+                patchHeaders.put("If-Match", cleanupEtag);
             }
-        }
 
-        // Update person with ETag
-        String patchJson = """
-                {
-                    "FirstName": "Updated"
-                }
-                """;
-        java.util.Map<String, String> patchHeaders = new java.util.LinkedHashMap<>();
-        patchHeaders.put("Content-Type", "application/json");
-        if (etag != null) {
-            patchHeaders.put("If-Match", etag);
-        }
+            HttpResponse patchResponse = EntityOperations.executeSync(
+                    tripPinContext,
+                    io.github.akbarhusain.odata.runtime.http.HttpMethod.PATCH,
+                    entityPath,
+                    patchJson.getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                    patchHeaders);
 
-        HttpResponse patchResponse = EntityOperations.executeSync(
-                tripPinContext,
-                io.github.akbarhusain.odata.runtime.http.HttpMethod.PATCH,
-                entityPath,
-                patchJson.getBytes(java.nio.charset.StandardCharsets.UTF_8),
-                patchHeaders);
+            assertTrue(patchResponse.isSuccessful(),
+                    "PATCH should succeed: " + patchResponse.statusCode() + " - " + patchResponse.getText());
 
-        assertTrue(patchResponse.isSuccessful(),
-                "PATCH should succeed: " + patchResponse.statusCode() + " - " + patchResponse.getText());
-
-        // Verify update via GET (poll: reads right after writes can transiently 204)
-        HttpResponse verifyResponse = getUntilFound(entityPath);
-        assertEquals(200, verifyResponse.statusCode());
-        JsonNode person = mapper.readTree(verifyResponse.body());
-        assertEquals("Updated", person.get("FirstName").asText());
-
-        // Cleanup
-        String deleteEtag = null;
-        for (var entry : verifyResponse.headers().entrySet()) {
-            if (entry.getKey() != null &&
-                (entry.getKey().equalsIgnoreCase("ETag") || entry.getKey().equalsIgnoreCase("odata.etag"))) {
-                deleteEtag = entry.getValue().get(0);
-                break;
-            }
-        }
-        java.util.Map<String, String> deleteHeaders = new java.util.LinkedHashMap<>();
-        if (deleteEtag != null) {
-            deleteHeaders.put("If-Match", deleteEtag);
-        }
-        EntityOperations.executeSync(
-                tripPinContext,
-                io.github.akbarhusain.odata.runtime.http.HttpMethod.DELETE,
-                entityPath, null, deleteHeaders);
+            HttpResponse verifyResponse = getUntilFound(entityPath);
+            assertEquals(200, verifyResponse.statusCode());
+            JsonNode person = mapper.readTree(verifyResponse.body());
+            assertEquals("Updated", person.get("FirstName").asText());
+            cleanup.setEtag(responseETag(verifyResponse));
+        });
     }
 
     @Test
     void deletePerson() throws Exception {
-        String testUserName = "testdelete_" + System.currentTimeMillis();
+        String testUserName = "testdelete_" + java.util.UUID.randomUUID().toString().substring(0, 8);
         String createJson = """
                 {
                     "UserName": "%s",
@@ -504,71 +478,49 @@ class TripPinIntegrationTest {
                 }
                 """.formatted(testUserName);
 
-        // Create person
         ContextPath basePath = tripPinContext.basePath().addSegment("People");
-        HttpResponse createResponse = EntityOperations.executeSync(
-                tripPinContext,
-                io.github.akbarhusain.odata.runtime.http.HttpMethod.POST,
-                basePath,
-                createJson.getBytes(java.nio.charset.StandardCharsets.UTF_8),
-                java.util.Map.of("Content-Type", "application/json"));
-        assertTrue(createResponse.statusCode() == 201 || createResponse.statusCode() == 204,
-                "Create person should succeed, got " + createResponse.statusCode()
-                        + ": " + createResponse.getText());
-
         ContextPath entityPath = tripPinContext.basePath()
                 .addSegment("People")
                 .addKey("UserName", testUserName);
+        TripPinCleanupSupport.withCleanup(tripPinContext, entityPath, cleanup -> {
+            cleanup.requireCleanup();
+            String cleanupEtag = null;
+            HttpResponse createResponse = EntityOperations.executeSync(
+                    tripPinContext,
+                    io.github.akbarhusain.odata.runtime.http.HttpMethod.POST,
+                    basePath,
+                    createJson.getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                    java.util.Map.of("Content-Type", "application/json"));
+            assertTrue(createResponse.statusCode() == 201 || createResponse.statusCode() == 204,
+                    "Create person should succeed, got " + createResponse.statusCode()
+                            + ": " + createResponse.getText());
 
-        // GET to obtain ETag
-        HttpResponse getResponse = EntityOperations.executeSync(
-                tripPinContext,
-                io.github.akbarhusain.odata.runtime.http.HttpMethod.GET,
-                entityPath, null, null);
-        assertEquals(200, getResponse.statusCode());
-
-        // Find ETag from response headers
-        String etag = null;
-        for (var entry : getResponse.headers().entrySet()) {
-            if (entry.getKey() != null &&
-                (entry.getKey().equalsIgnoreCase("ETag") || entry.getKey().equalsIgnoreCase("odata.etag"))) {
-                etag = entry.getValue().get(0);
-                break;
-            }
-        }
-
-        // Delete person with If-Match
-        java.util.Map<String, String> deleteHeaders = new java.util.LinkedHashMap<>();
-        if (etag != null) {
-            deleteHeaders.put("If-Match", etag);
-        }
-
-        HttpResponse deleteResponse = EntityOperations.executeSync(
-                tripPinContext,
-                io.github.akbarhusain.odata.runtime.http.HttpMethod.DELETE,
-                entityPath,
-                null,
-                deleteHeaders);
-
-        assertTrue(deleteResponse.isSuccessful(),
-                "Delete should succeed: " + deleteResponse.statusCode());
-
-        // Verify person is gone - TripPin returns 404 or 204 (no content) for deleted entities.
-        // The delete may take a moment to propagate, so poll instead of a fixed sleep.
-        HttpResponse verifyResponse = null;
-        for (int attempt = 0; attempt < 10; attempt++) {
-            verifyResponse = EntityOperations.executeSync(
+            HttpResponse getResponse = EntityOperations.executeSync(
                     tripPinContext,
                     io.github.akbarhusain.odata.runtime.http.HttpMethod.GET,
                     entityPath, null, null);
-            if (verifyResponse.statusCode() == 404 || verifyResponse.statusCode() == 204) {
-                break;
+            assertEquals(200, getResponse.statusCode());
+            cleanupEtag = responseETag(getResponse);
+            cleanup.setEtag(cleanupEtag);
+
+            java.util.Map<String, String> deleteHeaders = new java.util.LinkedHashMap<>();
+            if (cleanupEtag != null) {
+                deleteHeaders.put("If-Match", cleanupEtag);
             }
-            Thread.sleep(500);
-        }
-        assertNotNull(verifyResponse, "verification GET must have executed");
-        assertTrue(verifyResponse.statusCode() == 404 || verifyResponse.statusCode() == 204,
-                "Person should be deleted, GET returned: " + verifyResponse.statusCode());
+
+            HttpResponse deleteResponse = EntityOperations.executeSync(
+                    tripPinContext,
+                    io.github.akbarhusain.odata.runtime.http.HttpMethod.DELETE,
+                    entityPath,
+                    null,
+                    deleteHeaders);
+
+            assertTrue(deleteResponse.isSuccessful(),
+                    "Delete should succeed: " + deleteResponse.statusCode());
+
+            TripPinCleanupSupport.awaitDeletion(tripPinContext, entityPath);
+            cleanup.complete();
+        });
     }
 
     @Test
@@ -590,6 +542,7 @@ class TripPinIntegrationTest {
                 io.github.akbarhusain.odata.runtime.http.HttpMethod.GET,
                 tripPinContext.basePath().addSegment("People").addQuery("$select", "UserName"),
                 null, null);
+        assertTrue(peopleResponse.isSuccessful(), "People request failed: " + peopleResponse.statusCode());
         new com.fasterxml.jackson.databind.ObjectMapper().readTree(peopleResponse.body())
                 .get("value").forEach(n -> people.add(n.get("UserName").asText()));
 
@@ -599,6 +552,7 @@ class TripPinIntegrationTest {
                 tripPinContext.basePath().addSegment("People").addKey("UserName", "scottketchum")
                         .addSegment("Friends").addQuery("$select", "UserName"),
                 null, null);
+        assertTrue(friendsResponse.isSuccessful(), "Friends request failed: " + friendsResponse.statusCode());
         new com.fasterxml.jackson.databind.ObjectMapper().readTree(friendsResponse.body())
                 .get("value").forEach(n -> friends.add(n.get("UserName").asText()));
 
@@ -609,49 +563,62 @@ class TripPinIntegrationTest {
         assumeTrue(targetUser != null, "No candidate friend target available");
         String targetPath = "People('" + targetUser + "')";
 
-        HttpResponse addResponse = EntityOperations.executeSync(
-                tripPinContext,
-                io.github.akbarhusain.odata.runtime.http.HttpMethod.POST,
-                tripPinContext.basePath()
-                        .addSegment("People").addKey("UserName", "scottketchum")
-                        .addSegment("Friends").addSegment("$ref"),
-                EntityOperationsTestHelper.refBody(targetPath),
-                java.util.Map.of("Content-Type", "application/json"));
-        assumeTrue(!isTripPinLinkMutationFault(addResponse),
-                "TripPin is currently failing $ref mutations server-side (known limitation); "
-                        + "request construction is covered deterministically by RefUrlResolutionTest");
-        assertTrue(addResponse.statusCode() == 204 || addResponse.statusCode() == 409,
-                "Expected 204 or 409, got " + addResponse.statusCode()
-                        + ": " + addResponse.getText());
-
-        boolean added = addResponse.statusCode() == 204;
-        if (added) {
-            java.util.List<String> after = new java.util.ArrayList<>();
-            HttpResponse afterResponse = EntityOperations.executeSync(tripPinContext,
-                    io.github.akbarhusain.odata.runtime.http.HttpMethod.GET,
-                    tripPinContext.basePath().addSegment("People").addKey("UserName", "scottketchum")
-                            .addSegment("Friends").addQuery("$select", "UserName"),
-                    null, null);
-            new com.fasterxml.jackson.databind.ObjectMapper().readTree(afterResponse.body())
-                    .get("value").forEach(n -> after.add(n.get("UserName").asText()));
-            assertTrue(after.contains(targetUser), "added $ref link must be visible in Friends");
-        }
-
-        // Remove only the link this test added; a 409 (already friends) leaves seed data alone
-        if (added) {
-            HttpResponse removeResponse = EntityOperations.executeSync(
+        boolean added = false;
+        Throwable originalFailure = null;
+        try {
+            HttpResponse addResponse = EntityOperations.executeSync(
                     tripPinContext,
-                    io.github.akbarhusain.odata.runtime.http.HttpMethod.DELETE,
+                    io.github.akbarhusain.odata.runtime.http.HttpMethod.POST,
                     tripPinContext.basePath()
                             .addSegment("People").addKey("UserName", "scottketchum")
-                            .addSegment("Friends").addSegment("$ref")
-                            .addQuery("$id", targetPath),
-                    null, null);
-            assumeTrue(!isTripPinLinkMutationFault(removeResponse),
-                    "TripPin is currently failing $ref mutations server-side (known limitation; "
-                            + "the added link remains on the demo data)");
-            assertTrue(removeResponse.isSuccessful(),
-                    "Remove friend should succeed: " + removeResponse.statusCode());
+                            .addSegment("Friends").addSegment("$ref"),
+                    EntityOperationsTestHelper.refBody(targetPath),
+                    java.util.Map.of("Content-Type", "application/json"));
+            assumeTrue(!isTripPinLinkMutationFault(addResponse),
+                    "TripPin is currently failing $ref mutations server-side (known limitation); "
+                            + "request construction is covered deterministically by RefUrlResolutionTest");
+            added = addResponse.statusCode() == 204;
+            assertTrue(addResponse.statusCode() == 204 || addResponse.statusCode() == 409,
+                    "Expected 204 or 409, got " + addResponse.statusCode()
+                            + ": " + addResponse.getText());
+
+            if (added) {
+                java.util.List<String> after = new java.util.ArrayList<>();
+                HttpResponse afterResponse = EntityOperations.executeSync(tripPinContext,
+                        io.github.akbarhusain.odata.runtime.http.HttpMethod.GET,
+                        tripPinContext.basePath().addSegment("People").addKey("UserName", "scottketchum")
+                                .addSegment("Friends").addQuery("$select", "UserName"),
+                        null, null);
+                new com.fasterxml.jackson.databind.ObjectMapper().readTree(afterResponse.body())
+                        .get("value").forEach(n -> after.add(n.get("UserName").asText()));
+                assertTrue(after.contains(targetUser), "added $ref link must be visible in Friends");
+            }
+        } catch (Exception | Error failure) {
+            originalFailure = failure;
+            throw failure;
+        } finally {
+            if (added) {
+                try {
+                    HttpResponse removeResponse = EntityOperations.executeSync(
+                            tripPinContext,
+                            io.github.akbarhusain.odata.runtime.http.HttpMethod.DELETE,
+                            tripPinContext.basePath()
+                                    .addSegment("People").addKey("UserName", "scottketchum")
+                                    .addSegment("Friends").addSegment("$ref")
+                                    .addQuery("$id", targetPath),
+                            null, null);
+                    assumeTrue(!isTripPinLinkMutationFault(removeResponse),
+                            "TripPin is currently failing $ref mutations server-side (known limitation); "
+                                    + "the request is covered deterministically by RefUrlResolutionTest");
+                    assertTrue(removeResponse.isSuccessful(),
+                            "Remove friend should succeed: " + removeResponse.statusCode());
+                } catch (Exception | Error cleanupFailure) {
+                    if (originalFailure == null) {
+                        throw cleanupFailure;
+                    }
+                    originalFailure.addSuppressed(cleanupFailure);
+                }
+            }
         }
     }
 }

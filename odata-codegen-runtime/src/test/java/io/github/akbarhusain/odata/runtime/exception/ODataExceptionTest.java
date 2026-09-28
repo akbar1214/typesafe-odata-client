@@ -131,4 +131,18 @@ class ODataExceptionTest {
         assertEquals("Name is required", details.get(0).get("message"));
         assertEquals("Name", details.get(0).get("target"));
     }
+
+    @Test
+    void malformedStructuredErrorShapeReturnsAnEmptyODataError() {
+        HttpResponse response = new HttpResponse(500, Map.of(),
+                "{\"error\":\"not an object\"}".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+
+        ODataError error = ODataError.fromResponse(response);
+
+        assertNotNull(error);
+        assertNull(error.getCode());
+        assertNull(error.getMessage());
+        assertNull(error.getTarget());
+        assertTrue(error.getDetails().isEmpty());
+    }
 }
