@@ -22,7 +22,7 @@ import java.util.function.Supplier;
  * @param <F>   the filterable type used by any/all lambdas
  * @param <Sel> the element's selector type used by the NavQuery lambda overloads
  */
-public non-sealed class CollectionProperty<E, T, F, Sel> implements Expandable<E> {
+public class CollectionProperty<E, T, F, Sel> {
     private final String edmName;
     private final Class<E> entityType;
     private final Class<T> elementType;
@@ -63,9 +63,6 @@ public non-sealed class CollectionProperty<E, T, F, Sel> implements Expandable<E
         this.selectorFactory = selectorFactory;
         this.elementEdmType = elementEdmType;
     }
-
-    @Override
-    public String toODataExpand() { return edmName; }
 
     public String getEdmName() { return edmName; }
     public Class<E> getEntityType() { return entityType; }

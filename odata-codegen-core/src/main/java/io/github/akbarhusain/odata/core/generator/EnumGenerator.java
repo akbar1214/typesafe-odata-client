@@ -105,22 +105,24 @@ public class EnumGenerator {
         // ORDINAL, which is wrong whenever member values are not 0..n-1 in declaration order
         sb.append("    @com.fasterxml.jackson.annotation.JsonCreator\n");
         sb.append("    public static ").append(className).append(" fromJson(Object value) {\n");
+        sb.append("        if (value == null) {\n");
+        sb.append("            throw new IllegalArgumentException(\"Enum value must not be null\");\n");
+        sb.append("        }\n");
         sb.append("        if (value instanceof Number n) {\n");
-        sb.append("            return fromValue(n.longValue());\n");
+        sb.append("            try {\n");
+        sb.append("                return fromValue(new java.math.BigDecimal(n.toString()).longValueExact());\n");
+        sb.append("            } catch (ArithmeticException | NumberFormatException e) {\n");
+        sb.append("                throw new IllegalArgumentException(\"Invalid numeric enum value: \" + value, e);\n");
+        sb.append("            }\n");
         sb.append("        }\n");
         sb.append("        String s = value.toString();\n");
         sb.append("        // tolerate the qualified form Namespace.Enum'Member'\n");
         sb.append("        int quote = s.lastIndexOf('\\'');\n");
         sb.append("        String name = quote >= 0 ? s.substring(quote + 1) : s;\n");
         if (hasRenamed) {
-            sb.append("        try {\n");
-            sb.append("            return ").append(className).append(".valueOf(name);\n");
-            sb.append("        } catch (IllegalArgumentException notFound) {\n");
-            sb.append("            // sanitized members: the JSON wire name is the CSDL member name\n");
-            sb.append("            ").append(className).append(" mapped = BY_NAME.get(name);\n");
-            sb.append("            if (mapped != null) return mapped;\n");
-            sb.append("            throw notFound;\n");
-            sb.append("        }\n");
+            sb.append("        ").append(className).append(" mapped = BY_NAME.get(name);\n");
+            sb.append("        if (mapped != null) return mapped;\n");
+            sb.append("        return ").append(className).append(".valueOf(name);\n");
         } else {
             sb.append("        return ").append(className).append(".valueOf(name);\n");
         }

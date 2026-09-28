@@ -57,8 +57,8 @@ class WithMethodCopyOnWriteTest {
         String code = entity("Person");
         // Person has Emails (Collection(Edm.String)) and AddressInfo (Collection(Location))
         // with* on a non-collection property should still defensively copy collection fields
-        assertTrue(code.contains("List.copyOf(this."),
-                "with* methods should defensively copy collection fields via List.copyOf");
+        assertTrue(code.contains("java.util.Collections.unmodifiableList(new java.util.ArrayList<>(this."),
+                "with* methods should defensively copy collection fields while preserving null elements");
     }
 
     @Test
@@ -66,8 +66,8 @@ class WithMethodCopyOnWriteTest {
         String code = entity("Person");
         // Person has Friends nav (Collection(Person))
         // withNav* on a non-nav property should defensively copy collection nav fields
-        assertTrue(code.contains("== null ? null : List.copyOf(this."),
-                "with* methods should defensively copy collection nav fields via List.copyOf");
+        assertTrue(code.contains("== null ? null : java.util.Collections.unmodifiableList(new java.util.ArrayList<>(this."),
+                "with* methods should defensively copy collection nav fields while preserving null elements");
     }
 
     @Test
