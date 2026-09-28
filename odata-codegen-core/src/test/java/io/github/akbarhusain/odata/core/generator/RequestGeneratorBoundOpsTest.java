@@ -3,6 +3,7 @@ package io.github.akbarhusain.odata.core.generator;
 import io.github.akbarhusain.odata.core.model.CsdlModel;
 import io.github.akbarhusain.odata.core.parser.StaxCsdlParser;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import java.io.InputStream;
 import java.nio.file.Files;
@@ -80,25 +81,18 @@ class RequestGeneratorBoundOpsTest {
     }
 
     @Test
-    void generatorWritesBoundOperationFiles() throws Exception {
+    void generatorWritesBoundOperationFiles(@TempDir Path out) throws Exception {
         CsdlModel model = load("/trippin-metadata.xml");
-        Path out = Files.createTempDirectory("boundops");
-        try {
-            new Generator(out, Map.of("Microsoft.OData.SampleService.Models.TripPin", "com.example.trippin"),
-                    "com.example.trippin").generate(model);
-            assertTrue(Files.exists(out.resolve(Path.of("com", "example", "trippin", "operation",
-                    "PersonShareTripActionRequest.java"))));
-            assertTrue(Files.exists(out.resolve(Path.of("com", "example", "trippin", "operation",
-                    "PersonGetFriendsTripsFunctionRequest.java"))));
-            assertTrue(Files.exists(out.resolve(Path.of("com", "example", "trippin", "operation",
-                    "PersonGetFavoriteAirlineFunctionRequest.java"))));
-            assertTrue(Files.exists(out.resolve(Path.of("com", "example", "trippin", "operation",
-                    "TripGetInvolvedPeopleFunctionRequest.java"))));
-        } finally {
-            try (var walk = Files.walk(out)) {
-                walk.sorted(java.util.Comparator.reverseOrder()).forEach(p -> p.toFile().delete());
-            }
-        }
+        new Generator(out, Map.of("Microsoft.OData.SampleService.Models.TripPin", "com.example.trippin"),
+                "com.example.trippin").generate(model);
+        assertTrue(Files.exists(out.resolve(Path.of("com", "example", "trippin", "operation",
+                "PersonShareTripActionRequest.java"))));
+        assertTrue(Files.exists(out.resolve(Path.of("com", "example", "trippin", "operation",
+                "PersonGetFriendsTripsFunctionRequest.java"))));
+        assertTrue(Files.exists(out.resolve(Path.of("com", "example", "trippin", "operation",
+                "PersonGetFavoriteAirlineFunctionRequest.java"))));
+        assertTrue(Files.exists(out.resolve(Path.of("com", "example", "trippin", "operation",
+                "TripGetInvolvedPeopleFunctionRequest.java"))));
     }
 
     private static CsdlModel load(String path) {

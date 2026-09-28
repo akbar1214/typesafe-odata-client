@@ -36,9 +36,10 @@ class RequestGeneratorEntityQueryOptionsTest {
         assertTrue(code.contains(
                 "public final PersonEntityRequest expand(java.util.function.Function<Person.Selector, ? extends Expandable<? super Person>> query)"),
                 "lambda expand renders nested options like Folders($expand=Abc)");
-        assertTrue(code.contains("for (var e : expandables) next.expands.add(e.toODataExpand());"));
-        assertTrue(code.contains("return expand(query.apply(s));"),
-                "lambda expand delegates to the constant form");
+        assertTrue(code.contains("String rendered = e.toODataExpand();"));
+        assertTrue(code.contains("if (!next.expands.contains(rendered)) next.expands.add(rendered);"));
+        assertTrue(code.contains("return expand(java.util.Objects.requireNonNull(query.apply(s), \"expand query must not return null\"));"),
+                "lambda expand validates its result and delegates to the constant form");
     }
 
     @Test
