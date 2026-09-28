@@ -34,6 +34,24 @@ public final class OperationPath {
                     throw new IllegalArgumentException("operation parameter contains an invalid name: " + parameterName);
                 }
             }
+            // The VALUE needs the same scrutiny. functionParameter = parameterName EQ
+            // ( parameterAlias / primitiveLiteral ), so ")" and a second "=" would close
+            // the argument list or start a new name=value, and "&" / "?" / "#" would
+            // start a new query option or fragment. The pair was previously copied into
+            // the segment verbatim, so a value carrying any of these produced a request
+            // target outside the OData grammar — for a mutating action the service sees a
+            // truncated argument list.
+            String parameterValue = pair.substring(equals + 1);
+            if (parameterValue.isEmpty()) {
+                throw new IllegalArgumentException("operation parameter must be name=value: " + pair);
+            }
+            for (int i = 0; i < parameterValue.length(); i++) {
+                char c = parameterValue.charAt(i);
+                if (c < 0x20 || c == 0x7f || "(),/?#&=".indexOf(c) >= 0) {
+                    throw new IllegalArgumentException(
+                            "operation parameter value contains an invalid character: " + parameterValue);
+                }
+            }
         }
         if (nameEqualsValuePairs.length == 0) {
             return operationName + "()";
