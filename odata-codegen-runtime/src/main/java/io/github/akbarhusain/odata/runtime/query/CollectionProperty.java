@@ -282,9 +282,9 @@ public class CollectionProperty<E, T, F, Sel> {
             // Reject only genuinely invalid predicates: a bare property path that is not
             // qualified by the lambda variable (`any(x: Name eq 'a')`). Constant/alias-free
             // predicates such as `any(x: true)` and `any(x: 1 eq 1)` are legal OData and pass.
-            if (referencesUnqualifiedPath(expr)) {
+            if (referencesUnqualifiedPath(expr, baseAlias, alias)) {
                 throw new IllegalArgumentException(operator + " predicate must reference the bound variable '"
-                        + alias + "/...'");
+                        + alias + "/...' (or use '" + alias + "' directly)");
             }
             return new RawFilterExpression<>(edmName + "/" + operator + "(" + alias + ": " + expr + ")");
         } finally {
@@ -347,7 +347,7 @@ public class CollectionProperty<E, T, F, Sel> {
      * boolean/null literals and qualified enum/namespace literals are accepted, so
      * constant/alias-free predicates such as {@code true} are not rejected.
      */
-    private static boolean referencesUnqualifiedPath(String expression) {
+    private static boolean referencesUnqualifiedPath(String expression, String baseAlias, String alias) {
         int i = 0;
         while (i < expression.length()) {
             char c = expression.charAt(i);
@@ -380,12 +380,25 @@ public class CollectionProperty<E, T, F, Sel> {
             if (prev == '.') {
                 continue; // namespace/enum segment
             }
+            if (prev == '$') {
+                continue; // system path segment: $count, $filter, ... (URL Conventions §11.2.4.3)
+            }
             if (i < expression.length() && expression.charAt(i) == '/') {
-                // any path root is qualified (x/Name, x1/Value, ...) — consume the whole path
+                // any path root is qualified (x/Name, x1/Value, x/Names/$count, ...) — consume
+                // the whole path, including '$'-prefixed system segments such as $count.
                 while (i < expression.length()
-                        && (expression.charAt(i) == '/' || isODataIdentifierPart(expression.charAt(i)))) {
+                        && (expression.charAt(i) == '/'
+                        || expression.charAt(i) == '$'
+                        || isODataIdentifierPart(expression.charAt(i)))) {
                     i++;
                 }
+                continue;
+            }
+            if (isLambdaAlias(token, baseAlias, alias)) {
+                // The bound variable itself, used as a bare path (`x eq 'a'`). Nested
+                // lambdas inside the predicate render their own depth alias
+                // (`any(x1: x1 eq 'a')`), so the whole depth family counts as a bound
+                // variable, not just this level's alias.
                 continue;
             }
             int j = i;
@@ -404,6 +417,26 @@ public class CollectionProperty<E, T, F, Sel> {
             return true;
         }
         return false;
+    }
+
+    /**
+     * True when {@code token} names a lambda-bound variable for this predicate: this
+     * level's alias, or any nested depth alias built from the base alias
+     * ({@code x}, {@code x1}, {@code x2}, ...).
+     */
+    private static boolean isLambdaAlias(String token, String baseAlias, String alias) {
+        if (token.equals(alias)) {
+            return true;
+        }
+        if (baseAlias == null || token.length() <= baseAlias.length() || !token.startsWith(baseAlias)) {
+            return false;
+        }
+        for (int i = baseAlias.length(); i < token.length(); i++) {
+            if (!Character.isDigit(token.charAt(i))) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static void requireODataIdentifier(String value) {
