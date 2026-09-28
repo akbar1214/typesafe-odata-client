@@ -43,6 +43,25 @@ class EntityGeneratorNumberEdmTypeTest {
     }
 
     @Test
+    void temporalConstantsCarryTheirEdmTypes() {
+        CsdlModel.EntityTypeModel type = new CsdlModel.EntityTypeModel("Temporal", null, false, false, false,
+                List.of(new CsdlModel.KeyModel(List.of("Id"))),
+                List.of(new CsdlModel.PropertyModel("Id", "Edm.Int32", false, null, List.of()),
+                        new CsdlModel.PropertyModel("At", "Edm.DateTimeOffset", true, null, List.of()),
+                        new CsdlModel.PropertyModel("Day", "Edm.Date", true, null, List.of()),
+                        new CsdlModel.PropertyModel("Clock", "Edm.TimeOfDay", true, null, List.of()),
+                        new CsdlModel.PropertyModel("Elapsed", "Edm.Duration", true, null, List.of())),
+                List.of());
+        String code = new EntityGenerator("com.test").generate(type, schemaWith(type));
+
+        assertTrue(code.contains("new DateTimeProperty<>(\"At\", Temporal.class, \"Edm.DateTimeOffset\")"), code);
+        assertTrue(code.contains("new DateTimeProperty<>(\"Day\", Temporal.class, \"Edm.Date\")"), code);
+        assertTrue(code.contains("new DateTimeProperty<>(\"Clock\", Temporal.class, \"Edm.TimeOfDay\")"), code);
+        assertTrue(code.contains("new DateTimeProperty<>(\"Elapsed\", Temporal.class, \"Edm.Duration\")"), code);
+        assertTrue(code.contains("new DateTimeProperty<>(\"x/At\", Temporal.class, \"Edm.DateTimeOffset\")"), code);
+    }
+
+    @Test
     void decimalAndInt32ConstantsCarryEdmType() {
         var schema = schemaWith(product());
         String code = new EntityGenerator("com.test")

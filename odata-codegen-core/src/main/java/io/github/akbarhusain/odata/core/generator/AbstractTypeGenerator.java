@@ -4,7 +4,9 @@ import io.github.akbarhusain.odata.core.model.CsdlModel.NavigationPropertyModel;
 import io.github.akbarhusain.odata.core.model.CsdlModel.PropertyModel;
 import io.github.akbarhusain.odata.core.model.CsdlModel.SchemaModel;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -79,7 +81,295 @@ public abstract class AbstractTypeGenerator {
         if (!effectiveSchemasInitialized) {
             effectiveSchemasInitialized = true;
             effectiveSchemas = allSchemas.isEmpty() ? List.of(schema) : allSchemas;
+        } else if (allSchemas.isEmpty()
+                && (effectiveSchemas == null || effectiveSchemas.size() != 1
+                || effectiveSchemas.get(0) != schema)) {
+            effectiveSchemas = List.of(schema);
+            resetTypeResolutionState();
         }
+    }
+
+    private void resetTypeResolutionState() {
+        typeDefinitionsByQualified = null;
+        typeDefinitionsBySimple = null;
+        definitionQualifiedNames = null;
+        definitionOwners = null;
+        resolvedTypeDefinitions = null;
+        typeKindsByQualified = null;
+        propertyOwners.clear();
+        navigationOwners.clear();
+        typeRefs = java.util.Map.of();
+    }
+
+    private java.util.Map<String, io.github.akbarhusain.odata.core.model.CsdlModel.TypeDefinitionModel> typeDefinitionsByQualified;
+    private java.util.Map<String, List<io.github.akbarhusain.odata.core.model.CsdlModel.TypeDefinitionModel>> typeDefinitionsBySimple;
+    private java.util.IdentityHashMap<io.github.akbarhusain.odata.core.model.CsdlModel.TypeDefinitionModel, String> definitionQualifiedNames;
+    private java.util.IdentityHashMap<io.github.akbarhusain.odata.core.model.CsdlModel.TypeDefinitionModel, SchemaModel> definitionOwners;
+    private java.util.Map<String, String> resolvedTypeDefinitions;
+    private java.util.Map<String, Names.TypeKind> typeKindsByQualified;
+
+    private void ensureTypeIndexes() {
+        if (typeDefinitionsByQualified != null) return;
+        typeDefinitionsByQualified = new java.util.HashMap<>();
+        typeDefinitionsBySimple = new java.util.HashMap<>();
+        definitionQualifiedNames = new java.util.IdentityHashMap<>();
+        definitionOwners = new java.util.IdentityHashMap<>();
+        resolvedTypeDefinitions = new java.util.HashMap<>();
+        typeKindsByQualified = new java.util.HashMap<>();
+        for (SchemaModel s : effectiveSchemas) {
+            for (var entity : s.entityTypes()) {
+                putTypeKind(s.namespace() + "." + entity.name(), Names.TypeKind.ENTITY);
+            }
+            for (var complex : s.complexTypes()) {
+                putTypeKind(s.namespace() + "." + complex.name(), Names.TypeKind.COMPLEX);
+            }
+            for (var enumeration : s.enumTypes()) {
+                putTypeKind(s.namespace() + "." + enumeration.name(), Names.TypeKind.ENUM);
+            }
+            for (var definition : s.typeDefinitions()) {
+                String qualified = s.namespace() + "." + definition.name();
+                if (typeDefinitionsByQualified.putIfAbsent(qualified, definition) != null) {
+                    throw new IllegalStateException("Duplicate TypeDefinition '" + qualified + "'");
+                }
+                typeDefinitionsBySimple.computeIfAbsent(definition.name(), ignored -> new ArrayList<>())
+                        .add(definition);
+                definitionQualifiedNames.put(definition, qualified);
+                definitionOwners.put(definition, s);
+            }
+        }
+    }
+
+    private void putTypeKind(String qualified, Names.TypeKind kind) {
+        Names.TypeKind previous = typeKindsByQualified.putIfAbsent(qualified, kind);
+        if (previous != null && previous != kind) {
+            throw new IllegalStateException("Qualified type '" + qualified
+                    + "' is declared as more than one model kind");
+        }
+    }
+
+    protected String resolveTypeDefinition(String edmType, SchemaModel schema) {
+        if (edmType == null || edmType.isBlank()) return edmType;
+        String value = edmType.trim();
+        if (Names.isCollectionType(value)) {
+            return "Collection(" + resolveTypeDefinition(Names.unwrapCollectionType(value), schema) + ")";
+        }
+        if (Names.isPrimitiveType(value)) return value;
+        ensureTypeIndexes();
+        return resolveTypeReference(value, schema, new java.util.HashSet<>());
+    }
+
+    private String resolveTypeReference(String value, SchemaModel schema, Set<String> visiting) {
+        if (Names.isPrimitiveType(value)) return value;
+        if (value.contains(".")) {
+            var definition = typeDefinitionsByQualified.get(value);
+            return definition == null ? value : resolveTypeDefinitionValue(definition, visiting);
+        }
+
+        String localDefinition = uniqueLocalTypeDefinition(value, schema, "TypeDefinition");
+        if (localDefinition != null) {
+            return resolveTypeDefinitionValue(typeDefinitionsByQualified.get(localDefinition), visiting);
+        }
+        if (hasLocalModelType(value, schema)) {
+            return schema.namespace() + "." + value;
+        }
+
+        List<String> globalDefinitions = new ArrayList<>();
+        for (var definition : typeDefinitionsBySimple.getOrDefault(value, List.of())) {
+            String qualified = qualifiedNameOfDefinition(definition);
+            if (qualified != null) globalDefinitions.add(qualified);
+        }
+        if (globalDefinitions.size() == 1) {
+            return resolveTypeDefinitionValue(typeDefinitionsByQualified.get(globalDefinitions.get(0)), visiting);
+        }
+        if (globalDefinitions.size() > 1) {
+            throw new IllegalArgumentException("Ambiguous unqualified TypeDefinition '" + value + "'");
+        }
+
+        List<String> globalModels = new ArrayList<>();
+        for (SchemaModel s : effectiveSchemas) {
+            if (hasModelType(value, s)) {
+                globalModels.add(s.namespace() + "." + value);
+            }
+        }
+        if (globalModels.size() == 1) return globalModels.get(0);
+        if (globalModels.size() > 1) {
+            throw new IllegalArgumentException("Ambiguous unqualified type '" + value + "'");
+        }
+        return value;
+    }
+
+    private String uniqueLocalTypeDefinition(String value, SchemaModel schema, String kind) {
+        if (schema == null) return null;
+        String qualified = schema.namespace() + "." + value;
+        return typeDefinitionsByQualified.containsKey(qualified) ? qualified : null;
+    }
+
+    private boolean hasLocalModelType(String value, SchemaModel schema) {
+        return schema != null && hasModelType(value, schema);
+    }
+
+    private boolean hasModelType(String value, SchemaModel schema) {
+        return modelKindCount(value, schema) > 0;
+    }
+
+    private int modelKindCount(String value, SchemaModel schema) {
+        int count = 0;
+        if (schema.entityTypes().stream().anyMatch(t -> t.name().equals(value))) count++;
+        if (schema.complexTypes().stream().anyMatch(t -> t.name().equals(value))) count++;
+        if (schema.enumTypes().stream().anyMatch(t -> t.name().equals(value))) count++;
+        return count;
+    }
+
+    private String resolveTypeDefinitionValue(
+            io.github.akbarhusain.odata.core.model.CsdlModel.TypeDefinitionModel definition,
+            Set<String> visiting) {
+        String qualified = findDefinitionQualifiedName(definition);
+        if (qualified == null) return definition.underlyingType();
+        String cached = resolvedTypeDefinitions.get(qualified);
+        if (cached != null) return cached;
+        if (!visiting.add(qualified)) {
+            throw new IllegalStateException("Circular TypeDefinition chain detected involving: " + qualified);
+        }
+        try {
+            SchemaModel owner = definitionOwners.get(definition);
+            String resolved = resolveTypeReference(definition.underlyingType(), owner, visiting);
+            resolvedTypeDefinitions.put(qualified, resolved);
+            return resolved;
+        } finally {
+            visiting.remove(qualified);
+        }
+    }
+
+    private String findDefinitionQualifiedName(
+            io.github.akbarhusain.odata.core.model.CsdlModel.TypeDefinitionModel definition) {
+        return qualifiedNameOfDefinition(definition);
+    }
+
+    private String qualifiedNameOfDefinition(
+            io.github.akbarhusain.odata.core.model.CsdlModel.TypeDefinitionModel definition) {
+        return definitionQualifiedNames.get(definition);
+    }
+
+    protected Names.TypeKind resolveTypeKind(String edmType, SchemaModel schema) {
+        String resolved = resolveTypeDefinition(edmType, schema);
+        if (Names.isPrimitiveType(resolved)) return Names.TypeKind.UNKNOWN;
+        ensureTypeIndexes();
+        Names.TypeKind kind = typeKindsByQualified.get(resolved);
+        if (kind != null) return kind;
+        if (!resolved.contains(".")) {
+            if (schema != null && hasLocalModelType(resolved, schema)) {
+                return localTypeKind(resolved, schema);
+            }
+            Names.TypeKind found = null;
+            int matches = 0;
+            for (SchemaModel s : effectiveSchemas) {
+                if (hasModelType(resolved, s)) {
+                    found = localTypeKind(resolved, s);
+                    matches++;
+                }
+            }
+            if (matches > 1) throw new IllegalArgumentException("Ambiguous unqualified type '" + resolved + "'");
+            return found == null ? Names.TypeKind.UNKNOWN : found;
+        }
+        return Names.TypeKind.UNKNOWN;
+    }
+
+    private Names.TypeKind localTypeKind(String name, SchemaModel schema) {
+        int matches = modelKindCount(name, schema);
+        if (matches > 1) {
+            throw new IllegalArgumentException("Ambiguous unqualified type '" + name
+                    + "' in schema '" + schema.namespace() + "'");
+        }
+        if (schema.entityTypes().stream().anyMatch(t -> t.name().equals(name))) return Names.TypeKind.ENTITY;
+        if (schema.complexTypes().stream().anyMatch(t -> t.name().equals(name))) return Names.TypeKind.COMPLEX;
+        return Names.TypeKind.ENUM;
+    }
+
+    protected String requireKnownType(String rawType, SchemaModel schema, String owner, String member) {
+        String element = Names.isCollectionType(rawType) ? Names.unwrapCollectionType(rawType) : rawType;
+        String resolved = resolveTypeDefinition(element, schema);
+        if (Names.isPrimitiveType(resolved)) {
+            if (!Names.isKnownEdmType(resolved)) {
+                throw new IllegalStateException("Cannot generate " + owner + ": " + member
+                        + " references unknown Edm type '" + rawType + "' (resolved to '"
+                        + resolved + "')");
+            }
+            return resolved;
+        }
+        if (resolveTypeKind(resolved, schema) == Names.TypeKind.UNKNOWN) {
+            throw new IllegalStateException("Cannot generate " + owner + ": " + member
+                    + " references unknown type '" + rawType + "' (resolved to '"
+                    + resolved + "')");
+        }
+        return resolved;
+    }
+
+    protected void validateTypeUsages(String owner, List<PropertyModel> properties,
+                                      List<NavigationPropertyModel> navs, SchemaModel schema) {
+        for (PropertyModel property : properties) {
+            requireKnownType(property.edmType(), schemaForProperty(property, schema), owner,
+                    "property '" + property.name() + "'");
+        }
+        for (NavigationPropertyModel nav : navs) {
+            requireKnownType(nav.type(), schemaForNavigation(nav, schema), owner,
+                    "navigation property '" + nav.name() + "'");
+        }
+    }
+
+    protected void validateKeyProperties(String owner, List<io.github.akbarhusain.odata.core.model.CsdlModel.KeyModel> keys,
+                                         List<PropertyModel> properties, SchemaModel schema) {
+        for (var key : keys) {
+            for (String ref : key.propertyRefs()) {
+                PropertyModel property = properties.stream()
+                        .filter(candidate -> candidate.name().equals(ref)).findFirst().orElse(null);
+                if (property == null) {
+                    throw new IllegalStateException("Cannot generate " + owner + ": key PropertyRef '"
+                            + ref + "' does not match any property (own or inherited)");
+                }
+                if (property.nullable()) {
+                    throw new IllegalStateException("Cannot generate " + owner + ": key property '"
+                            + ref + "' must be non-null");
+                }
+                String type = resolveTypeDefinition(property.edmType(), schemaForProperty(property, schema));
+                boolean enumType = resolveTypeKind(type, schemaForProperty(property, schema)) == Names.TypeKind.ENUM;
+                if (Names.isCollectionType(property.edmType()) || (!Names.isKeyScalarType(type) && !enumType)) {
+                    throw new IllegalStateException("Cannot generate " + owner + ": key property '"
+                            + ref + "' must be a non-null scalar key type, but is '"
+                            + property.edmType() + "'");
+                }
+            }
+        }
+    }
+
+    private final java.util.IdentityHashMap<PropertyModel, SchemaModel> propertyOwners =
+            new java.util.IdentityHashMap<>();
+    private final java.util.IdentityHashMap<NavigationPropertyModel, SchemaModel> navigationOwners =
+            new java.util.IdentityHashMap<>();
+
+    private void ensureMemberOwners(SchemaModel fallback) {
+        if (!propertyOwners.isEmpty() || !navigationOwners.isEmpty()) return;
+        for (SchemaModel s : effectiveSchemas) {
+            for (var entity : s.entityTypes()) {
+                for (var property : entity.properties()) propertyOwners.put(property, s);
+                for (var nav : entity.navigationProperties()) navigationOwners.put(nav, s);
+            }
+            for (var complex : s.complexTypes()) {
+                for (var property : complex.properties()) propertyOwners.put(property, s);
+                for (var nav : complex.navigationProperties()) navigationOwners.put(nav, s);
+            }
+        }
+    }
+
+    protected SchemaModel schemaForProperty(PropertyModel property, SchemaModel fallback) {
+        ensureMemberOwners(fallback);
+        SchemaModel owner = propertyOwners.get(property);
+        return owner != null ? owner : fallback;
+    }
+
+    protected SchemaModel schemaForNavigation(NavigationPropertyModel nav, SchemaModel fallback) {
+        ensureMemberOwners(fallback);
+        SchemaModel owner = navigationOwners.get(nav);
+        return owner != null ? owner : fallback;
     }
 
     // ------------------------------------------------------------------
@@ -90,6 +380,10 @@ public abstract class AbstractTypeGenerator {
     // both folding to BUDGET) get a deterministic _2, _3 suffix instead of duplicate
     // constants that don't compile
     private final java.util.Map<String, String> constantNames = new java.util.HashMap<>();
+
+    protected void resetConstantNames() {
+        constantNames.clear();
+    }
 
     protected void allocateConstantNames(List<PropertyModel> props, List<NavigationPropertyModel> navs) {
         java.util.Set<String> used = new java.util.HashSet<>();
@@ -136,14 +430,39 @@ public abstract class AbstractTypeGenerator {
      */
     protected void checkMemberNameCollisions(String className, List<PropertyModel> props,
                                              List<NavigationPropertyModel> navs) {
-        // constant collisions are auto-deduped via allocateConstantNames; field-level
-        // folding (Name vs name -> field 'name') still fails loudly
+        Set<String> propertyNames = new HashSet<>();
+        for (PropertyModel prop : props) propertyNames.add(prop.name());
+        for (NavigationPropertyModel nav : navs) {
+            if (propertyNames.contains(nav.name())) {
+                throw new IllegalStateException("Cannot generate " + className
+                        + ": property and navigation property both use name '" + nav.name() + "'");
+            }
+        }
         java.util.Map<String, String> fields = new java.util.HashMap<>();
         for (PropertyModel prop : props) {
             checkCollision(fields, Names.toJavaFieldName(prop.name()), "field", prop.name(), className);
         }
         for (NavigationPropertyModel nav : navs) {
             checkCollision(fields, Names.toJavaFieldName(nav.name()), "field", nav.name(), className);
+        }
+    }
+
+    protected void checkGeneratedMethodCollisions(String className, List<PropertyModel> props,
+                                                   List<NavigationPropertyModel> navs,
+                                                   List<String> generatedMethods) {
+        java.util.Map<String, String> methods = new java.util.HashMap<>();
+        for (String method : generatedMethods) methods.putIfAbsent(method, "generated member");
+        for (PropertyModel prop : props) {
+            String field = Names.toJavaFieldName(prop.name());
+            checkCollision(methods, Names.getterMethod(prop), "getter", prop.name(), className);
+            checkCollision(methods, "set" + Names.capitalize(field), "setter", prop.name(), className);
+            checkCollision(methods, Names.withMethod(prop), "with method", prop.name(), className);
+        }
+        for (NavigationPropertyModel nav : navs) {
+            String field = Names.toJavaFieldName(nav.name());
+            checkCollision(methods, Names.navGetterMethod(nav.name()), "getter", nav.name(), className);
+            checkCollision(methods, "set" + Names.capitalize(field), "setter", nav.name(), className);
+            checkCollision(methods, Names.navWithMethod(nav.name()), "with method", nav.name(), className);
         }
     }
 
@@ -217,8 +536,8 @@ public abstract class AbstractTypeGenerator {
             if (base == null) {
                 continue;
             }
-            String baseType = resolveTypeDefinition(base.edmType(), schema);
-            String ownType = resolveTypeDefinition(p.edmType(), schema);
+            String baseType = resolveTypeDefinition(base.edmType(), schemaForProperty(base, schema));
+            String ownType = resolveTypeDefinition(p.edmType(), schemaForProperty(p, schema));
             if (!baseType.equals(ownType) || base.nullable() != p.nullable()) {
                 throw new IllegalStateException("Cannot generate " + className + ": property '" + p.name()
                         + "' redeclares an inherited property with an incompatible type (base: " + base.edmType()
@@ -237,8 +556,8 @@ public abstract class AbstractTypeGenerator {
             if (base == null) {
                 continue;
             }
-            String baseTarget = resolveTypeDefinition(Names.unwrapCollectionType(base.type()), schema);
-            String ownTarget = resolveTypeDefinition(Names.unwrapCollectionType(n.type()), schema);
+            String baseTarget = resolveTypeDefinition(Names.unwrapCollectionType(base.type()), schemaForNavigation(base, schema));
+            String ownTarget = resolveTypeDefinition(Names.unwrapCollectionType(n.type()), schemaForNavigation(n, schema));
             if (!baseTarget.equals(ownTarget)
                     || Names.isCollectionType(base.type()) != Names.isCollectionType(n.type())) {
                 throw new IllegalStateException("Cannot generate " + className + ": navigation property '"
@@ -272,12 +591,13 @@ public abstract class AbstractTypeGenerator {
      * The {@code boxed} flag controls scalar primitive types only.
      */
     protected String resolvePropertyJavaType(PropertyModel prop, SchemaModel schema, boolean boxed) {
-        String edmType = resolveTypeDefinition(prop.edmType(), schema);
+        SchemaModel owner = schemaForProperty(prop, schema);
+        String edmType = resolveTypeDefinition(prop.edmType(), owner);
         if (Names.isCollectionType(edmType)) {
             String elementType = Names.unwrapCollectionType(edmType);
-            return "List<" + resolveSingleJavaType(elementType, schema, true) + ">";
+            return "List<" + resolveSingleJavaType(elementType, owner, true) + ">";
         }
-        return resolveSingleJavaType(edmType, schema, boxed);
+        return resolveSingleJavaType(edmType, owner, boxed);
     }
 
     /**
@@ -285,12 +605,13 @@ public abstract class AbstractTypeGenerator {
      * Used by complex-type generation where fields and builders use reference types.
      */
     protected String resolvePropertyJavaType(PropertyModel prop, SchemaModel schema) {
-        String edmType = resolveTypeDefinition(prop.edmType(), schema);
+        SchemaModel owner = schemaForProperty(prop, schema);
+        String edmType = resolveTypeDefinition(prop.edmType(), owner);
         if (Names.isCollectionType(edmType)) {
             String elementType = Names.unwrapCollectionType(edmType);
-            return "List<" + resolveSingleJavaType(elementType, schema) + ">";
+            return "List<" + resolveSingleJavaType(elementType, owner) + ">";
         }
-        return resolveSingleJavaType(edmType, schema);
+        return resolveSingleJavaType(edmType, owner);
     }
 
     protected String resolveSingleJavaType(String edmType, SchemaModel schema, boolean boxed) {
@@ -326,68 +647,6 @@ public abstract class AbstractTypeGenerator {
         return refFor(resolved, schema);
     }
 
-    private java.util.Map<String, String> typeDefCache;
-
-    // Resolve TypeDefinition to its underlying Edm type (recursively) across all schemas.
-    // The cache is keyed by NAMESPACE-QUALIFIED name so a TypeDefinition named 'Foo' in
-    // schema A cannot shadow a type named 'Foo' in schema B; unqualified references fall
-    // back to simple-name lookup.
-    protected String resolveTypeDefinition(String edmType, SchemaModel schema) {
-        if (Names.isPrimitiveType(edmType)) return edmType;
-        if (typeDefCache == null) {
-            typeDefCache = new java.util.HashMap<>();
-            java.util.Map<String, String> simpleDef = new java.util.HashMap<>();
-            java.util.Set<String> ambiguous = new java.util.HashSet<>();
-            for (SchemaModel s : effectiveSchemas) {
-                for (var td : s.typeDefinitions()) {
-                    String qualified = s.namespace() + "." + td.name();
-                    if (!typeDefCache.containsKey(qualified)) {
-                        String resolved = resolveTypeDefinitionChain(qualified, new java.util.HashSet<>());
-                        typeDefCache.put(qualified, resolved);
-                        if (!ambiguous.contains(td.name())) {
-                            String existing = simpleDef.get(td.name());
-                            if (existing == null) {
-                                simpleDef.put(td.name(), resolved);
-                            } else if (!existing.equals(resolved)) {
-                                simpleDef.remove(td.name());
-                                ambiguous.add(td.name());
-                            }
-                        }
-                    }
-                }
-            }
-            for (var e : simpleDef.entrySet()) {
-                if (!ambiguous.contains(e.getKey())) {
-                    typeDefCache.put(e.getKey(), e.getValue());
-                }
-            }
-        }
-        String resolved = typeDefCache.get(edmType);
-        if (resolved == null) {
-            resolved = typeDefCache.get(Names.simpleNameFromFullName(edmType));
-        }
-        return resolved != null ? resolved : edmType;
-    }
-
-    private String resolveTypeDefinitionChain(String typeName, java.util.Set<String> visiting) {
-        if (!visiting.add(typeName)) {
-            throw new IllegalStateException("Circular TypeDefinition chain detected involving: " + typeName);
-        }
-        String simpleName = Names.simpleNameFromFullName(typeName);
-        for (SchemaModel s : effectiveSchemas) {
-            for (var td : s.typeDefinitions()) {
-                if (td.name().equals(simpleName)
-                        && (typeName.equals(td.name())
-                            || typeName.equals(s.namespace() + "." + td.name()))) {
-                    String underlying = td.underlyingType();
-                    if (Names.isPrimitiveType(underlying)) return underlying;
-                    return resolveTypeDefinitionChain(underlying, visiting);
-                }
-            }
-        }
-        return typeName;
-    }
-
     /**
      * Enum filter literals must use the fully qualified name (NS.Enum'Member'). CSDL type
      * references are normally qualified (and aliases resolve at parse time), but lenient
@@ -400,43 +659,30 @@ public abstract class AbstractTypeGenerator {
         return schema.namespace() + "." + edmType;
     }
 
-    /**
-     * The Edm type literal a generated {@code CollectionProperty} must carry so that
-     * {@code contains(value)} renders a valid element literal (quoted string, bare
-     * numeric, qualified {@code NS.Enum'Member'}). Typedefs resolve to their underlying
-     * type; enums qualify with the owning schema's namespace.
-     */
-    protected String collectionElementEdmType(String elementEdmType, SchemaModel schema) {
-        String resolved = resolveTypeDefinition(elementEdmType, schema);
-        if (Names.resolveTypeKind(resolved, effectiveSchemas) == Names.TypeKind.ENUM) {
-            return qualifiedEdmName(resolved, schema);
-        }
-        return resolved;
-    }
-
     // ------------------------------------------------------------------
     // Imports
     // ------------------------------------------------------------------
 
     protected void addPropertyImports(PropertyModel prop, Set<String> imports, SchemaModel schema) {
 
-        String edmType = resolveTypeDefinition(prop.edmType(), schema);
+        SchemaModel owner = schemaForProperty(prop, schema);
+        String edmType = resolveTypeDefinition(prop.edmType(), owner);
         if (Names.isCollectionType(edmType)) {
             String elementType = Names.unwrapCollectionType(edmType);
-            String resolvedElement = resolveTypeDefinition(elementType, schema);
+            String resolvedElement = resolveTypeDefinition(elementType, owner);
             if (Names.isPrimitiveType(resolvedElement)) {
                 String javaType = Names.edmTypeToSimpleJavaType(resolvedElement);
                 if (javaType.startsWith("java.")) imports.add(javaType);
-            } else if (!isContested(resolvedElement, schema)) {
-                String pkg = basePackageForType(resolvedElement, schema);
+            } else if (!isContested(resolvedElement, owner)) {
+                String pkg = basePackageForType(resolvedElement, owner);
                 imports.add(pkg + Names.resolvedSuffix(resolvedElement, effectiveSchemas) + "."
                         + Names.resolvedClassName(resolvedElement, effectiveSchemas));
             }
         } else if (Names.isPrimitiveType(edmType)) {
             String javaType = Names.edmTypeToSimpleJavaType(edmType);
             if (javaType.startsWith("java.")) imports.add(javaType);
-        } else if (!isContested(edmType, schema)) {
-            String pkg = basePackageForType(edmType, schema);
+        } else if (!isContested(edmType, owner)) {
+            String pkg = basePackageForType(edmType, owner);
             imports.add(pkg + Names.resolvedSuffix(edmType, effectiveSchemas) + "."
                     + Names.resolvedClassName(edmType, effectiveSchemas));
         }
@@ -462,23 +708,25 @@ public abstract class AbstractTypeGenerator {
      * primitive: no generated class, no import, no candidate.
      */
     protected String navTargetFqn(NavigationPropertyModel nav, SchemaModel schema) {
-        String resolved = resolveTypeDefinition(Names.unwrapCollectionType(nav.type()), schema);
+        SchemaModel owner = schemaForNavigation(nav, schema);
+        String resolved = resolveTypeDefinition(Names.unwrapCollectionType(nav.type()), owner);
         if (Names.isPrimitiveType(resolved)) {
             return null;
         }
-        return typeFqnOf(resolved, schema);
+        return typeFqnOf(resolved, owner);
     }
 
     /** Mirrors addPropertyImports: the generated-class FQNs a property contributes to the file. */
     protected void collectPropertyTypeFqns(PropertyModel prop, SchemaModel schema, List<String> out) {
-        String edmType = resolveTypeDefinition(prop.edmType(), schema);
+        String edmType = resolveTypeDefinition(prop.edmType(), schemaForProperty(prop, schema));
         if (Names.isCollectionType(edmType)) {
-            String resolvedElement = resolveTypeDefinition(Names.unwrapCollectionType(edmType), schema);
+            SchemaModel owner = schemaForProperty(prop, schema);
+            String resolvedElement = resolveTypeDefinition(Names.unwrapCollectionType(edmType), owner);
             if (!Names.isPrimitiveType(resolvedElement)) {
-                out.add(typeFqnOf(resolvedElement, schema));
+                out.add(typeFqnOf(resolvedElement, owner));
             }
         } else if (!Names.isPrimitiveType(edmType)) {
-            out.add(typeFqnOf(edmType, schema));
+            out.add(typeFqnOf(edmType, schemaForProperty(prop, schema)));
         }
     }
 
@@ -497,11 +745,10 @@ public abstract class AbstractTypeGenerator {
     // ------------------------------------------------------------------
 
     protected String navJavaType(NavigationPropertyModel nav, SchemaModel schema) {
+        SchemaModel owner = schemaForNavigation(nav, schema);
         String unwrapped = Names.unwrapCollectionType(nav.type());
-        // Resolve TypeDefinition chains so the Java type references the UNDERLYING
-        // entity/complex/enum class (a typedef has no generated class of its own)
-        String resolved = resolveTypeDefinition(unwrapped, schema);
-        String elementClassName = refFor(resolved, schema);
+        String resolved = resolveTypeDefinition(unwrapped, owner);
+        String elementClassName = refFor(resolved, owner);
         if (Names.isCollectionType(nav.type())) {
             return "List<" + elementClassName + ">";
         }
@@ -555,43 +802,45 @@ public abstract class AbstractTypeGenerator {
     }
 
     protected String generateFilterablePropertyField(PropertyModel prop, String className, SchemaModel schema) {
+        SchemaModel owner = schemaForProperty(prop, schema);
         String edmType = prop.edmType();
         String constantName = constantNameFor(prop.name());
 
         if (Names.isCollectionType(edmType)) {
             String elementType = Names.unwrapCollectionType(edmType);
-            String elementClassName = resolveClassNameForConstant(elementType, schema);
-            Names.TypeKind kind = Names.resolveTypeKind(elementType, effectiveSchemas);
+            String elementClassName = resolveClassNameForConstant(elementType, owner);
+            Names.TypeKind kind = resolveTypeKind(elementType, owner);
             if (kind == Names.TypeKind.ENTITY || kind == Names.TypeKind.COMPLEX) {
                 // wildcard Sel: Filterable fields serve any/all only, never selector lambdas
                 return "    public final CollectionProperty<" + className + ", " + elementClassName
                         + ", " + elementClassName + ".Filterable, ?> " + constantName
                         + " = new CollectionProperty<>(\"x/" + Names.escapeJavaString(prop.name()) + "\", " + className + ".class, "
-                        + elementClassName + ".class, " + elementClassName + ".Filterable::new);\n";
+                        + elementClassName + ".class, " + elementClassName + ".Filterable::new, null, "
+                        + collectionElementEdmTypeLiteral(prop.edmType(), owner) + ");\n";
             } else {
                 return "    public final CollectionProperty<" + className + ", " + elementClassName
                         + ", CollectionProperty.FilterableElement<" + elementClassName + ">, ?> " + constantName
                         + " = new CollectionProperty<>(\"x/" + Names.escapeJavaString(prop.name()) + "\", " + className + ".class, "
-                        + elementClassName + ".class, CollectionProperty.FilterableElement::new, null, \""
-                        + Names.escapeJavaString(collectionElementEdmType(elementType, schema)) + "\");\n";
+                        + elementClassName + ".class, CollectionProperty.FilterableElement::new, null, "
+                        + collectionElementEdmTypeLiteral(prop.edmType(), owner) + ");\n";
             }
         }
 
-        String constantType = getPropertyConstantType(edmType, schema);
+        String constantType = getPropertyConstantType(edmType, owner);
         if (constantType == null) {
             return ""; // Binary, Stream, Geography, Geometry — not filterable
         }
         String typeParams = switch (constantType) {
-            case "EnumProperty" -> "<" + className + ", " + resolveClassNameForConstant(edmType, schema) + ">";
-            case "NumberProperty" -> "<" + className + ", " + getNumberJavaType(resolveTypeDefinition(edmType, schema)) + ">";
+            case "EnumProperty" -> "<" + className + ", " + resolveClassNameForConstant(edmType, owner) + ">";
+            case "NumberProperty" -> "<" + className + ", " + getNumberJavaType(resolveTypeDefinition(edmType, owner)) + ">";
             default -> "<" + className + ">";
         };
 
         String extra = "";
         if (constantType.equals("EnumProperty")) {
-            extra = ", " + resolveClassNameForConstant(edmType, schema) + ".class, \"" + Names.escapeJavaString(qualifiedEdmName(resolveTypeDefinition(edmType, schema), schema)) + "\"";
-        } else if (constantType.equals("NumberProperty")) {
-            extra = ", \"" + Names.escapeJavaString(resolveTypeDefinition(edmType, schema)) + "\"";
+            extra = ", " + resolveClassNameForConstant(edmType, owner) + ".class, \"" + Names.escapeJavaString(qualifiedEdmName(resolveTypeDefinition(edmType, owner), owner)) + "\"";
+        } else if (constantType.equals("NumberProperty") || constantType.equals("DateTimeProperty")) {
+            extra = ", \"" + Names.escapeJavaString(resolveTypeDefinition(edmType, owner)) + "\"";
         }
         return "    public final " + constantType + typeParams + " " + constantName
                 + " = new " + constantType + "<>(\"x/" + Names.escapeJavaString(prop.name()) + "\", " + className + ".class"
@@ -600,16 +849,48 @@ public abstract class AbstractTypeGenerator {
     }
 
     protected String generateFilterableNavField(NavigationPropertyModel nav, String className, SchemaModel schema) {
+        SchemaModel owner = schemaForNavigation(nav, schema);
         String unwrapped = Names.unwrapCollectionType(nav.type());
-        String elementClassName = refFor(resolveTypeDefinition(unwrapped, schema), schema);
+        String elementClassName = refFor(resolveTypeDefinition(unwrapped, owner), owner);
         // must go through the per-type allocation like every other emission site —
         // the raw name collides with a property constant when e.g. prop BUDGET + nav budget
         String constantName = constantNameFor(nav.name());
         // wildcard Sel: Filterable fields serve any/all only, never selector lambdas
-        return "    public final CollectionProperty<" + className + ", "
+        return "    public final NavCollectionProperty<" + className + ", "
                 + elementClassName + ", " + elementClassName + ".Filterable, ?> " + constantName
-                + " = new CollectionProperty<>(\"x/" + Names.escapeJavaString(nav.name()) + "\", " + className + ".class, "
+                + " = new NavCollectionProperty<>(\"x/" + Names.escapeJavaString(nav.name()) + "\", " + className + ".class, "
                 + elementClassName + ".class, " + elementClassName + ".Filterable::new);\n";
+    }
+
+    protected String collectionElementEdmTypeLiteral(String collectionType, SchemaModel schema) {
+        if (!Names.isCollectionType(collectionType)) {
+            return "null";
+        }
+        String element = Names.unwrapCollectionType(collectionType);
+        String resolved = resolveTypeDefinition(element, schema);
+        if (Names.isPrimitiveType(resolved)) {
+            return "\"" + Names.escapeJavaString(resolved) + "\"";
+        }
+        if (isEnumType(resolved, schema)) {
+            return "\"" + Names.escapeJavaString(qualifiedEdmName(resolved, schema)) + "\"";
+        }
+        return "null";
+    }
+
+    protected String generatedClassName(String edmType, SchemaModel schema) {
+        return Names.resolvedClassName(resolveTypeDefinition(edmType, schema), effectiveSchemas);
+    }
+
+    protected String generatedEntityClassName(String edmType, SchemaModel schema) {
+        return generatedClassName(edmType, schema);
+    }
+
+    protected String generatedComplexClassName(String edmType, SchemaModel schema) {
+        return generatedClassName(edmType, schema);
+    }
+
+    protected String generatedEnumClassName(String edmType, SchemaModel schema) {
+        return generatedClassName(edmType, schema);
     }
 
     protected String resolveClassNameForConstant(String edmType, SchemaModel schema) {
@@ -641,6 +922,6 @@ public abstract class AbstractTypeGenerator {
     }
 
     protected boolean isEnumType(String edmType, SchemaModel schema) {
-        return Names.resolveTypeKind(edmType, effectiveSchemas) == Names.TypeKind.ENUM;
+        return resolveTypeKind(edmType, schema) == Names.TypeKind.ENUM;
     }
 }

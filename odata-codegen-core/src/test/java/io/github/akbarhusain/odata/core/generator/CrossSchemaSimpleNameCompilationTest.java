@@ -106,8 +106,8 @@ class CrossSchemaSimpleNameCompilationTest {
                         && twoASource.contains("        e.etag = etag;\n"),
                 "copy code references the parent's protected lifecycle fields:\n" + twoASource);
         assertTrue(twoASource.contains("EntityUtil.mergeChanged(changedFields"), twoASource);
-        assertTrue(twoASource.contains("        e.items = value;"),
-                "navWith copy code for the subtype's own nav:\n" + twoASource);
+        assertTrue(twoASource.contains("        e.items = value == null ? null : java.util.Collections.unmodifiableList(new java.util.ArrayList<>(value));"),
+                "navWith copy code snapshots the subtype's own nav:\n" + twoASource);
 
         // Holder navigates to both same-named A's: nav-target classes must not be
         // double-imported into ambiguous references

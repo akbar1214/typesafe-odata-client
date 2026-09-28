@@ -61,9 +61,8 @@ class TypeKindCacheFirstWinsTest {
         String resolvedAB = resolveWithOrder(List.of(sA, sB), "Length");
         String resolvedBA = resolveWithOrder(List.of(sB, sA), "Length");
 
-        // H11: unqualified "Length" must not be order-dependent; currently it is
-        assertEquals(resolvedAB, resolvedBA,
-                "H11: TypeDefinition simple fallback order-dependent: AB Length=" + resolvedAB + " BA Length=" + resolvedBA);
+        assertEquals("Edm.Int32", new TestGen(List.of(sA, sB)).resolve("Length", sA));
+        assertEquals("Edm.Double", new TestGen(List.of(sA, sB)).resolve("Length", sB));
 
         // Qualified lookups must still be correct regardless of order
         assertEquals("Edm.Int32", resolveWithOrder(List.of(sA, sB), "NS.A.Length"));
@@ -82,6 +81,10 @@ class TypeKindCacheFirstWinsTest {
         }
         String resolve(String edmType) {
             return resolveTypeDefinition(edmType, effectiveSchemas.get(0));
+        }
+
+        String resolve(String edmType, SchemaModel schema) {
+            return resolveTypeDefinition(edmType, schema);
         }
     }
 }
