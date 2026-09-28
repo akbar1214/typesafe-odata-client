@@ -126,17 +126,19 @@ Person newPerson = Person.builder()
     .lastName("User")
     .build();
 
-Person created = client.people().create(newPerson);
+client.people().create(newPerson);
 Person replacement = Person.builder()
     .userName("newuser")
     .firstName("Updated")
     .build();
-Person result = client.people("newuser").patchWithETag(
-    replacement,
-    created.getETag().orElse(null)
-);
 
-client.people("newuser").deleteWithETag(result.getETag().orElseThrow());
+// A create response does not reliably carry an ETag, so read the entity back to obtain
+// the current one before a conditional PATCH/DELETE (strict services return 428 without If-Match).
+Person current = client.people("newuser").get();
+client.people("newuser").patchWithETag(replacement, current.getETag().orElseThrow());
+
+Person updated = client.people("newuser").get();
+client.people("newuser").deleteWithETag(updated.getETag().orElseThrow());
 ```
 
 The collection `create(...)` method performs POST. Entity requests perform GET, PATCH, PUT, DELETE, and `$ref`; media methods are added when the metadata declares `HasStream="true"` or an `Edm.Stream` property. `with*()` methods are generated when the plugin parameter `<generateWithMethods>true</generateWithMethods>` is enabled; the test module enables it.

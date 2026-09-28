@@ -41,7 +41,7 @@ not linked via `$ref` — which is why no `addTripsRef` methods are generated:
 
 ```java
 // Create a contained Trip (POST .../People('scottketchum')/Trips)
-Trip created = client.people("scottketchum")
+client.people("scottketchum")
     .trips()
     .create(Trip.builder()
         .tripId(1001)
@@ -49,10 +49,12 @@ Trip created = client.people("scottketchum")
         .budget(1500.0f)
         .build());
 
-// Delete it through the same path
+// Delete it through the same path. The create response does not reliably carry an ETag,
+// so read the contained entity back to obtain the current one before the conditional DELETE.
+Trip current = client.people("scottketchum").trips(1001).get();
 client.people("scottketchum")
     .trips(1001)
-    .deleteWithETag(created.getETag().orElseThrow());
+    .deleteWithETag(current.getETag().orElseThrow());
 ```
 
 ## Notes on Strict Services
