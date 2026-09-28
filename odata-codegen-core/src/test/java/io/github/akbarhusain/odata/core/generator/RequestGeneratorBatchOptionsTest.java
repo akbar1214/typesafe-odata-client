@@ -69,6 +69,14 @@ class RequestGeneratorBatchOptionsTest {
     }
 
     @Test
+    void countValueRejectsForbiddenApplyExpression() {
+        String method = snippet(collectionRequest(), "countValue()");
+        assertTrue(method.contains("if (applyExpr != null)"), method);
+        assertTrue(method.contains("countValue cannot be combined with $apply"), method);
+        assertFalse(method.contains("tmp.applyExpr = null;"), method);
+    }
+
+    @Test
     void collectionTopAndSkipRejectNegatives() {
         String code = collectionRequest();
         String top = snippet(code, "top(int count)");

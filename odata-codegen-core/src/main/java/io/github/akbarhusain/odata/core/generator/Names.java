@@ -162,6 +162,21 @@ public final class Names {
         return result;
     }
 
+    /**
+     * Sanitized base name for a generated operation-request constructor parameter. Generated
+     * request classes declare {@code context}, {@code contextPath}, {@code basePath} and
+     * {@code body} members, so a CSDL parameter folding onto one of those is suffixed to keep
+     * the generated parameter distinct (the caller additionally de-duplicates against its own
+     * reserved locals).
+     */
+    public static String toOperationParameterName(String edmName) {
+        String result = toJavaFieldName(edmName);
+        return switch (result) {
+            case "context", "contextPath", "body", "basePath" -> result + "_";
+            default -> result;
+        };
+    }
+
     public static String toJavaMethodName(String edmName, String prefix) {
         String name = sanitizeIdentifier(edmName);
         return prefix + Character.toUpperCase(name.charAt(0)) + name.substring(1);

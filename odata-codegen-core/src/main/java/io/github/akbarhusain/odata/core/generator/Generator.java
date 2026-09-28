@@ -46,55 +46,59 @@ public class Generator {
         return List.copyOf(written.keySet());
     }
 
-    public void generate(CsdlModel model) throws IOException {
+    public synchronized void generate(CsdlModel model) throws IOException {
         Names.clearTypeKindCache();
-        java.util.Set<Path> previousFiles = new java.util.HashSet<>(written.keySet());
-        written.clear();
-        if (defaultBasePackage != null) {
-            validatePackage(defaultBasePackage);
-        }
-        for (Map.Entry<String, String> e : schemaPackages.entrySet()) {
-            validatePackage(e.getValue());
-        }
-        // Schemas sharing an output package must share one aggregate SchemaInfo,
-        // so collect them per package while generating
-        Map<String, List<SchemaModel>> schemasByPackage = new LinkedHashMap<>();
-        for (SchemaModel schema : model.schemas()) {
-            String basePackage = schemaPackages.getOrDefault(schema.namespace(),
-                    defaultBasePackage != null ? defaultBasePackage : Names.toPackageName(schema.namespace()));
-            validatePackage(basePackage);
-            generateSchema(schema, basePackage, model.schemas());
-            schemasByPackage.computeIfAbsent(basePackage, k -> new ArrayList<>()).add(schema);
-        }
-        for (Map.Entry<String, List<SchemaModel>> entry : schemasByPackage.entrySet()) {
-            SchemaInfoGenerator schemaInfoGenerator = new SchemaInfoGenerator(entry.getKey());
-            writeCode(entry.getKey() + Names.packageNameSuffixSchema(), Names.schemaInfoClassName(),
-                    schemaInfoGenerator.generate(entry.getValue()));
-        }
-        // M13: clean up stale files that were generated in a previous call but not in the current one
-        // (e.g., entity renamed from Foo to Bar). Without this, old .java files remain on classpath.
-        for (Path old : previousFiles) {
-            if (!written.containsKey(old)) {
-                try {
-                    Files.deleteIfExists(old);
-                    log.debug("Deleted stale file: {}", old);
-                } catch (IOException e) {
-                    // A stale file left on disk silently pollutes the classpath — surface it
-                    log.warn("Could not delete stale generated file: {}", old, e);
-                }
+        Map<Path, String> previous = new LinkedHashMap<>(written);
+        Map<Path, String> pending = new LinkedHashMap<>();
+        Map<String, Path> pendingCasePaths = new HashMap<>();
+        pendingWritten = pending;
+        pendingCasePathsByLowerCase = pendingCasePaths;
+        try {
+            if (defaultBasePackage != null) {
+                validatePackage(defaultBasePackage);
             }
+            for (Map.Entry<String, String> e : schemaPackages.entrySet()) {
+                if (e.getValue() == null || e.getValue().isBlank()) {
+                    throw new IllegalArgumentException("Schema package mapping for '"
+                            + e.getKey() + "' must define a package");
+                }
+                validatePackage(e.getValue());
+            }
+            Map<String, List<SchemaModel>> schemasByPackage = new LinkedHashMap<>();
+            Map<String, OperationGenerator> operationGenerators = new LinkedHashMap<>();
+            for (SchemaModel schema : model.schemas()) {
+                String basePackage = schemaPackages.getOrDefault(schema.namespace(),
+                        defaultBasePackage != null ? defaultBasePackage : Names.toPackageName(schema.namespace()));
+                validatePackage(basePackage);
+                OperationGenerator operationGenerator = operationGenerators.computeIfAbsent(basePackage,
+                        value -> new OperationGenerator(value, schemaPackages, defaultBasePackage, model.schemas()));
+                generateSchema(schema, basePackage, model.schemas(), operationGenerator);
+                schemasByPackage.computeIfAbsent(basePackage, k -> new ArrayList<>()).add(schema);
+            }
+            for (Map.Entry<String, List<SchemaModel>> entry : schemasByPackage.entrySet()) {
+                SchemaInfoGenerator schemaInfoGenerator = new SchemaInfoGenerator(entry.getKey());
+                writeCode(entry.getKey() + Names.packageNameSuffixSchema(), Names.schemaInfoClassName(),
+                        schemaInfoGenerator.generate(entry.getValue()));
+            }
+            commit(previous, pending);
+        } finally {
+            pendingWritten = null;
+            pendingCasePathsByLowerCase = null;
         }
     }
 
-    private void generateSchema(SchemaModel schema, String basePackage, List<SchemaModel> allSchemas) throws IOException {
+    private void generateSchema(SchemaModel schema, String basePackage, List<SchemaModel> allSchemas,
+                                OperationGenerator operationGenerator) throws IOException {
         log.info("Generating schema: {} -> {}", schema.namespace(), basePackage);
 
         EntityGenerator entityGenerator = new EntityGenerator(basePackage, schemaPackages, defaultBasePackage, allSchemas, generateWithMethods);
+        entityGenerator.validateTypeDefinitions(schema);
         EnumGenerator enumGenerator = new EnumGenerator(basePackage);
         ComplexTypeGenerator complexTypeGenerator = new ComplexTypeGenerator(basePackage, schemaPackages, defaultBasePackage, allSchemas, generateWithMethods);
-        RequestGenerator requestGenerator = new RequestGenerator(basePackage, schemaPackages, defaultBasePackage, allSchemas);
-        ContainerGenerator containerGenerator = new ContainerGenerator(basePackage, schemaPackages, defaultBasePackage, allSchemas);
-        OperationGenerator operationGenerator = new OperationGenerator(basePackage, schemaPackages, defaultBasePackage, allSchemas);
+        RequestGenerator requestGenerator = new RequestGenerator(basePackage, schemaPackages, defaultBasePackage, allSchemas,
+                operationGenerator);
+        ContainerGenerator containerGenerator = new ContainerGenerator(basePackage, schemaPackages, defaultBasePackage, allSchemas,
+                operationGenerator, requestGenerator);
 
         for (EnumTypeModel enumType : schema.enumTypes()) {
             String code = enumGenerator.generate(enumType);
@@ -151,7 +155,181 @@ public class Generator {
         }
     }
 
-    private final Map<Path, String> written = new HashMap<>();
+    /**
+     * A prior on-disk path, snapshotted before the commit. Regular files are backed up to a
+     * temporary directory on disk rather than held in memory — at large scale, retaining the
+     * bytes of every previous file alongside the pending sources doubles peak heap.
+     */
+    private record PriorFile(boolean existed, boolean regular, Path backup) {}
+
+    private void commit(Map<Path, String> previous, Map<Path, String> pending) throws IOException {
+        Path backupDir = Files.createTempDirectory("odata-codegen-backup-");
+        Set<Path> directoriesCreated = new java.util.LinkedHashSet<>();
+        try {
+            Map<Path, PriorFile> priorFiles = snapshot(previous, pending, backupDir);
+            try {
+                for (Map.Entry<Path, String> entry : pending.entrySet()) {
+                    Path file = entry.getKey().toAbsolutePath().normalize();
+                    ensureParentDirectory(file, directoriesCreated);
+                    Files.writeString(file, entry.getValue());
+                }
+                for (Path old : previous.keySet()) {
+                    if (pending.containsKey(old)) {
+                        continue;
+                    }
+                    Path oldFile = old.toAbsolutePath().normalize();
+                    String oldKey = oldFile.toString().toLowerCase(java.util.Locale.ROOT);
+                    Path replacement = pendingCasePathsByLowerCase.get(oldKey);
+                    if (!sameFile(oldFile, replacement)) {
+                        Files.deleteIfExists(oldFile);
+                        log.debug("Deleted stale file: {}", oldFile);
+                    }
+                }
+                createdDirectories.addAll(directoriesCreated);
+                written.clear();
+                written.putAll(pending);
+            } catch (IOException | RuntimeException failure) {
+                try {
+                    rollback(priorFiles, directoriesCreated);
+                } catch (IOException rollbackFailure) {
+                    failure.addSuppressed(rollbackFailure);
+                }
+                createdDirectories.removeAll(directoriesCreated);
+                throw failure;
+            }
+        } finally {
+            deleteRecursively(backupDir);
+        }
+    }
+
+    private Map<Path, PriorFile> snapshot(Map<Path, String> previous, Map<Path, String> pending,
+                                          Path backupDir) throws IOException {
+        Set<Path> paths = new java.util.LinkedHashSet<>();
+        for (Path path : previous.keySet()) {
+            paths.add(path.toAbsolutePath().normalize());
+        }
+        for (Path path : pending.keySet()) {
+            paths.add(path.toAbsolutePath().normalize());
+        }
+        Map<Path, PriorFile> result = new LinkedHashMap<>();
+        int backupIndex = 0;
+        for (Path path : paths) {
+            if (!Files.exists(path)) {
+                result.put(path, new PriorFile(false, false, null));
+            } else if (Files.isRegularFile(path)) {
+                Path backup = backupDir.resolve("prior-" + backupIndex++);
+                Files.copy(path, backup, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                result.put(path, new PriorFile(true, true, backup));
+            } else {
+                result.put(path, new PriorFile(true, false, null));
+            }
+        }
+        return result;
+    }
+
+    private void ensureParentDirectory(Path file, Set<Path> directoriesCreated) throws IOException {
+        Path directory = file.getParent();
+        if (directory == null) {
+            return;
+        }
+        if (createdDirectories.contains(directory)) {
+            if (Files.isDirectory(directory)) {
+                return;
+            }
+            createdDirectories.remove(directory);
+        }
+        List<Path> missing = new ArrayList<>();
+        Path current = directory;
+        while (current != null && !Files.exists(current)) {
+            missing.add(current);
+            current = current.getParent();
+        }
+        Files.createDirectories(directory);
+        createdDirectories.addAll(missing);
+        directoriesCreated.addAll(missing);
+    }
+
+    private boolean sameFile(Path oldFile, Path replacement) {
+        if (replacement == null) {
+            return false;
+        }
+        Path normalizedOld = oldFile.toAbsolutePath().normalize();
+        Path normalizedReplacement = replacement.toAbsolutePath().normalize();
+        if (normalizedOld.equals(normalizedReplacement)) {
+            return true;
+        }
+        try {
+            return Files.exists(normalizedOld) && Files.exists(normalizedReplacement)
+                    && Files.isSameFile(normalizedOld, normalizedReplacement);
+        } catch (IOException e) {
+            log.debug("Could not compare stale file {}", normalizedOld, e);
+            return false;
+        }
+    }
+
+    private void rollback(Map<Path, PriorFile> priorFiles, Set<Path> directoriesCreated) throws IOException {
+        IOException failure = null;
+        for (Map.Entry<Path, PriorFile> entry : priorFiles.entrySet()) {
+            Path file = entry.getKey();
+            PriorFile prior = entry.getValue();
+            try {
+                if (!prior.existed()) {
+                    if (Files.isRegularFile(file)) {
+                        Files.deleteIfExists(file);
+                    }
+                } else if (prior.regular()) {
+                    Files.createDirectories(file.getParent());
+                    Files.copy(prior.backup(), file, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                } else if (Files.isRegularFile(file)) {
+                    // The prior was a directory/symlink (never writable by Files.writeString),
+                    // but a dangling symlink can have become a regular file through the link —
+                    // remove it so the non-regular prior state is restored.
+                    Files.deleteIfExists(file);
+                }
+            } catch (IOException e) {
+                if (failure == null) failure = e;
+                else failure.addSuppressed(e);
+            }
+        }
+        for (Path directory : directoriesCreated) {
+            try {
+                if (Files.isDirectory(directory)) {
+                    try (var entries = Files.list(directory)) {
+                        if (entries.findAny().isEmpty()) {
+                            Files.deleteIfExists(directory);
+                        }
+                    }
+                }
+            } catch (IOException e) {
+                if (failure == null) failure = e;
+                else failure.addSuppressed(e);
+            }
+        }
+        if (failure != null) {
+            throw failure;
+        }
+    }
+
+    private static void deleteRecursively(Path directory) {
+        if (directory == null) {
+            return;
+        }
+        try (var walk = Files.walk(directory)) {
+            walk.sorted(java.util.Comparator.reverseOrder()).forEach(path -> {
+                try {
+                    Files.deleteIfExists(path);
+                } catch (IOException e) {
+                    log.debug("Could not delete backup path {}", path, e);
+                }
+            });
+        } catch (IOException e) {
+            log.debug("Could not clean backup directory {}", directory, e);
+        }
+    }
+
+    private final Map<Path, String> written = new LinkedHashMap<>();
+    private Map<Path, String> pendingWritten;
+    private Map<String, Path> pendingCasePathsByLowerCase;
 
     static void validatePackage(String packageName) {
         if (packageName == null || packageName.isEmpty()) return;
@@ -191,18 +369,21 @@ public class Generator {
         if (!target.startsWith(out)) {
             throw new IllegalArgumentException("Package '" + packageName + "' escapes output directory");
         }
-        if (createdDirectories.add(dir)) {
-            Files.createDirectories(dir);
-        }
         Path file = dir.resolve(className + ".java");
-        // Two types mapping to the same output file (e.g. same-named types from schemas
-        // collapsed onto one package) previously overwrote each other silently — fail loudly
-        String previous = written.putIfAbsent(file, code);
+        Map<Path, String> targetWritten = pendingWritten == null ? written : pendingWritten;
+        Map<String, Path> casePaths = pendingCasePathsByLowerCase == null
+                ? new HashMap<>() : pendingCasePathsByLowerCase;
+        String caseKey = target.toAbsolutePath().normalize().resolve(className + ".java")
+                .toString().toLowerCase(java.util.Locale.ROOT);
+        Path priorCasePath = casePaths.putIfAbsent(caseKey, file);
+        if (priorCasePath != null && !priorCasePath.equals(file)) {
+            throw new IllegalStateException("Case-only generated file collision: '" + priorCasePath
+                    + "' and '" + file + "' map to the same path on a case-insensitive filesystem");
+        }
+        String previous = targetWritten.putIfAbsent(file, code);
         if (previous != null && !previous.equals(code)) {
             throw new IllegalStateException("Duplicate generated class " + file + ": two types map to the "
                     + "same output file with different content. Remap one of them via schemaPackages.");
         }
-        Files.writeString(file, code);
-        log.debug("Wrote: {}", file);
     }
 }

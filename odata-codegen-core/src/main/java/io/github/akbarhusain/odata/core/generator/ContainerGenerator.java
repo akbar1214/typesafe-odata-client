@@ -23,6 +23,9 @@ public class ContainerGenerator {
     private final Map<String, String> schemaPackages;
     private final String defaultBasePackage;
     private List<CsdlModel.SchemaModel> allSchemas;
+    private OperationGenerator sharedOperationGenerator;
+    private RequestGenerator sharedRequestGenerator;
+    private CsdlModel.SchemaModel cachedSingleSchema;
 
     public ContainerGenerator(String basePackage) {
         this(basePackage, Map.of());
@@ -42,25 +45,66 @@ public class ContainerGenerator {
     /** Cross-schema-aware constructor — required to resolve operations declared in other schemas. */
     public ContainerGenerator(String basePackage, Map<String, String> schemaPackages,
                               String defaultBasePackage, List<CsdlModel.SchemaModel> allSchemas) {
+        this(basePackage, schemaPackages, defaultBasePackage, allSchemas, null, null);
+    }
+
+    public ContainerGenerator(String basePackage, Map<String, String> schemaPackages,
+                              String defaultBasePackage, List<CsdlModel.SchemaModel> allSchemas,
+                              OperationGenerator operationGenerator, RequestGenerator requestGenerator) {
         this.basePackage = basePackage;
         this.schemaPackages = schemaPackages;
         this.defaultBasePackage = defaultBasePackage;
         this.allSchemas = allSchemas;
+        this.sharedOperationGenerator = operationGenerator;
+        this.sharedRequestGenerator = requestGenerator;
+    }
+
+    private void refreshSharedStateForSchema(CsdlModel.SchemaModel schema) {
+        // SchemaModel is a record: membership and cache validity are decided by VALUE, so an
+        // equal-valued (but non-identical) schema instance neither rebuilds the shared
+        // generators nor silently degrades to single-schema mode. Namespaces are unique per
+        // document, so value-equal schemas are interchangeable.
+        boolean hasCompleteSchemaList = allSchemas != null && !allSchemas.isEmpty();
+        boolean schemaInList = hasCompleteSchemaList && allSchemas.contains(schema);
+        if (!hasCompleteSchemaList || !schemaInList) {
+            if (cachedSingleSchema != null && !cachedSingleSchema.equals(schema)) {
+                sharedOperationGenerator = null;
+                sharedRequestGenerator = null;
+            }
+            cachedSingleSchema = schema;
+        }
+    }
+
+    private List<CsdlModel.SchemaModel> schemasFor(CsdlModel.SchemaModel schema) {
+        if (allSchemas == null || allSchemas.isEmpty()) {
+            return List.of(schema);
+        }
+        return allSchemas.contains(schema) ? allSchemas : List.of(schema);
     }
 
     private OperationGenerator operationGenerator(CsdlModel.SchemaModel schema) {
-        return new OperationGenerator(basePackage, schemaPackages, defaultBasePackage,
-                allSchemas == null || allSchemas.isEmpty() ? List.of(schema) : allSchemas);
+        refreshSharedStateForSchema(schema);
+        if (sharedOperationGenerator != null) return sharedOperationGenerator;
+        sharedOperationGenerator = new OperationGenerator(basePackage, schemaPackages, defaultBasePackage,
+                schemasFor(schema));
+        return sharedOperationGenerator;
     }
 
     private RequestGenerator requestGenerator(CsdlModel.SchemaModel schema) {
-        return new RequestGenerator(basePackage, schemaPackages, defaultBasePackage,
-                allSchemas == null || allSchemas.isEmpty() ? List.of(schema) : allSchemas);
+        // Build the operation generator first: refreshSharedStateForSchema may have just
+        // nulled both shared generators, and RequestGenerator needs a non-null op-gen.
+        // (Relying on generate() to call operationGenerator() first was an ordering trap.)
+        OperationGenerator ops = operationGenerator(schema);
+        if (sharedRequestGenerator != null) return sharedRequestGenerator;
+        sharedRequestGenerator = new RequestGenerator(basePackage, schemaPackages, defaultBasePackage,
+                schemasFor(schema), ops);
+        return sharedRequestGenerator;
     }
 
     public String generate(ContainerModel container, SchemaModel schema) {
         String pkg = basePackage + Names.packageNameSuffixContainer();
         String className = Names.containerClassName(container.name());
+        String reservedClassFqn = pkg + "." + className;
         OperationGenerator ops = operationGenerator(schema);
         RequestGenerator reqGen = requestGenerator(schema);
 
@@ -100,53 +144,59 @@ public class ContainerGenerator {
         // packages; contested simple names are referenced fully-qualified, never imported
         List<String> refCandidates = new ArrayList<>();
         for (EntitySetModel es : container.entitySets()) {
-            String entityClassName = Names.simpleNameFromFullName(es.entityType());
-            refCandidates.add(basePackageForType(es.entityType(), schema)
+            reqGen.requireKnownTypeForGeneration(es.entityType(), schema, "container '" + container.name() + "'",
+                    "entity set '" + es.name() + "'");
+            String resolvedType = reqGen.resolvedTypeForGeneration(es.entityType(), schema);
+            String entityClassName = reqGen.entityClassNameForType(es.entityType(), schema);
+            refCandidates.add(basePackageForType(resolvedType, schema)
                     + Names.packageNameSuffixCollectionRequest() + "."
                     + Names.collectionRequestClassName(entityClassName));
-            CsdlModel.EntityTypeModel importType = reqGen.resolveEntityType(es.entityType(), schema);
+            CsdlModel.EntityTypeModel importType = reqGen.resolveEntityType(resolvedType, schema);
             if (importType != null && !reqGen.keyParamSpecs(importType, schema).isEmpty()) {
-                refCandidates.add(basePackageForType(es.entityType(), schema)
+                refCandidates.add(basePackageForType(resolvedType, schema)
                         + Names.packageNameSuffixEntityRequest() + "."
                         + Names.entityRequestClassName(entityClassName));
             }
         }
         for (SingletonModel singleton : container.singletons()) {
-            String entityClassName = Names.simpleNameFromFullName(singleton.type());
-            refCandidates.add(basePackageForType(singleton.type(), schema)
+            reqGen.requireKnownTypeForGeneration(singleton.type(), schema, "container '" + container.name() + "'",
+                    "singleton '" + singleton.name() + "'");
+            String resolvedType = reqGen.resolvedTypeForGeneration(singleton.type(), schema);
+            String entityClassName = reqGen.entityClassNameForType(singleton.type(), schema);
+            refCandidates.add(basePackageForType(resolvedType, schema)
                     + Names.packageNameSuffixEntityRequest() + "."
                     + Names.entityRequestClassName(entityClassName));
         }
         java.util.Map<String, String> refs = TypeRefs.resolve(refCandidates);
 
         for (EntitySetModel es : container.entitySets()) {
-            String entityClassName = Names.simpleNameFromFullName(es.entityType());
-            String collRef = refs.get(basePackageForType(es.entityType(), schema)
+            String entityClassName = reqGen.entityClassNameForType(es.entityType(), schema);
+            String collRef = refs.get(basePackageForType(reqGen.resolvedTypeForGeneration(es.entityType(), schema), schema)
                     + Names.packageNameSuffixCollectionRequest() + "."
                     + Names.collectionRequestClassName(entityClassName));
             if (!collRef.contains(".")) {
-                imports.add(basePackageForType(es.entityType(), schema)
+                imports.add(basePackageForType(reqGen.resolvedTypeForGeneration(es.entityType(), schema), schema)
                         + Names.packageNameSuffixCollectionRequest() + "." + collRef);
             }
-            CsdlModel.EntityTypeModel importType = reqGen.resolveEntityType(es.entityType(), schema);
+            CsdlModel.EntityTypeModel importType = reqGen.resolveEntityType(reqGen.resolvedTypeForGeneration(es.entityType(), schema), schema);
             if (importType != null && !reqGen.keyParamSpecs(importType, schema).isEmpty()) {
-                String entRef = refs.get(basePackageForType(es.entityType(), schema)
+                String entRef = refs.get(basePackageForType(reqGen.resolvedTypeForGeneration(es.entityType(), schema), schema)
                         + Names.packageNameSuffixEntityRequest() + "."
                         + Names.entityRequestClassName(entityClassName));
                 if (!entRef.contains(".")) {
-                    imports.add(basePackageForType(es.entityType(), schema)
+                    imports.add(basePackageForType(reqGen.resolvedTypeForGeneration(es.entityType(), schema), schema)
                             + Names.packageNameSuffixEntityRequest() + "." + entRef);
                 }
             }
         }
 
         for (SingletonModel singleton : container.singletons()) {
-            String entityClassName = Names.simpleNameFromFullName(singleton.type());
-            String entRef = refs.get(basePackageForType(singleton.type(), schema)
+            String entityClassName = reqGen.entityClassNameForType(singleton.type(), schema);
+            String entRef = refs.get(basePackageForType(reqGen.resolvedTypeForGeneration(singleton.type(), schema), schema)
                     + Names.packageNameSuffixEntityRequest() + "."
                     + Names.entityRequestClassName(entityClassName));
             if (!entRef.contains(".")) {
-                imports.add(basePackageForType(singleton.type(), schema)
+                imports.add(basePackageForType(reqGen.resolvedTypeForGeneration(singleton.type(), schema), schema)
                         + Names.packageNameSuffixEntityRequest() + "." + entRef);
             }
         }
@@ -154,15 +204,15 @@ public class ContainerGenerator {
         List<String> importAccessorMethods = new ArrayList<>();
         for (FunctionImportModel fi : container.functionImports()) {
             // resolveValidationThrowsUnknownOrBound — resolution happens here so failures surface at generation
-            importAccessorMethods.addAll(ops.functionImportAccessorMethods(fi, schema));
+            importAccessorMethods.addAll(ops.functionImportAccessorMethods(fi, schema, reservedClassFqn));
             imports.addAll(ops.functionImportClassImportLines(fi, schema));
             // accessors reference structured/enum parameter types from other packages
-            imports.addAll(ops.functionImportParameterImports(fi, schema));
+            imports.addAll(ops.functionImportParameterImports(fi, schema, reservedClassFqn));
         }
         for (ActionImportModel ai : container.actionImports()) {
-            importAccessorMethods.add(ops.actionImportAccessorMethod(ai, schema));
+            importAccessorMethods.add(ops.actionImportAccessorMethod(ai, schema, reservedClassFqn));
             imports.add(ops.actionImportClassImportLine(ai, schema));
-            imports.addAll(ops.actionImportParameterImports(ai, schema));
+            imports.addAll(ops.actionImportParameterImports(ai, schema, reservedClassFqn));
         }
 
         for (String imp : imports) {
@@ -179,8 +229,8 @@ public class ContainerGenerator {
 
         // Entity set accessors
         for (EntitySetModel es : container.entitySets()) {
-            String entityClassName = Names.simpleNameFromFullName(es.entityType());
-            String collReqClassName = refs.get(basePackageForType(es.entityType(), schema)
+            String entityClassName = reqGen.entityClassNameForType(es.entityType(), schema);
+            String collReqClassName = refs.get(basePackageForType(reqGen.resolvedTypeForGeneration(es.entityType(), schema), schema)
                     + Names.packageNameSuffixCollectionRequest() + "."
                     + Names.collectionRequestClassName(entityClassName));
             String methodName = Names.toJavaFieldName(es.name());
@@ -192,12 +242,12 @@ public class ContainerGenerator {
 
             // Keyed overload (decision 95): <set>(key...) → entity request, so
             // client.people("russellwhyte") keys the first segment directly
-            CsdlModel.EntityTypeModel setType = reqGen.resolveEntityType(es.entityType(), schema);
+            CsdlModel.EntityTypeModel setType = reqGen.resolveEntityType(reqGen.resolvedTypeForGeneration(es.entityType(), schema), schema);
             if (setType != null) {
                 java.util.List<RequestGenerator.KeyParamSpec> keySpecs =
                         reqGen.keyParamSpecs(setType, schema);
                 if (!keySpecs.isEmpty()) {
-                    String entRef = refs.get(basePackageForType(es.entityType(), schema)
+                    String entRef = refs.get(basePackageForType(reqGen.resolvedTypeForGeneration(es.entityType(), schema), schema)
                             + Names.packageNameSuffixEntityRequest() + "."
                             + Names.entityRequestClassName(entityClassName));
                     appendKeyedOverload(sb, es.name(), methodName, entRef, keySpecs);
@@ -206,8 +256,8 @@ public class ContainerGenerator {
         }
 
         for (SingletonModel singleton : container.singletons()) {
-            String entityClassName = Names.simpleNameFromFullName(singleton.type());
-            String entityReqClassName = refs.get(basePackageForType(singleton.type(), schema)
+            String entityClassName = reqGen.entityClassNameForType(singleton.type(), schema);
+            String entityReqClassName = refs.get(basePackageForType(reqGen.resolvedTypeForGeneration(singleton.type(), schema), schema)
                     + Names.packageNameSuffixEntityRequest() + "."
                     + Names.entityRequestClassName(entityClassName));
             String methodName = Names.toJavaFieldName(singleton.name());
@@ -237,7 +287,7 @@ public class ContainerGenerator {
                                             java.util.List<RequestGenerator.KeyParamSpec> keySpecs) {
         StringBuilder params = new StringBuilder();
         StringBuilder args = new StringBuilder("context.basePath().addSegment(\"")
-                .append(rawSetName).append("\")");
+                .append(Names.escapeJavaString(rawSetName)).append("\")");
         for (RequestGenerator.KeyParamSpec k : keySpecs) {
             if (params.length() > 0) params.append(", ");
             params.append(k.javaType()).append(' ').append(k.javaParamName());
@@ -251,7 +301,12 @@ public class ContainerGenerator {
     }
 
     private static void checkAccessorCollision(Map<String, String> accessors, String methodName,
-                                                String memberDescription, String className) {        String previous = accessors.putIfAbsent(methodName, memberDescription);
+                                                String memberDescription, String className) {
+        if (Names.isObjectMethodName(methodName)) {
+            throw new IllegalStateException("Cannot generate container " + className + ": "
+                    + memberDescription + " maps to Object method '" + methodName + "()'");
+        }
+        String previous = accessors.putIfAbsent(methodName, memberDescription);
         if (previous != null) {
             throw new IllegalStateException("Cannot generate container " + className + ": " + previous
                     + " and " + memberDescription + " both map to accessor '" + methodName + "()'. "

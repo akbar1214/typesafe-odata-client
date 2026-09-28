@@ -2,6 +2,7 @@ package io.github.akbarhusain.odata.core.generator;
 
 import io.github.akbarhusain.odata.core.model.CsdlModel;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import java.util.List;
 import java.util.Map;
@@ -24,6 +25,10 @@ class OperationImportOverloadTest {
 
     private static CsdlModel.ParameterModel param(String name, String type) {
         return new CsdlModel.ParameterModel(name, type, true);
+    }
+
+    private static CsdlModel.ParameterModel nonNullParam(String name, String type) {
+        return new CsdlModel.ParameterModel(name, type, false);
     }
 
     private static CsdlModel.FunctionModel fn(String name, List<CsdlModel.ParameterModel> params) {
@@ -150,6 +155,21 @@ class OperationImportOverloadTest {
                 generator(m).generateFunctionImportRequests(fi(m), schema(m)));
         assertTrue(ex.getMessage().contains("IsSiteAdmin"), ex.getMessage());
         assertTrue(ex.getMessage().contains("parameter names"), ex.getMessage());
+        assertTrue(ex.getMessage().contains("[x:Edm.String?]"), ex.getMessage());
+    }
+
+    @Test
+    void overloadsDifferingOnlyByNullabilityFailLoudlyAndShowBothSignatures() {
+        // Nullability is not rendered in an invocation URL, so these are indistinguishable —
+        // the message must show both signatures so the actual difference is visible.
+        CsdlModel m = model(
+                fn("IsSiteAdmin", List.of(nonNullParam("x", "Edm.String"))),
+                fn("IsSiteAdmin", List.of(param("x", "Edm.String"))));
+        IllegalStateException ex = assertThrows(IllegalStateException.class, () ->
+                generator(m).generateFunctionImportRequests(fi(m), schema(m)));
+        assertTrue(ex.getMessage().contains("[x:Edm.String]"), ex.getMessage());
+        assertTrue(ex.getMessage().contains("[x:Edm.String?]"), ex.getMessage());
+        assertTrue(ex.getMessage().contains("nullability"), ex.getMessage());
     }
 
     // ------------------------------------------------------------------
@@ -249,24 +269,12 @@ class OperationImportOverloadTest {
     }
 
     @Test
-    void generatorWritesOneOperationFilePerOverload() throws Exception {
+    void generatorWritesOneOperationFilePerOverload(@TempDir java.nio.file.Path out) throws Exception {
         CsdlModel m = usernameUserIdOverloads();
-        java.nio.file.Path out = java.nio.file.Files.createTempDirectory("opoverload");
-        try {
-            new Generator(out, Map.of("NS", "app"), "app").generate(m);
-            assertTrue(java.nio.file.Files.exists(out.resolve("app/operation/IsSiteAdminByUsernameFunctionRequest.java")));
-            assertTrue(java.nio.file.Files.exists(out.resolve("app/operation/IsSiteAdminByUserIdFunctionRequest.java")));
-            assertFalse(java.nio.file.Files.exists(out.resolve("app/operation/IsSiteAdminFunctionRequest.java")),
-                    "no unsuffixed class exists for an overloaded import");
-        } finally {
-            deleteRecursively(out);
-        }
-    }
-
-    private static void deleteRecursively(java.nio.file.Path root) {
-        if (!java.nio.file.Files.exists(root)) return;
-        try (var walk = java.nio.file.Files.walk(root)) {
-            walk.sorted(java.util.Comparator.reverseOrder()).forEach(p -> p.toFile().delete());
-        } catch (Exception ignored) {}
+        new Generator(out, Map.of("NS", "app"), "app").generate(m);
+        assertTrue(java.nio.file.Files.exists(out.resolve("app/operation/IsSiteAdminByUsernameFunctionRequest.java")));
+        assertTrue(java.nio.file.Files.exists(out.resolve("app/operation/IsSiteAdminByUserIdFunctionRequest.java")));
+        assertFalse(java.nio.file.Files.exists(out.resolve("app/operation/IsSiteAdminFunctionRequest.java")),
+                "no unsuffixed class exists for an overloaded import");
     }
 }

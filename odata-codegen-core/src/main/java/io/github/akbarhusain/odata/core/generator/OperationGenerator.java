@@ -35,6 +35,9 @@ import java.util.TreeSet;
  */
 public class OperationGenerator extends AbstractTypeGenerator {
 
+    private static final org.slf4j.Logger log =
+            org.slf4j.LoggerFactory.getLogger(OperationGenerator.class);
+
     private enum Kind { VOID, PRIMITIVE_SINGLE, PRIMITIVE_COLLECTION, OBJECT_SINGLE, OBJECT_COLLECTION }
 
     /** A model plus the schema that owns it (needed for type/package resolution). */
@@ -89,6 +92,7 @@ public class OperationGenerator extends AbstractTypeGenerator {
         initEffectiveSchemas(containerSchema);
         Owned<ActionModel> owned = resolveUnboundAction(ai.action(), ai.name());
         ActionModel ac = owned.model();
+        validateParameterNames(ac.parameters(), "ActionImport '" + ai.name() + "'");
         ResolvedOp op = new ResolvedOp(ac.name(), ac.parameters(), ac.returnType(), false, owned.owner());
         return render(ai.name(), Names.actionRequestClassName(ai.name()), op, "");
     }
@@ -121,17 +125,35 @@ public class OperationGenerator extends AbstractTypeGenerator {
         List<Owned<FunctionModel>> unbound = resolveUnbound(qualified, simple, importLabel,
                 reference, "FunctionImport", "function", FunctionModel::isBound);
         if (unbound.size() > 1) {
-            Set<String> seen = new java.util.HashSet<>();
+            Map<String, Owned<FunctionModel>> byIdentity = new java.util.LinkedHashMap<>();
             for (Owned<FunctionModel> o : unbound) {
+                validateParameterNames(o.model().parameters(), "FunctionImport '" + importLabel + "'");
                 String identity = o.model().parameters().stream()
                         .map(p -> p.name() + ":" + resolveTypeDefinition(p.type(), o.owner()))
                         .collect(java.util.stream.Collectors.joining("|"));
-                if (!seen.add(identity)) {
+                Owned<FunctionModel> previous = byIdentity.putIfAbsent(identity, o);
+                if (previous != null) {
+                    String previousReturn = returnTypeIdentity(previous);
+                    String currentReturn = returnTypeIdentity(o);
+                    if (!previousReturn.equals(currentReturn)) {
+                        throw new IllegalStateException("FunctionImport '" + importLabel + "': function '"
+                                + reference + "' has overloads with identical parameter names and types — "
+                                + parameterSignature(previous.model().parameters(), previous.owner())
+                                + " and " + parameterSignature(o.model().parameters(), o.owner())
+                                + " — but different return types " + previousReturn + " and " + currentReturn);
+                    }
                     throw new IllegalStateException("FunctionImport '" + importLabel + "': function '"
-                            + reference + "' has multiple overloads with identical parameter names and types "
-                            + parameterNames(o.model()) + " — OData requires overloads to differ by the "
-                            + "ordered set of parameter types (ODATA-500)");
+                            + reference + "' has multiple overloads with identical parameter names and types — "
+                            + parameterSignature(previous.model().parameters(), previous.owner())
+                            + " and " + parameterSignature(o.model().parameters(), o.owner())
+                            + " — OData identifies an unbound function overload by its parameter names and "
+                            + "types, and parameter nullability is not rendered in the invocation URL, so "
+                            + "these overloads are indistinguishable (ODATA-500)");
                 }
+            }
+        } else {
+            for (Owned<FunctionModel> o : unbound) {
+                validateParameterNames(o.model().parameters(), "FunctionImport '" + importLabel + "'");
             }
         }
         return unbound;
@@ -198,9 +220,39 @@ public class OperationGenerator extends AbstractTypeGenerator {
     }
 
     /** Order-insensitive parameter-name key: OData URL parameters are named, so the SET of names must identify the overload. */
-    private static String parameterNames(FunctionModel f) {
-        return f.parameters().stream().map(ParameterModel::name).sorted()
+    /**
+     * Renders parameters as {@code [name:resolvedType?]} (the {@code ?} marks nullable) for
+     * diagnostics. Nullability is deliberately NOT part of overload identity — it is not
+     * rendered in an invocation URL — but it is shown here so a failure over overloads that
+     * differ only by nullability names the actual difference.
+     */
+    private String parameterSignature(List<ParameterModel> parameters, SchemaModel owner) {
+        return parameters.stream()
+                .map(p -> p.name() + ":" + resolveTypeDefinition(p.type(), owner)
+                        + (p.nullable() ? "?" : ""))
                 .collect(java.util.stream.Collectors.joining(", ", "[", "]"));
+    }
+
+    private void validateParameterNames(List<ParameterModel> parameters, String owner) {
+        Set<String> names = new java.util.HashSet<>();
+        for (ParameterModel parameter : parameters) {
+            if (parameter.name() == null || parameter.name().isBlank()) {
+                throw new IllegalStateException(owner + " has a parameter without a name");
+            }
+            if (!names.add(parameter.name())) {
+                throw new IllegalStateException(owner + " has duplicate parameter name '"
+                        + parameter.name() + "'");
+            }
+        }
+    }
+
+    private String returnTypeIdentity(Owned<FunctionModel> operation) {
+        ReturnTypeModel returnType = operation.model().returnType();
+        if (returnType == null || returnType.type() == null || returnType.type().isBlank()) {
+            return "<void>";
+        }
+        return resolveTypeDefinition(returnType.type(), operation.owner()) + ":"
+                + returnType.nullable();
     }
 
     private <T> void classify(Owned<T> candidate, String fullName, String simpleName,
@@ -227,7 +279,7 @@ public class OperationGenerator extends AbstractTypeGenerator {
             String element = Names.isCollectionType(p.type())
                     ? Names.unwrapCollectionType(p.type()) : p.type();
             String resolved = resolveTypeDefinition(element, owner);
-            Names.TypeKind kind = Names.resolveTypeKind(resolved, effectiveSchemas);
+            Names.TypeKind kind = resolveTypeKind(resolved, owner);
             boolean primitive = Names.isPrimitiveType(resolved);
             boolean enumType = !primitive && kind == Names.TypeKind.ENUM;
             boolean structured = kind == Names.TypeKind.COMPLEX || kind == Names.TypeKind.ENTITY;
@@ -280,7 +332,7 @@ public class OperationGenerator extends AbstractTypeGenerator {
             if (i > 0) {
                 sb.append("And");
             }
-            sb.append(Names.capitalize(Names.toJavaFieldName(parameters.get(i).name())));
+            sb.append(Names.capitalize(Names.toOperationParameterName(parameters.get(i).name())));
         }
         return sb.toString();
     }
@@ -289,10 +341,53 @@ public class OperationGenerator extends AbstractTypeGenerator {
     // Rendering
     // ------------------------------------------------------------------
 
+    private void prepareContainerTypeRefs(List<ParameterModel> parameters, SchemaModel owner,
+                                           String reservedClassFqn) {
+        List<String> candidates = new ArrayList<>();
+        for (ParameterModel parameter : parameters) {
+            String element = Names.isCollectionType(parameter.type())
+                    ? Names.unwrapCollectionType(parameter.type()) : parameter.type();
+            String resolved = resolveTypeDefinition(element, owner);
+            if (!Names.isPrimitiveType(resolved)) candidates.add(typeFqnOf(resolved, owner));
+        }
+        if (reservedClassFqn != null) candidates.add(reservedClassFqn);
+        typeRefs = TypeRefs.resolve(candidates);
+    }
+
+    private List<String> operationTypeCandidates(ResolvedOp op) {
+        List<String> candidates = new ArrayList<>();
+        for (ParameterModel parameter : op.parameters()) {
+            String element = Names.isCollectionType(parameter.type())
+                    ? Names.unwrapCollectionType(parameter.type()) : parameter.type();
+            String resolved = resolveTypeDefinition(element, op.owner());
+            if (!Names.isPrimitiveType(resolved)) candidates.add(typeFqnOf(resolved, op.owner()));
+        }
+        if (op.returnType() != null && op.returnType().type() != null) {
+            String element = Names.isCollectionType(op.returnType().type())
+                    ? Names.unwrapCollectionType(op.returnType().type()) : op.returnType().type();
+            String resolved = resolveTypeDefinition(element, op.owner());
+            if (!Names.isPrimitiveType(resolved)) candidates.add(typeFqnOf(resolved, op.owner()));
+        }
+        return candidates;
+    }
+
+    private void prepareBoundTypeRefs(BoundOp bound) {
+        ResolvedOp op = new ResolvedOp(bound.opName(), bound.parameters(), bound.returnType(), true, bound.owner());
+        List<String> candidates = operationTypeCandidates(op);
+        candidates.add(boundClassImportLine(bound));
+        typeRefs = TypeRefs.resolve(candidates);
+    }
+
+    public String boundClassReference(BoundOp bound) {
+        prepareBoundTypeRefs(bound);
+        return typeRefs.getOrDefault(boundClassImportLine(bound), bound.className());
+    }
+
     private String render(String importName, String className, ResolvedOp op, String overloadSuffix) {
         Kind kind = resultKind(op);
         boolean isAction = !op.isFunction();
 
+        this.typeRefs = TypeRefs.resolve(operationTypeCandidates(op));
         Set<String> imports = new TreeSet<>();
         imports.add("io.github.akbarhusain.odata.runtime.client.EntityOperations");
         imports.add("io.github.akbarhusain.odata.runtime.entity.Context");
@@ -301,7 +396,7 @@ public class OperationGenerator extends AbstractTypeGenerator {
         imports.add("io.github.akbarhusain.odata.runtime.http.HttpMethod");
         // Structured/enum parameter types live in other packages (.enums/.entity/.complex)
         // — without these imports the generated class does not compile
-        collectParameterImports(op.parameters(), op.owner(), imports);
+        collectParameterImports(op.parameters(), op.owner(), imports, true);
 
         String verb = op.isFunction() ? "GET" : "POST";
         String bodyArg = isAction && !op.parameters().isEmpty() ? "body" : "null";
@@ -398,7 +493,12 @@ public class OperationGenerator extends AbstractTypeGenerator {
      * fully-qualified {@code java.*} names.
      */
     public void collectParameterImports(List<ParameterModel> parameters, SchemaModel owner,
-                                         Set<String> imports) {
+                                          Set<String> imports) {
+        collectParameterImports(parameters, owner, imports, true);
+    }
+
+    private void collectParameterImports(List<ParameterModel> parameters, SchemaModel owner,
+                                         Set<String> imports, boolean resolveContested) {
         boolean anyCollection = false;
         for (ParameterModel p : parameters) {
             if (Names.isCollectionType(p.type())) {
@@ -408,6 +508,7 @@ public class OperationGenerator extends AbstractTypeGenerator {
                     ? Names.unwrapCollectionType(p.type()) : p.type();
             String resolved = resolveTypeDefinition(element, owner);
             if (!Names.isPrimitiveType(resolved)) {
+                if (resolveContested && isContested(resolved, owner)) continue;
                 imports.add(basePackageForType(resolved, owner) + Names.resolvedSuffix(resolved, effectiveSchemas)
                         + "." + Names.resolvedClassName(resolved, effectiveSchemas));
             }
@@ -453,11 +554,6 @@ public class OperationGenerator extends AbstractTypeGenerator {
         List<String> ancestors = ancestorCache.computeIfAbsent(selfQualified,
                 k -> ancestorQualifiedNames(entityType, schema));
         ensureBoundIndex();
-        if (!invalidBindings.isEmpty()) {
-            throw new IllegalStateException("Bound operation '" + invalidBindings.get(0)
-                    + "': the binding parameter must be an entity type — primitive/complex "
-                    + "binding parameters cannot be invoked on an entity request");
-        }
 
         // candidates for self + ancestors (ancestor-bound ops carry the cast segment)
         List<BoundCand> candidates = new ArrayList<>(boundCandidatesFor(selfQualified));
@@ -472,6 +568,7 @@ public class OperationGenerator extends AbstractTypeGenerator {
         }
 
         List<BoundOp> out = new ArrayList<>();
+        Set<String> usedGeneratedNames = new java.util.HashSet<>();
         for (List<BoundCand> group : groups.values()) {
             if (!group.get(0).isFunction()) {
                 if (group.size() > 1) {
@@ -485,7 +582,8 @@ public class OperationGenerator extends AbstractTypeGenerator {
                 }
                 List<String> actionSuffixes = allocateBoundSuffixes(group);
                 for (int i = 0; i < group.size(); i++) {
-                    out.add(toBoundOp(group.get(i), actionSuffixes.get(i), selfQualified, entityType));
+                    out.add(toBoundOp(group.get(i), actionSuffixes.get(i), selfQualified, entityType,
+                            usedGeneratedNames));
                 }
                 continue;
             }
@@ -500,13 +598,16 @@ public class OperationGenerator extends AbstractTypeGenerator {
                         .collect(java.util.stream.Collectors.joining("|"));
                 if (!identities.add(identity)) {
                     throw new IllegalStateException("Bound function '" + c.opName()
-                            + "' has overloads with identical parameter names and types — they are "
-                            + "indistinguishable in an invocation URL");
+                            + "' has overloads with identical binding type and parameter names and types "
+                            + "(binding " + c.bindingQualified() + "; "
+                            + parameterSignature(c.invocationParams(), c.owner()) + ") — parameter "
+                            + "nullability is not rendered in an invocation URL, so they are indistinguishable");
                 }
             }
             List<String> suffixes = allocateBoundSuffixes(group);
             for (int i = 0; i < group.size(); i++) {
-                out.add(toBoundOp(group.get(i), suffixes.get(i), selfQualified, entityType));
+                out.add(toBoundOp(group.get(i), suffixes.get(i), selfQualified, entityType,
+                        usedGeneratedNames));
             }
         }
         return out;
@@ -517,8 +618,10 @@ public class OperationGenerator extends AbstractTypeGenerator {
     private final Map<String, List<String>> ancestorCache = new java.util.HashMap<>();
     private Map<String, EntityTypeModel> entityIndex;
     private Map<String, List<EntityTypeModel>> entitySimpleNameIndex;
+    private java.util.IdentityHashMap<EntityTypeModel, String> entityQualifiedNames;
+    private java.util.IdentityHashMap<EntityTypeModel, SchemaModel> entityOwners;
     private Map<String, List<BoundCand>> boundIndex;
-    private List<String> invalidBindings = List.of();
+    private final Set<String> invalidBindings = new java.util.LinkedHashSet<>();
 
     private List<BoundCand> boundCandidatesFor(String bindingQualified) {
         return boundIndex.getOrDefault(bindingQualified, List.of());
@@ -529,7 +632,7 @@ public class OperationGenerator extends AbstractTypeGenerator {
             return;
         }
         Map<String, List<BoundCand>> index = new java.util.HashMap<>();
-        List<String> invalid = new ArrayList<>();
+        Set<String> invalid = new java.util.LinkedHashSet<>();
         for (SchemaModel s : effectiveSchemas) {
             for (FunctionModel f : s.functions()) {
                 indexBound(f.isBound(), f.parameters(), f.returnType(), true, f.name(), s, index, invalid);
@@ -539,15 +642,21 @@ public class OperationGenerator extends AbstractTypeGenerator {
             }
         }
         this.boundIndex = index;
-        this.invalidBindings = invalid;
+        this.invalidBindings.clear();
+        this.invalidBindings.addAll(invalid);
+        for (String operation : invalid) {
+            log.warn("Skipping bound operation '{}': only single-entity-bound operations are generated "
+                    + "(complex/primitive/collection bindings are legal but unsupported)", operation);
+        }
     }
 
     private void indexBound(boolean isBound, List<ParameterModel> parameters,
                             ReturnTypeModel returnType, boolean isFunction, String opName,
-                            SchemaModel owner, Map<String, List<BoundCand>> index, List<String> invalid) {
+                            SchemaModel owner, Map<String, List<BoundCand>> index, Set<String> invalid) {
         if (!isBound || parameters.isEmpty()) {
             return;
         }
+        validateParameterNames(parameters, (isFunction ? "Bound function '" : "Bound action '") + opName + "'");
         ParameterModel binding = parameters.get(0);
         String bindingQualified = qualifiedEntityName(binding.type(), owner);
         if (bindingQualified == null) {
@@ -567,29 +676,34 @@ public class OperationGenerator extends AbstractTypeGenerator {
         }
         String qualified = resolved.contains(".") ? resolved
                 : owner.namespace() + "." + resolved;
-        return Names.resolveTypeKind(qualified, effectiveSchemas) == Names.TypeKind.ENTITY
+        return resolveTypeKind(qualified, owner) == Names.TypeKind.ENTITY
                 ? qualified : null;
     }
 
     /** Qualified names of the base-type chain (nearest first), unresolvable links ignored. */
     private List<String> ancestorQualifiedNames(EntityTypeModel type, SchemaModel schema) {
         List<String> out = new ArrayList<>();
-        // A BaseType cycle would loop forever appending — fail loudly like the
-        // recursive walkers (revisiting a qualified link IS the cycle: the walk is linear).
         java.util.Set<String> visiting = new java.util.HashSet<>();
         String baseRef = type.baseType();
+        SchemaModel currentSchema = schema;
         while (baseRef != null) {
-            String qualified = baseRef.contains(".") ? baseRef
-                    : schema.namespace() + "." + baseRef;
+            String resolved = resolveTypeDefinition(baseRef, currentSchema);
+            if (resolveTypeKind(resolved, currentSchema) != Names.TypeKind.ENTITY) {
+                throw new IllegalStateException("Cannot resolve BaseType '" + baseRef
+                        + "' of entity '" + type.name() + "' to an entity type");
+            }
+            EntityTypeModel model = findEntityType(resolved, baseRef);
+            if (model == null) {
+                throw new IllegalStateException("Cannot resolve BaseType '" + baseRef
+                        + "' of entity '" + type.name() + "'");
+            }
+            String qualified = entityQualifiedNames.get(model);
             if (!visiting.add(qualified)) {
                 throw new IllegalStateException("Circular BaseType chain detected involving entity type: "
                         + qualified);
             }
-            EntityTypeModel model = findEntityType(qualified, baseRef);
-            if (model == null) {
-                break;
-            }
             out.add(qualified);
+            currentSchema = entityOwners.get(model);
             baseRef = model.baseType();
         }
         return out;
@@ -607,10 +721,15 @@ public class OperationGenerator extends AbstractTypeGenerator {
         }
         Map<String, EntityTypeModel> byQualified = new HashMap<>();
         Map<String, List<EntityTypeModel>> bySimple = new HashMap<>();
+        entityQualifiedNames = new java.util.IdentityHashMap<>();
+        entityOwners = new java.util.IdentityHashMap<>();
         for (SchemaModel s : effectiveSchemas) {
             for (EntityTypeModel e : s.entityTypes()) {
-                byQualified.putIfAbsent(s.namespace() + "." + e.name(), e);
+                String qualified = s.namespace() + "." + e.name();
+                byQualified.putIfAbsent(qualified, e);
                 bySimple.computeIfAbsent(e.name(), k -> new ArrayList<>()).add(e);
+                entityQualifiedNames.put(e, qualified);
+                entityOwners.put(e, s);
             }
         }
         entityIndex = byQualified;
@@ -655,19 +774,31 @@ public class OperationGenerator extends AbstractTypeGenerator {
         return out;
     }
 
-    private BoundOp toBoundOp(BoundCand c, String suffix, String selfQualified, EntityTypeModel requestType) {
-        String className = Names.entityClassName(requestType.name()) + Names.capitalize(c.opName())
-                + (c.isFunction() ? "FunctionRequest" : "ActionRequest") + suffix;
-        String accessorName = Names.toJavaFieldName(c.opName()) + suffix;
+    private BoundOp toBoundOp(BoundCand c, String suffix, String selfQualified, EntityTypeModel requestType,
+                             Set<String> usedGeneratedNames) {
+        String accessorBase = Names.toJavaFieldName(c.opName());
+        String classBase = Names.entityClassName(requestType.name()) + Names.entityClassName(c.opName())
+                + (c.isFunction() ? "FunctionRequest" : "ActionRequest");
+        String uniqueSuffix = suffix;
+        int number = 2;
+        while (usedGeneratedNames.contains("accessor:" + accessorBase + uniqueSuffix)
+                || usedGeneratedNames.contains("class:" + classBase + uniqueSuffix)) {
+            uniqueSuffix = suffix.isEmpty() ? "_" + number : suffix + "_" + number;
+            number++;
+        }
+        usedGeneratedNames.add("accessor:" + accessorBase + uniqueSuffix);
+        usedGeneratedNames.add("class:" + classBase + uniqueSuffix);
         String cast = c.bindingQualified().equals(selfQualified) ? null : c.bindingQualified();
         return new BoundOp(c.opName(), c.isFunction(), c.invocationParams(), c.returnType(),
-                c.owner(), cast, className, accessorName, suffix);
+                c.owner(), cast, classBase + uniqueSuffix, accessorBase + uniqueSuffix, uniqueSuffix);
     }
 
     /** Full file content for a bound-operation request class. */
     public String generateBoundOperationRequest(BoundOp bound, EntityTypeModel requestType,
                                                 SchemaModel containerSchema) {
         initEffectiveSchemas(containerSchema);
+        validateParameterNames(bound.parameters(),
+                (bound.isFunction() ? "Bound function '" : "Bound action '") + bound.opName() + "'");
         if (!bound.isFunction()) {
             validateBoundAction(bound);
         } else {
@@ -678,13 +809,14 @@ public class OperationGenerator extends AbstractTypeGenerator {
         Kind kind = resultKind(op);
         boolean isAction = !bound.isFunction();
 
+        this.typeRefs = TypeRefs.resolve(operationTypeCandidates(op));
         Set<String> imports = new TreeSet<>();
         imports.add("io.github.akbarhusain.odata.runtime.client.EntityOperations");
         imports.add("io.github.akbarhusain.odata.runtime.entity.Context");
         imports.add("io.github.akbarhusain.odata.runtime.entity.ContextPath");
         imports.add("io.github.akbarhusain.odata.runtime.entity.OperationPath");
         imports.add("io.github.akbarhusain.odata.runtime.http.HttpMethod");
-        collectParameterImports(op.parameters(), op.owner(), imports);
+        collectParameterImports(op.parameters(), op.owner(), imports, true);
 
         String verb = bound.isFunction() ? "GET" : "POST";
         String bodyArg = isAction && !op.parameters().isEmpty() ? "body" : "null";
@@ -742,18 +874,21 @@ public class OperationGenerator extends AbstractTypeGenerator {
 
     /** Accessor-method source for embedding on the entity request class. */
     public String boundAccessorMethod(BoundOp bound) {
+        prepareBoundTypeRefs(bound);
+        String classReference = boundClassReference(bound);
         StringBuilder sig = new StringBuilder();
         StringBuilder args = new StringBuilder("context, contextPath");
+        Map<String, String> parameterNames = operationParameterNames(bound.parameters());
         for (ParameterModel p : bound.parameters()) {
             if (sig.length() > 0) {
                 sig.append(", ");
             }
-            String field = Names.toJavaFieldName(p.name());
+            String field = parameterNames.get(p.name());
             sig.append(parameterJavaType(p, bound.owner())).append(' ').append(field);
             args.append(", ").append(field);
         }
-        return "    public " + bound.className() + " " + bound.accessorName() + "(" + sig + ") {\n"
-             + "        return new " + bound.className() + "(" + args + ");\n"
+        return "    public " + classReference + " " + bound.accessorName() + "(" + sig + ") {\n"
+             + "        return new " + classReference + "(" + args + ");\n"
              + "    }\n\n";
     }
 
@@ -763,11 +898,29 @@ public class OperationGenerator extends AbstractTypeGenerator {
 
     private String constructorParams(ResolvedOp op) {
         StringBuilder sb = new StringBuilder();
+        Map<String, String> parameterNames = operationParameterNames(op.parameters());
         for (ParameterModel p : op.parameters()) {
             sb.append(", ").append(parameterJavaType(p, op.owner()))
-              .append(' ').append(Names.toJavaFieldName(p.name()));
+              .append(' ').append(parameterNames.get(p.name()));
         }
         return sb.toString();
+    }
+
+    private Map<String, String> operationParameterNames(List<ParameterModel> parameters) {
+        Map<String, String> names = new java.util.LinkedHashMap<>();
+        Set<String> used = new java.util.HashSet<>(List.of(
+                "context", "contextPath", "basePath", "body",
+                "__pairs", "__path", "__params", "__body"));
+        for (ParameterModel parameter : parameters) {
+            String base = Names.toOperationParameterName(parameter.name());
+            String candidate = base;
+            int suffix = 2;
+            while (!used.add(candidate)) {
+                candidate = base + "_" + suffix++;
+            }
+            names.put(parameter.name(), candidate);
+        }
+        return names;
     }
 
     /**
@@ -785,6 +938,7 @@ public class OperationGenerator extends AbstractTypeGenerator {
         String base = pathBaseExpr + (castSegment == null
                 ? "" : ".addSegment(\"" + Names.escapeJavaString(castSegment) + "\")");
         String segmentLiteral = Names.escapeJavaString(opSegmentName);
+        Map<String, String> parameterNames = operationParameterNames(op.parameters());
         StringBuilder b = new StringBuilder();
         if (!isAction) {
             // Non-inlineable parameters ride parameter aliases: the segment pair references
@@ -799,11 +953,11 @@ public class OperationGenerator extends AbstractTypeGenerator {
 
             b.append("        java.util.List<String> __pairs = new java.util.ArrayList<>();\n");
             for (ParameterModel p : op.parameters()) {
-                String field = Names.toJavaFieldName(p.name());
+                String field = parameterNames.get(p.name());
                 boolean isCollection = Names.isCollectionType(p.type());
                 String element = isCollection ? Names.unwrapCollectionType(p.type()) : p.type();
                 String resolvedElement = resolveTypeDefinition(element, op.owner());
-                Names.TypeKind elementKind = Names.resolveTypeKind(resolvedElement, effectiveSchemas);
+                Names.TypeKind elementKind = resolveTypeKind(resolvedElement, op.owner());
                 boolean structured = elementKind == Names.TypeKind.COMPLEX
                         || elementKind == Names.TypeKind.ENTITY;
                 if (isCollection || structured) {
@@ -811,7 +965,7 @@ public class OperationGenerator extends AbstractTypeGenerator {
                     String valueExpr = structured
                             ? "EntityOperations.jsonParameter(" + field + ")"
                             : "OperationPath.collectionParameter(" + field + ", \""
-                                    + qualifiedEdmName(resolvedElement, op.owner()) + "\")";
+                                    + Names.escapeJavaString(qualifiedEdmName(resolvedElement, op.owner())) + "\")";
                     if (p.nullable()) {
                         b.append("        if (").append(field).append(" != null) {\n")
                          .append("            __pairs.add(\"").append(Names.escapeJavaString(p.name())).append('=')
@@ -858,13 +1012,13 @@ public class OperationGenerator extends AbstractTypeGenerator {
         }
 
         for (ParameterModel p : op.parameters()) {
-            appendRequiredGuard(b, p, Names.toJavaFieldName(p.name()), op);
+            appendRequiredGuard(b, p, parameterNames.get(p.name()), op);
         }
         b.append("        this.contextPath = " + base + ".addSegment(\"")
           .append(segmentLiteral).append("\");\n");
         b.append("        java.util.Map<String, Object> __params = new java.util.LinkedHashMap<>();\n");
         for (ParameterModel p : op.parameters()) {
-            String field = Names.toJavaFieldName(p.name());
+            String field = parameterNames.get(p.name());
             if (p.nullable()) {
                 b.append("        if (").append(field).append(" != null) {\n")
                  .append("            __params.put(\"").append(Names.escapeJavaString(p.name())).append("\", ").append(field).append(");\n")
@@ -884,9 +1038,9 @@ public class OperationGenerator extends AbstractTypeGenerator {
     /** The pair's wire name is the CSDL parameter name; the Java identifier stays local. */
     private static void appendPairAdd(StringBuilder b, String csdlName, String field,
                                       String literalEdmType, String indent) {
-        b.append(indent).append("__pairs.add(\"").append(csdlName)
+        b.append(indent).append("__pairs.add(\"").append(Names.escapeJavaString(csdlName))
           .append("=\" + OperationPath.parameter(").append(field)
-          .append(", \"").append(literalEdmType).append("\"));\n");
+          .append(", \"").append(Names.escapeJavaString(literalEdmType)).append("\"));\n");
     }
 
     private void appendRequiredGuard(StringBuilder b, ParameterModel p, String field, ResolvedOp op) {
@@ -1001,7 +1155,7 @@ public class OperationGenerator extends AbstractTypeGenerator {
     private Names.TypeKind structuredResultKind(ResolvedOp op) {
         String element = Names.isCollectionType(op.returnType().type())
                 ? Names.unwrapCollectionType(op.returnType().type()) : op.returnType().type();
-        return Names.resolveTypeKind(resolveTypeDefinition(element, op.owner()), effectiveSchemas);
+        return resolveTypeKind(resolveTypeDefinition(element, op.owner()), op.owner());
     }
 
     private static boolean resultNullable(ResolvedOp op) {
@@ -1043,7 +1197,7 @@ public class OperationGenerator extends AbstractTypeGenerator {
      */
     private ResultClass objectResult(String unresolvedEdmType, ResolvedOp op, Set<String> imports) {
         String resolved = resolveTypeDefinition(unresolvedEdmType, op.owner());
-        Names.TypeKind tk = Names.resolveTypeKind(resolved, effectiveSchemas);
+        Names.TypeKind tk = resolveTypeKind(resolved, op.owner());
         String className = switch (tk) {
             case ENTITY -> Names.entityClassName(Names.simpleNameFromFullName(resolved));
             case COMPLEX -> Names.complexTypeClassName(Names.simpleNameFromFullName(resolved));
@@ -1060,8 +1214,9 @@ public class OperationGenerator extends AbstractTypeGenerator {
         };
         String pkg = basePackageForType(resolved, op.owner()) + suffix;
         String importLine = pkg + "." + className;
-        imports.add(importLine);
-        return new ResultClass(className, className + ".class", importLine);
+        String reference = refFor(resolved, op.owner());
+        if (!reference.contains(".")) imports.add(importLine);
+        return new ResultClass(reference, reference + ".class", importLine);
     }
 
     // ------------------------------------------------------------------
@@ -1118,6 +1273,11 @@ public class OperationGenerator extends AbstractTypeGenerator {
 
     /** Full accessor-method sources for the container: one per overload. */
     public List<String> functionImportAccessorMethods(FunctionImportModel fi, SchemaModel containerSchema) {
+        return functionImportAccessorMethods(fi, containerSchema, null);
+    }
+
+    public List<String> functionImportAccessorMethods(FunctionImportModel fi, SchemaModel containerSchema,
+                                                       String reservedClassFqn) {
         initEffectiveSchemas(containerSchema);
         List<Owned<FunctionModel>> overloads = resolveUnboundFunctionOverloads(fi.function(), fi.name());
         List<String> suffixes = allocateOverloadSuffixes(overloads);
@@ -1125,6 +1285,7 @@ public class OperationGenerator extends AbstractTypeGenerator {
         for (int i = 0; i < overloads.size(); i++) {
             Owned<FunctionModel> owned = overloads.get(i);
             validateFunctionParameters(owned.model().parameters(), fi.name(), owned.owner());
+            prepareContainerTypeRefs(owned.model().parameters(), owned.owner(), reservedClassFqn);
             methods.add(accessorMethodSource(
                     Names.functionRequestClassName(fi.name(), suffixes.get(i)),
                     Names.toJavaFieldName(fi.name()) + suffixes.get(i),
@@ -1134,27 +1295,45 @@ public class OperationGenerator extends AbstractTypeGenerator {
     }
 
     public String actionImportAccessorMethod(ActionImportModel ai, SchemaModel containerSchema) {
+        return actionImportAccessorMethod(ai, containerSchema, null);
+    }
+
+    public String actionImportAccessorMethod(ActionImportModel ai, SchemaModel containerSchema,
+                                             String reservedClassFqn) {
         initEffectiveSchemas(containerSchema);
         Owned<ActionModel> owned = resolveUnboundAction(ai.action(), ai.name());
+        prepareContainerTypeRefs(owned.model().parameters(), owned.owner(), reservedClassFqn);
         return accessorMethodSource(Names.actionRequestClassName(ai.name()),
                 Names.toJavaFieldName(ai.name()), owned.model().parameters(), owned.owner());
     }
 
     /** Imports the CONTAINER needs for this import's parameter types (H1: accessors live in .container). */
     public java.util.Set<String> functionImportParameterImports(FunctionImportModel fi, SchemaModel containerSchema) {
+        return functionImportParameterImports(fi, containerSchema, null);
+    }
+
+    public java.util.Set<String> functionImportParameterImports(FunctionImportModel fi, SchemaModel containerSchema,
+                                                                  String reservedClassFqn) {
         initEffectiveSchemas(containerSchema);
         java.util.Set<String> imports = new java.util.TreeSet<>();
         for (Owned<FunctionModel> owned : resolveUnboundFunctionOverloads(fi.function(), fi.name())) {
-            collectParameterImports(owned.model().parameters(), owned.owner(), imports);
+            prepareContainerTypeRefs(owned.model().parameters(), owned.owner(), reservedClassFqn);
+            collectParameterImports(owned.model().parameters(), owned.owner(), imports, true);
         }
         return imports;
     }
 
     public java.util.Set<String> actionImportParameterImports(ActionImportModel ai, SchemaModel containerSchema) {
+        return actionImportParameterImports(ai, containerSchema, null);
+    }
+
+    public java.util.Set<String> actionImportParameterImports(ActionImportModel ai, SchemaModel containerSchema,
+                                                              String reservedClassFqn) {
         initEffectiveSchemas(containerSchema);
         Owned<ActionModel> owned = resolveUnboundAction(ai.action(), ai.name());
+        prepareContainerTypeRefs(owned.model().parameters(), owned.owner(), reservedClassFqn);
         java.util.Set<String> imports = new java.util.TreeSet<>();
-        collectParameterImports(owned.model().parameters(), owned.owner(), imports);
+        collectParameterImports(owned.model().parameters(), owned.owner(), imports, true);
         return imports;
     }
 
@@ -1162,11 +1341,12 @@ public class OperationGenerator extends AbstractTypeGenerator {
                                             List<ParameterModel> parameters, SchemaModel owner) {
         StringBuilder sig = new StringBuilder();
         StringBuilder args = new StringBuilder();
+        Map<String, String> parameterNames = operationParameterNames(parameters);
         for (ParameterModel p : parameters) {
             if (sig.length() > 0) {
                 sig.append(", ");
             }
-            String field = Names.toJavaFieldName(p.name());
+            String field = parameterNames.get(p.name());
             sig.append(parameterJavaType(p, owner)).append(' ').append(field);
             if (args.length() > 0) {
                 args.append(", ");

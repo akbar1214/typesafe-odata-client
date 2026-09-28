@@ -3,6 +3,7 @@ package io.github.akbarhusain.odata.core.generator;
 import io.github.akbarhusain.odata.core.model.CsdlModel;
 import io.github.akbarhusain.odata.core.parser.StaxCsdlParser;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import java.io.InputStream;
 import java.nio.file.Files;
@@ -19,27 +20,22 @@ import static org.junit.jupiter.api.Assertions.*;
 class GeneratorOperationFilesTest {
 
     @Test
-    void generateWritesOperationRequestClassesForEveryImport() throws Exception {
+    void generateWritesOperationRequestClassesForEveryImport(@TempDir Path out) throws Exception {
         CsdlModel model = load("/trippin-metadata.xml");
-        Path out = Files.createTempDirectory("opgen");
-        try {
-            new Generator(out,
-                    Map.of("Microsoft.OData.SampleService.Models.TripPin", "com.example.trippin"),
-                    "com.example.trippin").generate(model);
+        new Generator(out,
+                Map.of("Microsoft.OData.SampleService.Models.TripPin", "com.example.trippin"),
+                "com.example.trippin").generate(model);
 
-            assertTrue(Files.exists(out.resolve(Path.of("com", "example", "trippin",
-                            "operation", "GetNearestAirportFunctionRequest.java"))),
-                    "function import request class must be generated");
-            assertTrue(Files.exists(out.resolve(Path.of("com", "example", "trippin",
-                            "operation", "ResetDataSourceActionRequest.java"))),
-                    "action import request class must be generated");
-            String containerCode = Files.readString(out.resolve(Path.of("com", "example",
-                    "trippin", "container", "DefaultContainer.java")));
-            assertTrue(containerCode.contains("getNearestAirport(double lat, double lon)"));
-            assertTrue(containerCode.contains("resetDataSource()"));
-        } finally {
-            deleteRecursively(out);
-        }
+        assertTrue(Files.exists(out.resolve(Path.of("com", "example", "trippin",
+                        "operation", "GetNearestAirportFunctionRequest.java"))),
+                "function import request class must be generated");
+        assertTrue(Files.exists(out.resolve(Path.of("com", "example", "trippin",
+                        "operation", "ResetDataSourceActionRequest.java"))),
+                "action import request class must be generated");
+        String containerCode = Files.readString(out.resolve(Path.of("com", "example",
+                "trippin", "container", "DefaultContainer.java")));
+        assertTrue(containerCode.contains("getNearestAirport(double lat, double lon)"));
+        assertTrue(containerCode.contains("resetDataSource()"));
     }
 
     private static CsdlModel load(String resource) {
@@ -50,10 +46,4 @@ class GeneratorOperationFilesTest {
         }
     }
 
-    private static void deleteRecursively(Path root) {
-        if (!Files.exists(root)) return;
-        try (var walk = Files.walk(root)) {
-            walk.sorted(java.util.Comparator.reverseOrder()).forEach(p -> p.toFile().delete());
-        } catch (Exception ignored) {}
-    }
 }

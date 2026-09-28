@@ -384,7 +384,7 @@ class OperationGeneratorBoundTest {
     }
 
     @Test
-    void nonEntityBindingParameterFailsLoudly() {
+    void nonEntityBindingParameterIsSkipped() {
         CsdlModel.SchemaModel s = new CsdlModel.SchemaModel("N.NS", null,
                 List.of(new CsdlModel.EntityTypeModel("Doc", null, false, false, false,
                         List.of(new CsdlModel.KeyModel(List.of("Id"))),
@@ -396,10 +396,7 @@ class OperationGeneratorBoundTest {
                         new CsdlModel.ReturnTypeModel("Edm.String", false))),
                 List.of(), List.of());
 
-        IllegalStateException ex = assertThrows(IllegalStateException.class,
-                () -> new OperationGenerator("app", java.util.Map.of(), "app", List.of(s))
-                        .boundOperationsFor(s.entityTypes().get(0), s));
-        assertTrue(ex.getMessage().contains("Bad"), ex.getMessage());
-        assertTrue(ex.getMessage().toLowerCase().contains("binding"), ex.getMessage());
+        assertDoesNotThrow(() -> new OperationGenerator("app", java.util.Map.of(), "app", List.of(s))
+                .boundOperationsFor(s.entityTypes().get(0), s));
     }
 }

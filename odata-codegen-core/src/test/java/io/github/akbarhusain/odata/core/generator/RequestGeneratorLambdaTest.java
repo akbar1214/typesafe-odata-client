@@ -80,8 +80,8 @@ class RequestGeneratorLambdaTest {
         assertTrue(code.contains(
                 "public PersonCollectionRequest filter(java.util.function.Function<Person.Selector, ? extends FilterExpression<? super Person>> predicate)"),
                 "collection request should emit the filter lambda overload");
-        assertTrue(code.contains("return filter(predicate.apply(s));"),
-                "filter lambda delegates to the constant form (parenthesization unchanged)");
+        assertTrue(code.contains("return filter(java.util.Objects.requireNonNull(predicate.apply(s), \"filter function must not return null\"));"),
+                "filter lambda validates its result and delegates to the constant form (parenthesization unchanged)");
     }
 
     @Test
@@ -93,8 +93,8 @@ class RequestGeneratorLambdaTest {
         assertTrue(code.contains(
                 "public final PersonCollectionRequest expand(java.util.function.Function<Person.Selector, ? extends Expandable<? super Person>> query)"),
                 "expand lambda overload enables full-depth chains");
-        assertTrue(code.contains("return expand(query.apply(s));"),
-                "expand lambda delegates to the constant form");
+        assertTrue(code.contains("return expand(java.util.Objects.requireNonNull(query.apply(s), \"expand query must not return null\"));"),
+                "expand lambda validates its result and delegates to the constant form");
         // the two legacy NavProperty/NavQuery overloads are gone (name-clash-free collapse)
         assertFalse(code.contains("NavProperty"), "NavProperty is deleted from the runtime");
     }

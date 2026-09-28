@@ -19,6 +19,10 @@ public class RequestGenerator extends AbstractTypeGenerator {
 
     private Map<String, EntityTypeModel> entityTypeMap;
     private Map<String, EntityTypeModel> entityTypeByQualifiedName;
+    private Map<String, List<EntityTypeModel>> entitySimpleNameIndex;
+    private SchemaModel cachedLocalSchema;
+    private List<SchemaModel> cachedEffectiveSchemas;
+    private java.util.IdentityHashMap<EntityTypeModel, SchemaModel> entityOwners;
     /**
      * Shared bound-operation resolver: boundOperationsFor caches per instance
      * (ancestor chains, bound index, entity index), so constructing one per
@@ -28,6 +32,7 @@ public class RequestGenerator extends AbstractTypeGenerator {
      * calls); single-schema test constructions keep per-call behavior.
      */
     private OperationGenerator sharedBoundGen;
+    private final Map<SchemaModel, OperationGenerator> singleSchemaBoundGenerators = new IdentityHashMap<>();
 
     public RequestGenerator(String basePackage) {
         this(basePackage, Map.of());
@@ -42,12 +47,22 @@ public class RequestGenerator extends AbstractTypeGenerator {
     }
 
     public RequestGenerator(String basePackage, Map<String, String> schemaPackages, String defaultBasePackage, List<SchemaModel> allSchemas) {
+        this(basePackage, schemaPackages, defaultBasePackage, allSchemas, null);
+    }
+
+    public RequestGenerator(String basePackage, Map<String, String> schemaPackages, String defaultBasePackage,
+                            List<SchemaModel> allSchemas, OperationGenerator operationGenerator) {
         super(basePackage, schemaPackages, defaultBasePackage, allSchemas);
+        this.sharedBoundGen = operationGenerator;
     }
 
     public String generateEntityRequest(EntityTypeModel entityType, SchemaModel schema) {
         initEffectiveSchemas(schema);
         ensureSchemaCache(schema);
+        validateKeyProperties("entity request for '" + entityType.name() + "'", resolvedKeys(entityType, schema),
+                resolvedProperties(entityType), schema);
+        Map<PropertyModel, StreamMethodNames> streamMethodNames = streamMethodNames(entityType);
+        checkEntityRequestMethodCollisions(entityType, resolvedNavs(entityType), schema, streamMethodNames);
         String pkg = basePackage + Names.packageNameSuffixEntityRequest();
         String className = Names.entityRequestClassName(entityType.name());
         String entityClassName = Names.entityClassName(entityType.name());
@@ -74,18 +89,21 @@ public class RequestGenerator extends AbstractTypeGenerator {
             if (isComplexTypeNav(nav, schema)) continue;
             // Resolve TypeDefinition chains: the typedef itself has no generated request
             // class — references must use the underlying type's name
-            String elementType = resolveTypeDefinition(Names.unwrapCollectionType(nav.type()), schema);
-            String elementClassName = Names.simpleNameFromFullName(elementType);
-            String collFqn = basePackageForType(elementType, schema)
+            SchemaModel owner = schemaForNavigation(nav, schema);
+            String elementType = resolveTypeDefinition(Names.unwrapCollectionType(nav.type()), owner);
+            requireKnownType(Names.unwrapCollectionType(nav.type()), owner,
+                    "entity request for '" + entityType.name() + "'", "navigation property '" + nav.name() + "'");
+            String elementClassName = generatedEntityClassName(elementType, owner);
+            String collFqn = basePackageForType(elementType, owner)
                     + Names.packageNameSuffixCollectionRequest() + "."
                     + Names.collectionRequestClassName(elementClassName);
-            String entFqn = basePackageForType(elementType, schema)
+            String entFqn = basePackageForType(elementType, owner)
                     + Names.packageNameSuffixEntityRequest() + "."
                     + Names.entityRequestClassName(elementClassName);
             boolean keyable = false;
             if (Names.isCollectionType(nav.type())) {
-                EntityTypeModel navTarget = resolveEntityType(elementType, schema);
-                keyable = navTarget != null && !keyParamSpecs(navTarget, schema).isEmpty();
+                EntityTypeModel navTarget = resolveEntityType(elementType, owner);
+                keyable = navTarget != null && !keyParamSpecs(navTarget, owner).isEmpty();
             }
             navFqns.add(new String[]{nav.name(), String.valueOf(Names.isCollectionType(nav.type())),
                     collFqn, entFqn, String.valueOf(keyable)});
@@ -117,11 +135,13 @@ public class RequestGenerator extends AbstractTypeGenerator {
         List<String> boundAccessors = new ArrayList<>();
         for (OperationGenerator.BoundOp b : boundOps) {
             boundAccessors.add(boundGen.boundAccessorMethod(b));
-            imports.add(boundGen.boundClassImportLine(b));
-            // Accessor signatures carry the op's parameter types — structured/enum
-            // classes and List for collections need their own imports on the request
+            String boundClassReference = boundGen.boundClassReference(b);
+            if (!boundClassReference.contains(".")) {
+                imports.add(boundGen.boundClassImportLine(b));
+            }
             boundGen.collectParameterImports(b.parameters(), b.owner(), imports);
         }
+        checkBoundRequestMethodCollisions(entityType, boundOps, schema, streamMethodNames);
 
         for (String imp : imports) {
             sb.append("import ").append(imp).append(";\n");
@@ -144,8 +164,10 @@ public class RequestGenerator extends AbstractTypeGenerator {
         // mutate the copy — the source request is untouched
         sb.append("    @SafeVarargs\n");
         sb.append("    public final ").append(className).append(" select(PropertyExpression<? super ").append(entityClassName).append(", ?>... properties) {\n");
+        sb.append("        java.util.Objects.requireNonNull(properties, \"select properties must not be null\");\n");
         sb.append("        ").append(className).append(" next = copy();\n");
-        sb.append("        for (var p : properties) {\n");
+        sb.append("        for (int i = 0; i < properties.length; i++) {\n");
+        sb.append("            var p = java.util.Objects.requireNonNull(properties[i], \"select properties[\" + i + \"] must not be null\");\n");
         sb.append("            String name = p.getEdmName();\n");
         sb.append("            if (name.contains(\"(\")) {\n");
         sb.append("                throw new IllegalArgumentException(\"'\" + name + \"' is not a selectable property \"\n");
@@ -159,10 +181,12 @@ public class RequestGenerator extends AbstractTypeGenerator {
         sb.append("    @SuppressWarnings(\"unchecked\")\n");
         sb.append("    @SafeVarargs\n");
         sb.append("    public final ").append(className).append(" select(java.util.function.Function<").append(entityClassName).append(".Selector, ? extends PropertyExpression<? super ").append(entityClassName).append(", ?>>... selectors) {\n");
+        sb.append("        java.util.Objects.requireNonNull(selectors, \"select selectors must not be null\");\n");
         sb.append("        ").append(entityClassName).append(".Selector s = new ").append(entityClassName).append(".Selector();\n");
         sb.append("        PropertyExpression<? super ").append(entityClassName).append(", ?>[] resolved = new PropertyExpression[selectors.length];\n");
         sb.append("        for (int i = 0; i < selectors.length; i++) {\n");
-        sb.append("            resolved[i] = selectors[i].apply(s);\n");
+        sb.append("            java.util.Objects.requireNonNull(selectors[i], \"select selectors[\" + i + \"] must not be null\");\n");
+        sb.append("            resolved[i] = java.util.Objects.requireNonNull(selectors[i].apply(s), \"select selectors[\" + i + \"] must not return null\");\n");
         sb.append("        }\n");
         sb.append("        return select(resolved);\n");
         sb.append("    }\n\n");
@@ -176,14 +200,20 @@ public class RequestGenerator extends AbstractTypeGenerator {
 
         sb.append("    @SafeVarargs\n");
         sb.append("    public final ").append(className).append(" expand(Expandable<? super ").append(entityClassName).append(">... expandables) {\n");
+        sb.append("        java.util.Objects.requireNonNull(expandables, \"expand expandables must not be null\");\n");
         sb.append("        ").append(className).append(" next = copy();\n");
-        sb.append("        for (var e : expandables) next.expands.add(e.toODataExpand());\n");
+        sb.append("        for (int i = 0; i < expandables.length; i++) {\n");
+        sb.append("            var e = java.util.Objects.requireNonNull(expandables[i], \"expand expandables[\" + i + \"] must not be null\");\n");
+        sb.append("            String rendered = e.toODataExpand();\n");
+        sb.append("            if (!next.expands.contains(rendered)) next.expands.add(rendered);\n");
+        sb.append("        }\n");
         sb.append("        return next;\n");
         sb.append("    }\n\n");
 
         sb.append("    public final ").append(className).append(" expand(java.util.function.Function<").append(entityClassName).append(".Selector, ? extends Expandable<? super ").append(entityClassName).append(">> query) {\n");
+        sb.append("        java.util.Objects.requireNonNull(query, \"expand query must not be null\");\n");
         sb.append("        ").append(entityClassName).append(".Selector s = new ").append(entityClassName).append(".Selector();\n");
-        sb.append("        return expand(query.apply(s));\n");
+        sb.append("        return expand(java.util.Objects.requireNonNull(query.apply(s), \"expand query must not return null\"));\n");
         sb.append("    }\n\n");
 
         sb.append("    public ContextPath buildContext() {\n");
@@ -292,8 +322,9 @@ public class RequestGenerator extends AbstractTypeGenerator {
         // Named stream properties (Edm.Stream) — stream lives at <property>/$value
         for (PropertyModel prop : resolvedStreamProps(entityType)) {
             if ("Edm.Stream".equals(prop.edmType())) {
-                String streamMethod = Names.toJavaMethodName(prop.name(), "stream");
-                String setMethod = Names.toJavaMethodName(prop.name(), "set");
+                StreamMethodNames names = streamMethodNames.get(prop);
+                String streamMethod = names.stream();
+                String setMethod = names.set();
                 sb.append("    public java.io.InputStream ").append(streamMethod).append("() {\n");
                 sb.append("        return EntityOperations.streamMedia(context, contextPath.addSegment(\"")
                   .append(Names.escapeJavaString(prop.name())).append("\"));\n");
@@ -345,6 +376,8 @@ public class RequestGenerator extends AbstractTypeGenerator {
     public String generateCollectionRequest(EntityTypeModel entityType, SchemaModel schema) {
         initEffectiveSchemas(schema);
         ensureSchemaCache(schema);
+        validateKeyProperties("collection request for '" + entityType.name() + "'", resolvedKeys(entityType, schema),
+                resolvedProperties(entityType), schema);
         String pkg = basePackage + Names.packageNameSuffixCollectionRequest();
         String className = Names.collectionRequestClassName(entityType.name());
         String entityClassName = Names.entityClassName(entityType.name());
@@ -390,21 +423,25 @@ public class RequestGenerator extends AbstractTypeGenerator {
 
         // Type-safe filter
         sb.append("    public ").append(className).append(" filter(FilterExpression<? super ").append(entityClassName).append("> predicate) {\n");
+        sb.append("        java.util.Objects.requireNonNull(predicate, \"filter predicate must not be null\");\n");
         sb.append("        ").append(className).append(" next = copy();\n");
         sb.append("        next.filters.add(predicate.toODataExpression());\n");
         sb.append("        return next;\n");
         sb.append("    }\n\n");
 
         sb.append("    public ").append(className).append(" filter(java.util.function.Function<").append(entityClassName).append(".Selector, ? extends FilterExpression<? super ").append(entityClassName).append(">> predicate) {\n");
+        sb.append("        java.util.Objects.requireNonNull(predicate, \"filter function must not be null\");\n");
         sb.append("        ").append(entityClassName).append(".Selector s = new ").append(entityClassName).append(".Selector();\n");
-        sb.append("        return filter(predicate.apply(s));\n");
+        sb.append("        return filter(java.util.Objects.requireNonNull(predicate.apply(s), \"filter function must not return null\"));\n");
         sb.append("    }\n\n");
 
         // Type-safe select
         sb.append("    @SafeVarargs\n");
         sb.append("    public final ").append(className).append(" select(PropertyExpression<? super ").append(entityClassName).append(", ?>... properties) {\n");
+        sb.append("        java.util.Objects.requireNonNull(properties, \"select properties must not be null\");\n");
         sb.append("        ").append(className).append(" next = copy();\n");
-        sb.append("        for (var p : properties) {\n");
+        sb.append("        for (int i = 0; i < properties.length; i++) {\n");
+        sb.append("            var p = java.util.Objects.requireNonNull(properties[i], \"select properties[\" + i + \"] must not be null\");\n");
         sb.append("            String name = p.getEdmName();\n");
         sb.append("            if (name.indexOf('(') >= 0) {\n");
         sb.append("                throw new IllegalArgumentException(\"'\" + name + \"' is not a selectable property \"\n");
@@ -418,10 +455,12 @@ public class RequestGenerator extends AbstractTypeGenerator {
         sb.append("    @SuppressWarnings(\"unchecked\")\n");
         sb.append("    @SafeVarargs\n");
         sb.append("    public final ").append(className).append(" select(java.util.function.Function<").append(entityClassName).append(".Selector, ? extends PropertyExpression<? super ").append(entityClassName).append(", ?>>... selectors) {\n");
+        sb.append("        java.util.Objects.requireNonNull(selectors, \"select selectors must not be null\");\n");
         sb.append("        ").append(entityClassName).append(".Selector s = new ").append(entityClassName).append(".Selector();\n");
         sb.append("        PropertyExpression<? super ").append(entityClassName).append(", ?>[] resolved = new PropertyExpression[selectors.length];\n");
         sb.append("        for (int i = 0; i < selectors.length; i++) {\n");
-        sb.append("            resolved[i] = selectors[i].apply(s);\n");
+        sb.append("            java.util.Objects.requireNonNull(selectors[i], \"select selectors[\" + i + \"] must not be null\");\n");
+        sb.append("            resolved[i] = java.util.Objects.requireNonNull(selectors[i].apply(s), \"select selectors[\" + i + \"] must not return null\");\n");
         sb.append("        }\n");
         sb.append("        return select(resolved);\n");
         sb.append("    }\n\n");
@@ -437,31 +476,43 @@ public class RequestGenerator extends AbstractTypeGenerator {
         // (bare navigations render the plain segment, queries render their options)
         sb.append("    @SafeVarargs\n");
         sb.append("    public final ").append(className).append(" expand(Expandable<? super ").append(entityClassName).append(">... expandables) {\n");
+        sb.append("        java.util.Objects.requireNonNull(expandables, \"expand expandables must not be null\");\n");
         sb.append("        ").append(className).append(" next = copy();\n");
-        sb.append("        for (var e : expandables) next.expands.add(e.toODataExpand());\n");
+        sb.append("        for (int i = 0; i < expandables.length; i++) {\n");
+        sb.append("            var e = java.util.Objects.requireNonNull(expandables[i], \"expand expandables[\" + i + \"] must not be null\");\n");
+        sb.append("            String rendered = e.toODataExpand();\n");
+        sb.append("            if (!next.expands.contains(rendered)) next.expands.add(rendered);\n");
+        sb.append("        }\n");
         sb.append("        return next;\n");
         sb.append("    }\n\n");
 
         sb.append("    public final ").append(className).append(" expand(java.util.function.Function<").append(entityClassName).append(".Selector, ? extends Expandable<? super ").append(entityClassName).append(">> query) {\n");
+        sb.append("        java.util.Objects.requireNonNull(query, \"expand query must not be null\");\n");
         sb.append("        ").append(entityClassName).append(".Selector s = new ").append(entityClassName).append(".Selector();\n");
-        sb.append("        return expand(query.apply(s));\n");
+        sb.append("        return expand(java.util.Objects.requireNonNull(query.apply(s), \"expand query must not return null\"));\n");
         sb.append("    }\n\n");
 
         // Type-safe orderBy
         sb.append("    @SafeVarargs\n");
         sb.append("    public final ").append(className).append(" orderBy(OrderExpression<? super ").append(entityClassName).append(", ?>... expressions) {\n");
+        sb.append("        java.util.Objects.requireNonNull(expressions, \"orderBy expressions must not be null\");\n");
         sb.append("        ").append(className).append(" next = copy();\n");
-        sb.append("        for (var e : expressions) next.orderings.add(e.getODataPath());\n");
+        sb.append("        for (int i = 0; i < expressions.length; i++) {\n");
+        sb.append("            var e = java.util.Objects.requireNonNull(expressions[i], \"orderBy expressions[\" + i + \"] must not be null\");\n");
+        sb.append("            next.orderings.add(e.getODataPath());\n");
+        sb.append("        }\n");
         sb.append("        return next;\n");
         sb.append("    }\n\n");
 
         sb.append("    @SuppressWarnings(\"unchecked\")\n");
         sb.append("    @SafeVarargs\n");
         sb.append("    public final ").append(className).append(" orderBy(java.util.function.Function<").append(entityClassName).append(".Selector, ? extends OrderExpression<? super ").append(entityClassName).append(", ?>>... expressions) {\n");
+        sb.append("        java.util.Objects.requireNonNull(expressions, \"orderBy expressions must not be null\");\n");
         sb.append("        ").append(entityClassName).append(".Selector s = new ").append(entityClassName).append(".Selector();\n");
         sb.append("        OrderExpression<? super ").append(entityClassName).append(", ?>[] resolved = new OrderExpression[expressions.length];\n");
         sb.append("        for (int i = 0; i < expressions.length; i++) {\n");
-        sb.append("            resolved[i] = expressions[i].apply(s);\n");
+        sb.append("            java.util.Objects.requireNonNull(expressions[i], \"orderBy expressions[\" + i + \"] must not be null\");\n");
+        sb.append("            resolved[i] = java.util.Objects.requireNonNull(expressions[i].apply(s), \"orderBy expressions[\" + i + \"] must not return null\");\n");
         sb.append("        }\n");
         sb.append("        return orderBy(resolved);\n");
         sb.append("    }\n\n");
@@ -500,6 +551,7 @@ public class RequestGenerator extends AbstractTypeGenerator {
         sb.append("    }\n\n");
 
         sb.append("    public ").append(className).append(" search(String term) {\n");
+        sb.append("        java.util.Objects.requireNonNull(term, \"search term must not be null\");\n");
         sb.append("        ").append(className).append(" next = copy();\n");
         sb.append("        next.searchTerm = term;\n");
         sb.append("        return next;\n");
@@ -507,12 +559,14 @@ public class RequestGenerator extends AbstractTypeGenerator {
 
         // $apply (aggregation / transformations, including $compute)
         sb.append("    public ").append(className).append(" apply(ApplyExpression expr) {\n");
+        sb.append("        java.util.Objects.requireNonNull(expr, \"apply expression must not be null\");\n");
         sb.append("        ").append(className).append(" next = copy();\n");
         sb.append("        next.applyExpr = expr.toODataApply();\n");
         sb.append("        return next;\n");
         sb.append("    }\n\n");
 
         sb.append("    public ").append(className).append(" apply(String raw) {\n");
+        sb.append("        java.util.Objects.requireNonNull(raw, \"apply raw must not be null\");\n");
         sb.append("        ").append(className).append(" next = copy();\n");
         sb.append("        next.applyExpr = ApplyExpression.of(raw).toODataApply();\n");
         sb.append("        return next;\n");
@@ -589,11 +643,15 @@ public class RequestGenerator extends AbstractTypeGenerator {
 
         // Direct $count endpoint helper (GET /EntitySet/$count)
         sb.append("    public long countValue() {\n");
+        sb.append("        if (applyExpr != null) {\n");
+        sb.append("            throw new IllegalArgumentException(\"countValue cannot be combined with $apply\");\n");
+        sb.append("        }\n");
         sb.append("        ").append(className).append(" tmp = copy();\n");
         sb.append("        tmp.countRequested = false;\n");
         sb.append("        tmp.topValue = null;\n");
         sb.append("        tmp.skipValue = null;\n");
-        // /$count supports only $filter/$search/$apply — $select/$expand/$orderby are invalid there
+        // OData 4.01 Part 2 §5.1.2: /$count allows only $filter and $search;
+        // $apply/$select/$expand/$orderby are invalid there (applyExpr is rejected above)
         sb.append("        tmp.selects.clear();\n");
         sb.append("        tmp.expands.clear();\n");
         sb.append("        tmp.orderings.clear();\n");
@@ -624,19 +682,63 @@ public class RequestGenerator extends AbstractTypeGenerator {
     }
 
     private void ensureSchemaCache(SchemaModel schema) {
-        if (entityTypeMap != null) return;
-        entityTypeMap = new HashMap<>();
-        Map<String, EntityTypeModel> crossSchemaMap = new HashMap<>();
-        for (SchemaModel s : effectiveSchemas) {
-            for (EntityTypeModel et : s.entityTypes()) {
-                String qn = s.namespace() + "." + et.name();
-                crossSchemaMap.put(qn, et);
-                if (s.namespace().equals(schema.namespace())) {
-                    entityTypeMap.put(Names.entityClassName(et.name()), et);
+        if (cachedEffectiveSchemas != effectiveSchemas) {
+            entityTypeByQualifiedName = null;
+            entitySimpleNameIndex = null;
+            entityOwners = null;
+            entityTypeMap = null;
+            cachedLocalSchema = null;
+            cachedEffectiveSchemas = effectiveSchemas;
+        }
+        if (entityTypeByQualifiedName == null) {
+            Map<String, EntityTypeModel> crossSchemaMap = new HashMap<>();
+            entitySimpleNameIndex = new HashMap<>();
+            entityOwners = new java.util.IdentityHashMap<>();
+            for (SchemaModel s : effectiveSchemas) {
+                for (EntityTypeModel et : s.entityTypes()) {
+                    String qn = s.namespace() + "." + et.name();
+                    crossSchemaMap.put(qn, et);
+                    entitySimpleNameIndex.computeIfAbsent(et.name(), ignored -> new ArrayList<>()).add(et);
+                    entityOwners.put(et, s);
                 }
             }
+            entityTypeByQualifiedName = crossSchemaMap;
         }
-        entityTypeByQualifiedName = crossSchemaMap;
+        if (cachedLocalSchema == schema) {
+            return;
+        }
+        entityTypeMap = new HashMap<>();
+        for (SchemaModel s : effectiveSchemas) {
+            if (!s.namespace().equals(schema.namespace())) {
+                continue;
+            }
+            for (EntityTypeModel et : s.entityTypes()) {
+                entityTypeMap.put(Names.entityClassName(et.name()), et);
+            }
+        }
+        cachedLocalSchema = schema;
+    }
+
+    public String requireKnownTypeForGeneration(String type, SchemaModel schema, String owner, String member) {
+        initEffectiveSchemas(schema);
+        return requireKnownType(type, schema, owner, member);
+    }
+
+    public String resolvedTypeForGeneration(String type, SchemaModel schema) {
+        initEffectiveSchemas(schema);
+        return resolveTypeDefinition(type, schema);
+    }
+
+    public String entityClassNameForType(String type, SchemaModel schema) {
+        return generatedEntityClassName(resolvedTypeForGeneration(type, schema), schema);
+    }
+
+    public String collectionRequestClassNameForType(String type, SchemaModel schema) {
+        return Names.collectionRequestClassName(entityClassNameForType(type, schema));
+    }
+
+    public String entityRequestClassNameForType(String type, SchemaModel schema) {
+        return Names.entityRequestClassName(entityClassNameForType(type, schema));
     }
 
     /** One typed key parameter: CSDL name, Java identifier, Java type, resolved Edm type. */
@@ -661,6 +763,8 @@ public class RequestGenerator extends AbstractTypeGenerator {
      */
     public java.util.List<KeyParamSpec> keyParamSpecs(EntityTypeModel entityType, SchemaModel schema) {
         initEffectiveSchemas(schema);
+        validateKeyProperties("entity '" + entityType.name() + "'", resolvedKeys(entityType, schema),
+                resolvedProperties(entityType), schema);
         java.util.List<KeyParamSpec> out = new java.util.ArrayList<>();
         for (KeyModel key : resolvedKeys(entityType, schema)) {
             for (String keyProp : key.propertyRefs()) {
@@ -680,7 +784,7 @@ public class RequestGenerator extends AbstractTypeGenerator {
         checkBaseCycle(visiting, entityType);
         for (PropertyModel prop : entityType.properties()) {
             if (prop.name().equals(keyPropName)) {
-                return keyJavaType(prop.edmType(), schema);
+                return keyJavaType(prop.edmType(), schemaForProperty(prop, schema));
             }
         }
         EntityTypeModel base = findBase(entityType);
@@ -697,6 +801,7 @@ public class RequestGenerator extends AbstractTypeGenerator {
         if (Names.isNumericType(resolved)) return Names.edmTypeToSimpleJavaType(resolved);
         if (Names.isBooleanType(resolved)) return "Boolean";
         if (Names.isPrimitiveType(resolved)) return Names.edmTypeToSimpleJavaType(resolved);
+        if (resolveTypeKind(resolved, schema) == Names.TypeKind.ENUM) return typeFqnOf(resolved, schema);
         return "Object";
     }
 
@@ -709,7 +814,7 @@ public class RequestGenerator extends AbstractTypeGenerator {
         checkBaseCycle(visiting, entityType);
         for (PropertyModel prop : entityType.properties()) {
             if (prop.name().equals(keyPropName)) {
-                return resolveTypeDefinition(prop.edmType(), schema);
+                return resolveTypeDefinition(prop.edmType(), schemaForProperty(prop, schema));
             }
         }
         EntityTypeModel base = findBase(entityType);
@@ -733,6 +838,17 @@ public class RequestGenerator extends AbstractTypeGenerator {
             return java.util.List.of();
         }
         return resolvedKeys(base, schema, visiting);
+    }
+
+    private List<PropertyModel> resolvedProperties(EntityTypeModel entityType) {
+        return resolvedProperties(entityType, newVisiting());
+    }
+
+    private List<PropertyModel> resolvedProperties(EntityTypeModel entityType, Set<EntityTypeModel> visiting) {
+        checkBaseCycle(visiting, entityType);
+        EntityTypeModel base = findBase(entityType);
+        List<PropertyModel> inherited = base == null ? List.of() : resolvedProperties(base, visiting);
+        return mergeOwnWinsProps(inherited, entityType.properties());
     }
 
     /** All navigation properties up the base chain (base-first), for request generation. */
@@ -786,8 +902,9 @@ public class RequestGenerator extends AbstractTypeGenerator {
 
     private OperationGenerator boundGeneratorFor(SchemaModel schema) {
         if (allSchemas == null || allSchemas.isEmpty()) {
-            return new OperationGenerator(basePackage, schemaPackages,
-                    defaultBasePackage, List.of(schema));
+            return singleSchemaBoundGenerators.computeIfAbsent(schema,
+                    key -> new OperationGenerator(basePackage, schemaPackages,
+                            defaultBasePackage, List.of(key)));
         }
         if (sharedBoundGen == null) {
             sharedBoundGen = new OperationGenerator(basePackage, schemaPackages,
@@ -799,40 +916,26 @@ public class RequestGenerator extends AbstractTypeGenerator {
     private EntityTypeModel findBase(EntityTypeModel entityType) {
         String bt = entityType.baseType();
         if (bt == null || bt.isBlank()) return null;
-        // Prefer qualified-name lookup (cross-schema)
         EntityTypeModel base = entityTypeByQualifiedName.get(bt);
         if (base != null) return base;
-        // Fallback: same-schema by simple name
-        EntityTypeModel sameSchema = entityTypeMap.get(Names.entityClassName(Names.simpleNameFromFullName(bt)));
-        if (sameSchema != null) return sameSchema;
-        // Cross-schema unqualified fallback (parity with EntityGenerator/ComplexTypeGenerator)
-        return findBaseGlobal(bt);
-    }
-
-    private EntityTypeModel findBaseGlobal(String bt) {
-        if (bt == null || bt.isBlank()) return null;
-        EntityTypeModel base = entityTypeByQualifiedName.get(bt);
-        if (base != null) return base;
-        String simple = Names.simpleNameFromFullName(bt);
-        String className = Names.entityClassName(simple);
-        // Ambiguous matches must fail loudly (same policy as container Extends and the
-        // type-kind map): first-wins would make generation order-dependent.
-        EntityTypeModel found = null;
-        int matches = 0;
-        for (SchemaModel s : effectiveSchemas) {
-            for (EntityTypeModel et : s.entityTypes()) {
-                if (Names.entityClassName(et.name()).equals(className)) {
-                    found = et;
-                    matches++;
+        if (!bt.contains(".")) {
+            SchemaModel owner = entityOwners.get(entityType);
+            if (owner != null) {
+                for (EntityTypeModel candidate : owner.entityTypes()) {
+                    if (candidate.name().equals(bt)) {
+                        return candidate;
+                    }
                 }
             }
+            List<EntityTypeModel> matches = entitySimpleNameIndex.getOrDefault(bt, List.of());
+            if (matches.size() == 1) return matches.get(0);
+            if (matches.size() > 1) {
+                throw new IllegalStateException("Cannot generate entity request for '" + entityType.name()
+                        + "': ambiguous unqualified BaseType '" + bt + "'");
+            }
         }
-        if (matches > 1) {
-            throw new IllegalArgumentException(
-                    "Ambiguous unqualified BaseType '" + bt + "': matches " + matches
-                            + " entity types with that simple name across schemas; use a qualified name (Namespace.Type)");
-        }
-        return found;
+        throw new IllegalStateException("Cannot generate entity request for '" + entityType.name()
+                + "': unknown BaseType '" + bt + "'");
     }
 
     /**
@@ -861,15 +964,16 @@ public class RequestGenerator extends AbstractTypeGenerator {
         boolean isCollection = Names.isCollectionType(nav.type());
         // Resolve TypeDefinition chains so the emitted request class matches the
         // underlying entity's generated class (a typedef has no request class of its own)
-        String unwrapped = resolveTypeDefinition(Names.unwrapCollectionType(nav.type()), schema);
-        String elementClassName = Names.simpleNameFromFullName(unwrapped);
+        SchemaModel owner = schemaForNavigation(nav, schema);
+        String unwrapped = resolveTypeDefinition(Names.unwrapCollectionType(nav.type()), owner);
+        String elementClassName = generatedEntityClassName(unwrapped, owner);
         String methodName = Names.toJavaFieldName(nav.name());
 
-        String collRef = typeRefs.getOrDefault(basePackageForType(unwrapped, schema)
+        String collRef = typeRefs.getOrDefault(basePackageForType(unwrapped, owner)
                 + Names.packageNameSuffixCollectionRequest() + "."
                 + Names.collectionRequestClassName(elementClassName),
                 Names.collectionRequestClassName(elementClassName));
-        String entRef = typeRefs.getOrDefault(basePackageForType(unwrapped, schema)
+        String entRef = typeRefs.getOrDefault(basePackageForType(unwrapped, owner)
                 + Names.packageNameSuffixEntityRequest() + "."
                 + Names.entityRequestClassName(elementClassName),
                 Names.entityRequestClassName(elementClassName));
@@ -888,9 +992,9 @@ public class RequestGenerator extends AbstractTypeGenerator {
             // The collection method above is fully closed already, so the
             // collection branch ALWAYS returns here — falling through to the
             // shared close would emit a stray '}' (keyless targets)
-            EntityTypeModel navTarget = resolveEntityType(unwrapped, schema);
+            EntityTypeModel navTarget = resolveEntityType(unwrapped, owner);
             if (navTarget != null) {
-                java.util.List<KeyParamSpec> keySpecs = keyParamSpecs(navTarget, schema);
+                java.util.List<KeyParamSpec> keySpecs = keyParamSpecs(navTarget, owner);
                 if (!keySpecs.isEmpty()) {
                     appendKeyedNavOverload(sb, nav.name(), methodName, entRef, keySpecs);
                 }
@@ -922,14 +1026,140 @@ public class RequestGenerator extends AbstractTypeGenerator {
         sb.append("    }\n\n");
     }
 
+    private record StreamMethodNames(String stream, String set) {}
+
+    private Map<PropertyModel, StreamMethodNames> streamMethodNames(EntityTypeModel entityType) {
+        Map<PropertyModel, StreamMethodNames> result = new java.util.LinkedHashMap<>();
+        Set<String> used = new java.util.HashSet<>(List.of("select", "expand", "buildContext", "copy",
+                "get", "patch", "patchWithETag", "put", "putWithETag", "putToBatchOperation", "delete",
+                "deleteWithETag", "toBatchOperation", "patchToBatchOperation", "deleteToBatchOperation"));
+        if (resolvedHasStream(entityType)) {
+            used.add("streamMedia");
+            used.add("setMedia");
+        }
+        for (NavigationPropertyModel nav : resolvedNavs(entityType)) {
+            if (isComplexTypeNav(nav, findSchemaForEntity(entityType))) {
+                continue;
+            }
+            used.add(Names.toJavaFieldName(nav.name()));
+            if (Names.isCollectionType(nav.type()) && !nav.containsTarget()) {
+                used.add("add" + Names.capitalize(Names.toJavaFieldName(nav.name())) + "Ref");
+                used.add("remove" + Names.capitalize(Names.toJavaFieldName(nav.name())) + "Ref");
+            }
+        }
+        for (PropertyModel property : resolvedStreamProps(entityType)) {
+            String stream = uniqueMethodName(Names.toJavaMethodName(property.name(), "stream"), used);
+            String set = uniqueMethodName(Names.toJavaMethodName(property.name(), "set"), used);
+            result.put(property, new StreamMethodNames(stream, set));
+        }
+        return result;
+    }
+
+    private String uniqueMethodName(String base, Set<String> used) {
+        String candidate = base;
+        int suffix = 1;
+        while (used.contains(candidate) || Names.isObjectMethodName(candidate)) {
+            candidate = base + "_" + suffix++;
+        }
+        used.add(candidate);
+        return candidate;
+    }
+
+    private SchemaModel findSchemaForEntity(EntityTypeModel entityType) {
+        SchemaModel owner = entityOwners == null ? null : entityOwners.get(entityType);
+        return owner != null ? owner : (effectiveSchemas.isEmpty() ? null : effectiveSchemas.get(0));
+    }
+
+    private void checkBoundRequestMethodCollisions(EntityTypeModel entityType,
+                                                    List<OperationGenerator.BoundOp> boundOps,
+                                                    SchemaModel schema,
+                                                    Map<PropertyModel, StreamMethodNames> streamNames) {
+        Map<String, String> methods = new HashMap<>();
+        for (String method : List.of("select", "expand", "buildContext", "copy", "get", "patch",
+                "patchWithETag", "put", "putWithETag", "putToBatchOperation", "delete",
+                "deleteWithETag", "toBatchOperation", "patchToBatchOperation", "deleteToBatchOperation")) {
+            methods.put(method, "generated method");
+        }
+        if (resolvedHasStream(entityType)) {
+            methods.putIfAbsent("streamMedia", "generated media method");
+            methods.putIfAbsent("setMedia", "generated media method");
+        }
+        for (NavigationPropertyModel nav : resolvedNavs(entityType)) {
+            if (isComplexTypeNav(nav, schema)) continue;
+            reserveRequestMethod(methods, Names.toJavaFieldName(nav.name()), nav.name());
+            if (Names.isCollectionType(nav.type()) && !nav.containsTarget()) {
+                reserveRequestMethod(methods, "add" + Names.capitalize(Names.toJavaFieldName(nav.name())) + "Ref",
+                        nav.name());
+                reserveRequestMethod(methods, "remove" + Names.capitalize(Names.toJavaFieldName(nav.name())) + "Ref",
+                        nav.name());
+            }
+        }
+        for (PropertyModel property : resolvedStreamProps(entityType)) {
+            StreamMethodNames names = streamNames.get(property);
+            if (names != null) {
+                reserveRequestMethod(methods, names.stream(), property.name());
+                reserveRequestMethod(methods, names.set(), property.name());
+            }
+        }
+        for (OperationGenerator.BoundOp bound : boundOps) {
+            reserveRequestMethod(methods, bound.accessorName(), bound.opName());
+        }
+    }
+
+    private void checkEntityRequestMethodCollisions(EntityTypeModel entityType,
+                                                      List<NavigationPropertyModel> navs,
+                                                      SchemaModel schema,
+                                                      Map<PropertyModel, StreamMethodNames> streamNames) {
+        Map<String, String> methods = new HashMap<>();
+        for (String method : List.of("select", "expand", "buildContext", "copy", "get", "patch",
+                "patchWithETag", "put", "putWithETag", "putToBatchOperation", "delete",
+                "deleteWithETag", "toBatchOperation", "patchToBatchOperation", "deleteToBatchOperation")) {
+            methods.put(method, "generated method");
+        }
+        if (resolvedHasStream(entityType)) {
+            methods.putIfAbsent("streamMedia", "generated media method");
+            methods.putIfAbsent("setMedia", "generated media method");
+        }
+        for (NavigationPropertyModel nav : navs) {
+            if (isComplexTypeNav(nav, schema)) continue;
+            reserveRequestMethod(methods, Names.toJavaFieldName(nav.name()), nav.name());
+            if (Names.isCollectionType(nav.type()) && !nav.containsTarget()) {
+                reserveRequestMethod(methods, "add" + Names.capitalize(Names.toJavaFieldName(nav.name())) + "Ref",
+                        nav.name());
+                reserveRequestMethod(methods, "remove" + Names.capitalize(Names.toJavaFieldName(nav.name())) + "Ref",
+                        nav.name());
+            }
+        }
+        for (PropertyModel property : resolvedStreamProps(entityType)) {
+            StreamMethodNames names = streamNames.get(property);
+            if (names != null) {
+                reserveRequestMethod(methods, names.stream(), property.name());
+                reserveRequestMethod(methods, names.set(), property.name());
+            }
+        }
+    }
+
+    private void reserveRequestMethod(Map<String, String> methods, String method, String source) {
+        if (Names.isObjectMethodName(method) && !"generated method".equals(source)) {
+            throw new IllegalStateException("Cannot generate entity request: " + source
+                    + " maps to Object method '" + method + "()'");
+        }
+        String previous = methods.putIfAbsent(method, source);
+        if (previous != null && !previous.equals(source)) {
+            throw new IllegalStateException("Cannot generate entity request for '" + source
+                    + "': method '" + method + "' collides with another generated or navigation method");
+        }
+    }
+
     private boolean isComplexTypeNav(NavigationPropertyModel nav, SchemaModel schema) {
         // Unwrap Collection(...) first: the raw collection form ("Collection(NS.Type)")
         // never matches the type-kind map, so collection navs to complex types would
         // fall through and emit references to CollectionRequest classes that are only
         // generated for entity types — uncompilable output.
         // Also unwrap TypeDefinition chain: MyAddr -> NS.Shared.Address (complex) must be skipped
+        SchemaModel owner = schemaForNavigation(nav, schema);
         String unwrapped = Names.unwrapCollectionType(nav.type());
-        String resolved = resolveTypeDefinition(unwrapped, schema);
-        return Names.resolveTypeKind(resolved, effectiveSchemas) == Names.TypeKind.COMPLEX;
+        String resolved = resolveTypeDefinition(unwrapped, owner);
+        return resolveTypeKind(resolved, owner) == Names.TypeKind.COMPLEX;
     }
 }
