@@ -52,8 +52,9 @@ public class ODataError {
             Map<String, Object> details = new HashMap<>();
             if (error.has("innererror")) {
                 JsonNode inner = error.get("innererror");
+                details.put("innererror", jsonValue(inner));
                 inner.fields().forEachRemaining(entry ->
-                        details.put(entry.getKey(), entry.getValue().asText()));
+                        details.put(entry.getKey(), jsonValue(entry.getValue())));
             }
             // The canonical v4 error payload carries structured diagnostics in
             // error.details[] ({code, message, target}) — map them instead of dropping
@@ -77,6 +78,32 @@ public class ODataError {
             LOG.log(System.Logger.Level.DEBUG, "Could not parse OData error body; getError() stays null", e);
             return null;
         }
+    }
+
+    private static Object jsonValue(JsonNode node) {
+        if (node == null || node.isNull()) {
+            return null;
+        }
+        if (node.isObject()) {
+            Map<String, Object> result = new java.util.LinkedHashMap<>();
+            node.fields().forEachRemaining(entry -> result.put(entry.getKey(), jsonValue(entry.getValue())));
+            return result;
+        }
+        if (node.isArray()) {
+            java.util.List<Object> result = new java.util.ArrayList<>(node.size());
+            node.forEach(value -> result.add(jsonValue(value)));
+            return result;
+        }
+        if (node.isTextual()) {
+            return node.textValue();
+        }
+        if (node.isBoolean()) {
+            return node.booleanValue();
+        }
+        if (node.isNumber()) {
+            return node.numberValue();
+        }
+        return node.asText();
     }
 
     @Override

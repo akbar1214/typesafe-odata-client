@@ -21,6 +21,10 @@ public final class DynamicPropertyConverter {
     private DynamicPropertyConverter() {}
 
     public static <T> T convert(Object value, Class<T> type) {
+        java.util.Objects.requireNonNull(type, "target type must not be null");
+        if (value == null) {
+            return null;
+        }
         try {
             return MAPPER.convertValue(value, type);
         } catch (Exception e) {
