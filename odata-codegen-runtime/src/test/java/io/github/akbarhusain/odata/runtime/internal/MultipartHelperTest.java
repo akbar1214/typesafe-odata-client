@@ -3,6 +3,7 @@ package io.github.akbarhusain.odata.runtime.internal;
 import io.github.akbarhusain.odata.runtime.batch.BatchOperation;
 import io.github.akbarhusain.odata.runtime.batch.BatchResult;
 import io.github.akbarhusain.odata.runtime.batch.Changeset;
+import io.github.akbarhusain.odata.runtime.exception.ODataException;
 import org.junit.jupiter.api.Test;
 
 import java.nio.charset.StandardCharsets;
@@ -95,6 +96,69 @@ class MultipartHelperTest {
         assertEquals(201, results.get(0).statusCode(), "First changeset result should be 201");
         assertEquals(200, results.get(1).statusCode(), "Second changeset result should be 200");
         assertEquals(200, results.get(2).statusCode(), "Standalone result should be 200");
+    }
+
+    @Test
+    void nestedChangesetWrapperContentIdConflictingWithInnerPartIsRejected() {
+        String response = """
+            --batch_boundary
+            Content-Type: multipart/mixed; boundary=cs_boundary
+            Content-ID: 1
+
+            --cs_boundary
+            Content-Type: application/http
+            Content-Transfer-Encoding: binary
+            Content-ID: 2
+
+            HTTP/1.1 200 OK
+
+            {"x":1}
+            --cs_boundary--
+
+            --batch_boundary--
+            """;
+        assertThrows(ODataException.class, () -> MultipartHelper.decodeResponse("batch_boundary",
+                response.getBytes(StandardCharsets.UTF_8)));
+    }
+
+    @Test
+    void nestedChangesetWrapperContentIdMatchingInnerPartIsAccepted() {
+        String response = """
+            --batch_boundary
+            Content-Type: multipart/mixed; boundary=cs_boundary
+            Content-ID: 1
+
+            --cs_boundary
+            Content-Type: application/http
+            Content-Transfer-Encoding: binary
+            Content-ID: 1
+
+            HTTP/1.1 200 OK
+
+            {"x":1}
+            --cs_boundary--
+
+            --batch_boundary--
+            """;
+        List<BatchResult<?>> results = MultipartHelper.decodeResponse("batch_boundary",
+                response.getBytes(StandardCharsets.UTF_8));
+        assertEquals(1, results.size());
+        assertEquals("1", results.get(0).contentId());
+    }
+
+    @Test
+    void outOfRangeStatusIsMalformedResponseNotRawIllegalArgument() {
+        String response = """
+            --batch_boundary
+            Content-Type: application/http
+            Content-Transfer-Encoding: binary
+
+            HTTP/1.1 999 Weird
+
+            --batch_boundary--
+            """;
+        assertThrows(ODataException.class, () -> MultipartHelper.decodeResponse("batch_boundary",
+                response.getBytes(StandardCharsets.UTF_8)));
     }
 
     @Test
@@ -309,15 +373,15 @@ class MultipartHelperTest {
     }
 
     @Test
-    void decodeResponseEmpty() {
-        List<BatchResult<?>> results = MultipartHelper.decodeResponse("batch_boundary", new byte[0]);
-        assertTrue(results.isEmpty());
+    void decodeResponseEmptyFailsLoudly() {
+        assertThrows(ODataException.class,
+                () -> MultipartHelper.decodeResponse("batch_boundary", new byte[0]));
     }
 
     @Test
-    void decodeResponseNullBody() {
-        List<BatchResult<?>> results = MultipartHelper.decodeResponse("batch_boundary", null);
-        assertTrue(results.isEmpty());
+    void decodeResponseNullBodyFailsLoudly() {
+        assertThrows(ODataException.class,
+                () -> MultipartHelper.decodeResponse("batch_boundary", null));
     }
 
     @Test

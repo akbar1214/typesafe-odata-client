@@ -1,6 +1,7 @@
 package io.github.akbarhusain.odata.runtime.batch;
 
 import io.github.akbarhusain.odata.runtime.entity.Context;
+import io.github.akbarhusain.odata.runtime.exception.ODataException;
 import io.github.akbarhusain.odata.runtime.http.HttpRequest;
 import io.github.akbarhusain.odata.runtime.http.HttpResponse;
 import io.github.akbarhusain.odata.runtime.http.HttpTransport;
@@ -11,7 +12,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * M6: the response Content-Type boundary parameter may be quoted and
@@ -65,5 +66,13 @@ class BatchRequestBoundaryTest {
         BatchResponse batch = executeWithResponse(
                 "multipart/mixed; BOUNDARY=upper_b", "upper_b");
         assertEquals(1, batch.size(), "BOUNDARY= (upper case) must be recognized");
+    }
+
+    @Test
+    void malformedQuotedBoundaryIsWrappedAsODataException() {
+        ODataException error = assertThrows(ODataException.class,
+                () -> executeWithResponse("multipart/mixed; boundary=\"unterminated", "quoted_b"));
+        assertEquals(200, error.getStatusCode());
+        assertTrue(error.getMessage().contains("multipart"));
     }
 }

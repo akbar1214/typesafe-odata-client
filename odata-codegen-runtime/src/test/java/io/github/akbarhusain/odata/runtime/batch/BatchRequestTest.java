@@ -131,7 +131,7 @@ class BatchRequestTest {
                 .build();
 
         BatchRequest batch = ctx.batch();
-        Changeset cs = new Changeset(List.of(BatchOperation.get("People")));
+        Changeset cs = new Changeset(List.of(BatchOperation.post("People", new byte[0])));
         BatchRequest returned = batch.addChangeset(cs);
         assertSame(batch, returned);
     }

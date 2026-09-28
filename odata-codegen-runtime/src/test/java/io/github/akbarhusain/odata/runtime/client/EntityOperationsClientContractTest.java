@@ -217,6 +217,20 @@ class EntityOperationsClientContractTest {
     }
 
     @Test
+    void batchAsyncTransportExceptionIsReturnedThroughTheFuture() {
+        RecordingTransport transport = new RecordingTransport();
+        transport.throwOnSubmit = true;
+        Context context = context("https://example.com/service", transport);
+
+        CompletableFuture<?> future = assertDoesNotThrow(() -> context.batch()
+                .add(BatchOperation.get("People"))
+                .executeAsync());
+
+        CompletionException error = assertThrows(CompletionException.class, future::join);
+        assertInstanceOf(IllegalStateException.class, error.getCause());
+    }
+
+    @Test
     void cachedChainNeverUsesAPreviouslySuppliedTransport() {
         RecordingTransport first = new RecordingTransport(new HttpResponse(200, Map.of(), null));
         RecordingTransport second = new RecordingTransport(new HttpResponse(200, Map.of(), null));

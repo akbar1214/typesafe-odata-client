@@ -124,17 +124,12 @@ public class LowIssuesTest {
 
     // L8: BatchResponse getByContentId NPE when contentId==null
     @Test
-    void l8_getByContentIdNullShouldNotNPE() {
+    void l8_getByContentIdNullIsRejected() {
         BatchResult<String> r1 = new BatchResult<>(200, Map.of(), "body".getBytes(), String.class, "1");
-        BatchResult<String> r2 = new BatchResult<>(200, Map.of(), "body2".getBytes(), String.class, null);
-        BatchResponse resp = new BatchResponse(List.of(r1, r2));
-        assertDoesNotThrow(() -> resp.getByContentId(null),
-                "L8: getByContentId(null) should not NPE");
-        // null should match the result with null contentId (r2), not throw
-        assertNotNull(resp.getByContentId(null), "should return result with null contentId");
-        assertEquals("1", resp.getByContentId("1").contentId(), "should find by 1");
-        assertNull(resp.getByContentId("nonexistent"), "should return null for nonexistent");
-        assertDoesNotThrow(() -> resp.getByContentId("1"), "non-null should not NPE");
+        BatchResponse resp = new BatchResponse(List.of(r1));
+        assertThrows(IllegalArgumentException.class, () -> resp.getByContentId(null));
+        assertEquals("1", resp.getByContentId("1").contentId());
+        assertNull(resp.getByContentId("nonexistent"));
     }
 
     // L9: DynamicPropertyConverter must reuse JacksonSerializer's shared mapper instead
