@@ -78,6 +78,13 @@ public abstract class AbstractTypeGenerator {
      * consistent across all types within the same schema.
      */
     protected void initEffectiveSchemas(SchemaModel schema) {
+        // Every entry point that renders a file calls this with the schema being generated,
+        // so it is the one place `generatingNamespace` can be recorded reliably. It must be
+        // refreshed on every call, not only on first initialisation: one generator instance
+        // renders many schemas.
+        if (schema != null) {
+            generatingNamespace = schema.namespace();
+        }
         if (!effectiveSchemasInitialized) {
             effectiveSchemasInitialized = true;
             effectiveSchemas = allSchemas.isEmpty() ? List.of(schema) : allSchemas;
@@ -730,10 +737,25 @@ public abstract class AbstractTypeGenerator {
         }
     }
 
+    /**
+     * The namespace of the schema whose files this generator is currently writing.
+     * {@code basePackage} is that schema's package, so a type belonging to this namespace
+     * always resolves to {@code basePackage} — the two must be compared together.
+     */
+    protected String generatingNamespace;
+
     // Look up the base package for a cross-namespace type reference
     protected String basePackageForType(String edmType, SchemaModel schema) {
         String namespace = Names.namespaceFromFullName(edmType);
-        if (namespace.isEmpty() || namespace.equals(schema.namespace())) {
+        if (namespace.isEmpty()) {
+            return basePackage;
+        }
+        // The comparison must be against the schema BEING GENERATED, not `schema` (which
+        // callers pass as the DECLARING schema, so it always matched and the lookup below
+        // was skipped). A type declared in the schema being generated belongs to
+        // `basePackage`; anything else resolves through the package map, exactly as
+        // Generator.generateSchema placed it on disk.
+        if (namespace.equals(generatingNamespace)) {
             return basePackage;
         }
         return schemaPackages.getOrDefault(namespace,

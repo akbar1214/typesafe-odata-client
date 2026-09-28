@@ -102,6 +102,7 @@ public class ContainerGenerator {
     }
 
     public String generate(ContainerModel container, SchemaModel schema) {
+        generatingNamespace = schema.namespace();
         String pkg = basePackage + Names.packageNameSuffixContainer();
         String className = Names.containerClassName(container.name());
         String reservedClassFqn = pkg + "." + className;
@@ -314,10 +315,24 @@ public class ContainerGenerator {
         }
     }
 
-    // P0-3: Look up the base package for a cross-namespace type reference
+    /**
+     * The namespace of the container's own schema — the schema whose files this generator
+     * writes. Mirrors {@code AbstractTypeGenerator.generatingNamespace}, which
+     * {@code ContainerGenerator} does not extend; set in {@link #generate}.
+     */
+    private String generatingNamespace;
+
+    // P0-3: Look up the base package for a cross-namespace type reference.
+    // Same rule as AbstractTypeGenerator.basePackageForType: a type in the schema being
+    // generated belongs to `basePackage`; any other namespace resolves through the package
+    // map, so split-merge metadata does not resolve cross-package references to the
+    // generating package.
     private String basePackageForType(String edmType, SchemaModel schema) {
         String namespace = Names.namespaceFromFullName(edmType);
-        if (namespace.isEmpty() || namespace.equals(schema.namespace())) {
+        if (namespace.isEmpty()) {
+            return basePackage;
+        }
+        if (namespace.equals(generatingNamespace)) {
             return basePackage;
         }
         return schemaPackages.getOrDefault(namespace,
