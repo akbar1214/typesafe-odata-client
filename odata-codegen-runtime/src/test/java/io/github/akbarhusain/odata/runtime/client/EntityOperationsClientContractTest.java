@@ -131,6 +131,21 @@ class EntityOperationsClientContractTest {
     }
 
     @Test
+    void httpBaseToHttpsUpgradeNextLinkKeepsAuthentication() {
+        RecordingTransport transport = new RecordingTransport(response("{\"value\":[]}"));
+        Context context = context("http://example.com/service", transport,
+                () -> Map.of("Authorization", "Bearer secret"));
+
+        EntityOperations.executeAndGetCollection(context,
+                context.basePath().fromNextLink("https://example.com/service/People?$skip=1"),
+                Object.class);
+
+        assertEquals(List.of("Bearer secret"),
+                transport.lastRequest.headers().get("authorization"));
+        assertTrue(transport.lastRequest.url().startsWith("https://example.com/service/"));
+    }
+
+    @Test
     void customTransportReceivesProtocolDefaultsAndProtocolHeadersReplaceCaseInsensitively() {
         RecordingTransport transport = new RecordingTransport(
                 new HttpResponse(204, Map.of(), null));
@@ -464,6 +479,22 @@ class EntityOperationsClientContractTest {
         assertEquals(Boolean.TRUE, ((Cat) result).getLivesIndoors());
         assertInstanceOf(Cat.class, result.getFriends().get(0));
         assertEquals(Boolean.FALSE, ((Cat) result.getFriends().get(0)).getLivesIndoors());
+    }
+
+    @Test
+    void nestedExpandedEntitiesResolveEvenWhenCollectionElementsCarryNoTopLevelODataType() {
+        RecordingTransport transport = new RecordingTransport(response(
+                "{\"value\":[{\"Name\":\"Root\",\"Friends\":["
+                        + "{\"@odata.type\":\"https://example.test/$metadata#Test.Cat\","
+                        + "\"Name\":\"Nested\",\"LivesIndoors\":false}]}]}"));
+        Context context = context("https://example.com/service", transport);
+
+        CollectionPage<Animal> page = EntityOperations.executeAndGetCollection(context,
+                context.basePath().addSegment("Animals"), Animal.class, new AnimalSchemaInfo());
+
+        Animal element = page.currentPage().get(0);
+        assertInstanceOf(Cat.class, element.getFriends().get(0));
+        assertEquals(Boolean.FALSE, ((Cat) element.getFriends().get(0)).getLivesIndoors());
     }
 
     public static class Address {

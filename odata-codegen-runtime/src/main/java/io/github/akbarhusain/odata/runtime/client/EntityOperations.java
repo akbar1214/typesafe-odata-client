@@ -1139,7 +1139,7 @@ public class EntityOperations {
         } catch (IllegalArgumentException e) {
             throw new IllegalArgumentException("Request URL is not a valid absolute URI", e);
         }
-        if (!sameOrigin(base, target)) {
+        if (!isPermittedAuthTarget(base, target)) {
             throw new IllegalArgumentException(
                     "Refusing to forward configured authentication to a cross-origin or HTTPS-downgrade URL");
         }
@@ -1154,6 +1154,26 @@ public class EntityOperations {
                 || lower.contains("api-key")
                 || lower.contains("apikey")
                 || lower.contains("auth");
+    }
+
+    /**
+     * Authentication configured for {@code base} may be forwarded when the target is same-origin,
+     * or when the scheme is upgraded from {@code http} to {@code https} on the same host — an
+     * upgrade is strictly safer than the configured plaintext origin. Cross-origin targets and
+     * HTTPS-to-HTTP downgrades are always rejected.
+     */
+    private static boolean isPermittedAuthTarget(URI base, URI target) {
+        if (sameOrigin(base, target)) {
+            return true;
+        }
+        return sameHost(base, target)
+                && "http".equalsIgnoreCase(base.getScheme())
+                && "https".equalsIgnoreCase(target.getScheme());
+    }
+
+    private static boolean sameHost(URI left, URI right) {
+        return left.getHost() != null && right.getHost() != null
+                && left.getHost().equalsIgnoreCase(right.getHost());
     }
 
     private static boolean sameOrigin(URI left, URI right) {
