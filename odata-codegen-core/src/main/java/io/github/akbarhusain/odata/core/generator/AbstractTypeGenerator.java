@@ -232,7 +232,7 @@ public abstract class AbstractTypeGenerator {
         }
         try {
             SchemaModel owner = definitionOwners.get(definition);
-            String resolved = resolveTypeDefinition(definition.underlyingType(), owner);
+            String resolved = resolveTypeReference(definition.underlyingType(), owner, visiting);
             resolvedTypeDefinitions.put(qualified, resolved);
             return resolved;
         } finally {
