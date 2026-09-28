@@ -1,9 +1,64 @@
-# Code Critique Findings — mimo-v2.6
+# Code Critique Findings — mimo-v2.6 (RESOLVED — retained for provenance)
+
+> **Status: every Critical and High item below was re-verified against `main` on
+> 2026-09-28 and found already fixed.** This file was previously committed as if it were
+> an open findings list, which is worse than no document at all: it invites the next
+> reviewer (or agent) to "fix" code that is already correct, and the pinned tests it
+> describes can be mistaken for contracts still needing work. The verified outcomes are
+> recorded below so the file cannot mislead a future reader again. See `AGENTS.md`
+> decisions 99–104 and the review MRs for what this round actually changed.
 
 Reviewed: runtime (65 files), codegen-core (~7k LOC), maven plugin, tests, and all docs.
-Totals: **~9 Critical · ~8 High · ~36 Medium · ~50+ Low**.
+Totals claimed at the time: **~9 Critical · ~8 High · ~36 Medium · ~50+ Low**.
 
 ---
+
+## Verification outcome (2026-09-28)
+
+| Claim | State on `main` at verification time |
+|---|---|
+| C1 collection/complex-bound ops abort the build | **Fixed** — `OperationGenerator.ensureBoundIndex` collects invalid bindings and logs "Skipping bound operation …" instead of throwing |
+| C2 marker manifest clobbers other executions | **Fixed** — `GenerateMojo` folds `canonicalConfiguration()` into the marker identity, so executions no longer share it |
+| C3 docs ship wrong Maven coordinates | **Never true on `main`** — docs use `io.github.akbarhusain`, matching the POM `groupId` |
+| H1 transport swallows `InterruptedException` | **Fixed** — both `submit` and `stream` catch it first, restore the flag, keep the cause typed |
+| H2 Guid/date keys allow path injection | **Fixed** — `ODataLiteral.format` validates every non-string Edm type; only `Edm.String` reaches percent-encoding |
+| H3 `NavQuery.as()` drops `$top`/`$select` | **Fixed** — both `as()` overloads carry all eight components |
+| Enum `valueOf` before `BY_NAME` | **Fixed** — `EnumGenerator` consults `BY_NAME` first, then falls back to `valueOf` |
+| `addKey` on a nameless segment drops the key | **Fixed** — `ContextPath.addKey` rejects a blank name and a null value |
+| `HttpResponse.body` not cloned | **Fixed** — cloned in the compact constructor and again in the accessor |
+| Inverted `assumeTrue` in the live bound-op test | **Fixed** — the guard is gone; the test asserts directly |
+| Cross-origin redirect re-sends `Authorization` | **Fixed** — `GenerateMojo` strips sensitive headers on origin change or HTTPS→HTTP downgrade |
+| `SchemaMapping` missing `packageName` → `null.entity` | **Fixed** — `normalizedMappings()` throws naming the namespace |
+| `OData-*` headers only in `JdkHttpTransport` | **Fixed** — `EntityOperations` adds them, so custom transports carry them too |
+
+The Medium/Low items were not individually re-verified; treat them as unaudited rather
+than as open defects.
+
+## What this round actually found and fixed
+
+A fresh review of the same code did surface real defects, none of which are in this file:
+
+- **Batch correlation** — a single-operation failed change set threw, because the collapse
+  branch was unreachable behind an equal-count branch; and a collapsed change-set failure
+  was stolen from an unrelated failing standalone operation, silently returning another
+  operation's status code. Fixed in `review/01-batch-correlation`.
+- **Lambda guard** — `any()`/`all()` rejected legal OData (`x eq 'a'`, `$count` paths, and
+  therefore every nested `contains(...)`), while the sibling `NavQuery.filter` accepted the
+  same text. Fixed in `review/02-query-lambda-guard`.
+- **Cross-schema packages** — a type declared in one schema resolved to the *generating*
+  schema's package, so split-merge metadata produced uncompilable or silently-wrong
+  clients. Fixed in `review/03-generator`.
+- **Literal ABNF conformance** — six divergences from the v4.01 construction rules,
+  including accepting `duration'PT1'`, rejecting the legal decimal exponent, and emitting
+  a bare `String.valueOf` for an unknown Edm type. Fixed in `review/04-literal-abnf`.
+- **Function parameter values** — `OperationPath.segment` validated parameter *names* and
+  then copied values verbatim, allowing an argument-list breakout. Fixed in
+  `review/05-operation-path`.
+
+---
+
+<details>
+<summary>Original (unverified) findings as received — do not treat as open</summary>
 
 ## Critical (must fix — wrong output, fatal generation, or broken examples)
 
@@ -34,29 +89,4 @@ Totals: **~9 Critical · ~8 High · ~36 Medium · ~50+ Low**.
 - `TripPinOperationImportTest:56-66` — **inverted `assumeTrue`**: the known service fault *passes* the test and every *unexpected* server error **skips green**. False-green in the only bound-op live coverage.
 - `ODataDemoMediaTest:41,54` — silent `return` on empty pages (lesson 95's banned smell).
 
-## Medium highlights
-
-- **Silent wrongness:** cross-schema unqualified `BaseType` loses ancestor bound-ops; inherited-nav cast constants missing on subtypes; typedef-of-Collection properties emit garbage types; `addKey` on a name-less segment **drops the key** (test asserts the bug); POST/PUT/PATCH discard header-only ETags; `removeRef` missing `$id` resolution parity.
-- **Leaks/hazards:** `stream()` error body never closed; plugin download streams never closed (all paths); unbounded `newCachedThreadPool`; `OData-Version` defaults live only in `JdkHttpTransport` (custom transports lose protocol headers); `HttpResponse.body` not cloned.
-- **Perf:** `baseQualifiedNameOf` is O(n²) per schema (lesson 187's pattern still live); bound index built twice; function imports re-resolved ~4×; `Names` sanitizer caching still pending.
-- **Plugin:** `SchemaMapping` missing `packageName` → silent `null.entity` packages; marker written *before* stale-delete (failure never retried); URL metadata re-downloaded before every up-to-date check (offline CI fails despite valid markers).
-- **Coverage gap:** only 13 offline tests in `odata-codegen-test` — all generated-client CRUD/ETag/expand behavior is live-only.
-
-## Systemic patterns
-
-1. **Tests pin accidents, not contracts** (lesson 119 recurring): inverted `assumeTrue`, `.as()`-first-only fixtures, mock-transport tests that bypass the real interrupt/boundary/stream code paths, `contains()` assertions on renamed identifiers.
-2. **0-match paths stay silent while >1-match throws** — unknown base, unknown type, unknown binding all fail soft; the "one ambiguity policy — throw" was only applied to ambiguity, not absence.
-3. **Docs drift is widespread again** (lesson 94): wrong coordinates, deleted APIs, wrong packages (`request/` vs `entity.request/`+`operation/`), stale test counts (285 vs 888), wrong repo URL, broken `{{ odata_client_version }}` macro, "285 tests"/"seven live classes" (actually 8).
-4. **Duplication without a shared seam:** base-chain walking ×3, `with*` ×2, constant emission ×3, boundary parsers ×2, `rethrowCause` ×6, `trimTrailingSlash` ×2 — each pair already drifted.
-
-## Recommended fix order
-
-1. **C1 bound-op abort** + **H2 key injection** + **M1 stream leak** (small, high impact).
-2. **H3 `as()` state loss** + **H1 interrupt contract** + shared `rethrowCause` utility.
-3. **Plugin H1 marker clobber** + **H3 cross-origin auth strip** + remove header-hash.
-4. **Test honesty pass**: fix inverted `assumeTrue`, silent returns, and add the four missing referee tests (real-transport interrupt, `.as()` after chaining, spaced batch boundary, stream error close).
-5. **Generator loud-failure batch**: unknown base/type throws, reserved nav/getter method sets, kind-aware collision map, enum `BY_NAME`-first.
-6. **Docs sweep**: coordinates, compile-breaking examples, package listings, version macro — plus a grep-driven docs-vs-POM test so coordinates can't drift again.
-7. **Perf + hygiene**: O(n²) base-name index, shared `OperationGenerator`, dup extractions; remaining Mediums/Lows in cleanup PRs.
-
-Every fix should land red-first with the `CompilationHarness` javac referee for anything claiming "compiles/doesn't compile" (lesson 120/173).
+</details>
