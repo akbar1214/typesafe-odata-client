@@ -17,6 +17,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.IdentityHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -82,6 +83,7 @@ public class StaxCsdlParser {
                     "No OData Schema found in document (expected <Schema> under <edmx:DataServices>)");
         }
         schemas = fixupCrossSchemaAliases(schemas);
+        validateTypeDefinitionCycles(schemas);
 
         return new CsdlModel(mergeContainerInheritance(schemas), List.copyOf(warnings));
     }
@@ -95,20 +97,23 @@ public class StaxCsdlParser {
      * (TripPin, OData Demo) nest them inside EntityType/EntityContainer bodies —
      * warning on them would be noise, not signal.
      */
-    private void warnIgnored(String parent, String localName) {
-        if ("Annotation".equals(localName)) {
-            return;
-        }
-        warnings.add(parent + ": ignored unknown element <" + localName + ">");
+    private void warnIgnored(String parent, StartElement element) {
+        warnIgnored(parent, element, null);
     }
 
-    private void warnIgnored(String parent, StartElement element) {
+    /**
+     * Single namespace-aware implementation. {@code detail} carries caller-specific context
+     * (e.g. a mismatched {@code Namespace}); the EDM-namespace {@code Annotation} exemption
+     * applies here for every site so parse-time and ordinary skips cannot drift.
+     */
+    private void warnIgnored(String parent, StartElement element, String detail) {
         String localName = element.getName().getLocalPart();
         String namespace = element.getName().getNamespaceURI();
         if (EDM_NS.equals(namespace) && "Annotation".equals(localName)) {
             return;
         }
         warnings.add(parent + ": ignored unknown element <" + localName + ">"
+                + (detail != null ? detail : "")
                 + (EDM_NS.equals(namespace) ? "" : " in namespace '" + namespace + "'"));
     }
 
@@ -168,9 +173,12 @@ public class StaxCsdlParser {
 
     private String fixAlias(String raw) {
         if (raw == null) return null;
-        raw = raw.trim();
-        boolean isCollection = raw.startsWith("Collection(") && raw.endsWith(")");
-        String inner = isCollection ? raw.substring("Collection(".length(), raw.length() - 1).trim() : raw;
+        String trimmed = raw.trim();
+        if (trimmed.isEmpty()) return trimmed;
+        boolean isCollection = trimmed.startsWith("Collection(");
+        // Shared with resolveTypeRef so the post-pass cannot silently accept a
+        // nested/malformed Collection(...) that parse time rejects.
+        String inner = unwrapCollectionType(trimmed, "type reference");
         int dot = inner.indexOf('.');
         if (dot > 0) {
             String rewritten = applyAliasMap(inner, dot);
@@ -179,6 +187,89 @@ public class StaxCsdlParser {
             }
         }
         return isCollection ? "Collection(" + inner + ")" : inner;
+    }
+
+    /**
+     * Rejects self/cyclic {@code TypeDefinition} {@code UnderlyingType} chains (A→A, A→B→A).
+     * A cyclic chain is invalid CSDL and can never resolve to a primitive. The generator's
+     * typedef resolver carries a cycle guard too (defence in depth for programmatically built
+     * models), but the parser fails here with a readable chain at the metadata boundary.
+     */
+    private void validateTypeDefinitionCycles(List<SchemaModel> schemas) {
+        Map<String, SchemaModel> owner = new HashMap<>();
+        for (SchemaModel schema : schemas) {
+            for (TypeDefinitionModel td : schema.typeDefinitions()) {
+                owner.put(schema.namespace() + "." + td.name(), schema);
+            }
+        }
+        if (owner.isEmpty()) {
+            return;
+        }
+        Set<String> typedefNames = owner.keySet();
+        for (String start : typedefNames) {
+            walkTypeDefinition(start, owner, typedefNames, new LinkedHashSet<>());
+        }
+    }
+
+    private void walkTypeDefinition(String current, Map<String, SchemaModel> owner,
+                                    Set<String> typedefNames, LinkedHashSet<String> path) {
+        if (!path.add(current)) {
+            throw new IllegalArgumentException("Cyclic TypeDefinition UnderlyingType: "
+                    + String.join(" -> ", path) + " -> " + current);
+        }
+        TypeDefinitionModel td = findTypeDefinition(current, owner);
+        if (td != null) {
+            String next = resolveUnderlyingTypeDefinition(td.underlyingType(), owner.get(current), typedefNames);
+            if (next != null) {
+                walkTypeDefinition(next, owner, typedefNames, path);
+            }
+        }
+        path.remove(current);
+    }
+
+    private TypeDefinitionModel findTypeDefinition(String qualified, Map<String, SchemaModel> owner) {
+        SchemaModel schema = owner.get(qualified);
+        if (schema == null) {
+            return null;
+        }
+        String simple = qualified.substring(qualified.lastIndexOf('.') + 1);
+        for (TypeDefinitionModel td : schema.typeDefinitions()) {
+            if (td.name().equals(simple)) {
+                return td;
+            }
+        }
+        return null;
+    }
+
+    private String resolveUnderlyingTypeDefinition(String underlying, SchemaModel schema,
+                                                   Set<String> typedefNames) {
+        if (underlying == null) {
+            return null;
+        }
+        String value = underlying.trim();
+        if (value.isEmpty() || value.indexOf('(') >= 0 || value.indexOf(')') >= 0) {
+            return null; // not a plain single type name
+        }
+        if (typedefNames.contains(value)) {
+            return value; // already qualified
+        }
+        if (value.indexOf('.') > 0) {
+            return null; // qualified but not a known TypeDefinition
+        }
+        String sameSchema = schema.namespace() + "." + value;
+        if (typedefNames.contains(sameSchema)) {
+            return sameSchema;
+        }
+        String match = null;
+        for (String qualified : typedefNames) {
+            if (qualified.endsWith("." + value)) {
+                if (match != null) {
+                    return null; // ambiguous unqualified ref — generator resolution policy handles it
+                }
+                match = qualified;
+            }
+        }
+        return match;
     }
 
     /**
@@ -237,11 +328,11 @@ public class StaxCsdlParser {
                     // Right element, wrong namespace: name it, or the skip is a mystery
                     // (a typo'd xmlns silently dropping a whole schema otherwise)
                     String declared = getAttr(el, "Namespace");
-                    warnIgnored("DataServices", "Schema"
-                            + (declared != null ? " Namespace='" + declared + "'" : "")
-                            + " (namespace mismatch)");
+                    warnIgnored("DataServices", el,
+                            (declared != null ? " Namespace='" + declared + "'" : "")
+                                    + " (namespace mismatch)");
                 } else {
-                    warnIgnored("DataServices", skipped);
+                    warnIgnored("DataServices", el);
                 }
                 skipElement(reader);
             }
@@ -958,22 +1049,8 @@ public class StaxCsdlParser {
         if (raw == null) {
             return null;
         }
-        String value = raw.trim();
-        boolean isCollection = value.startsWith("Collection(");
-        if (value.contains("Collection(") && !isCollection) {
-            throw invalidTypeReference(value, description);
-        }
-        if (isCollection) {
-            if (!value.endsWith(")")) {
-                throw invalidTypeReference(value, description);
-            }
-            value = value.substring("Collection(".length(), value.length() - 1).trim();
-            if (value.isEmpty() || value.indexOf('(') >= 0 || value.indexOf(')') >= 0) {
-                throw invalidTypeReference(raw.trim(), description);
-            }
-        } else if (value.indexOf('(') >= 0 || value.indexOf(')') >= 0) {
-            throw invalidTypeReference(value, description);
-        }
+        boolean isCollection = raw.trim().startsWith("Collection(");
+        String value = unwrapCollectionType(raw, description);
         int dot = value.indexOf('.');
         if (dot > 0) {
             String rewritten = applyAliasMap(value, dot);
@@ -986,6 +1063,32 @@ public class StaxCsdlParser {
             }
         }
         return isCollection ? "Collection(" + value + ")" : value;
+    }
+
+    /**
+     * Shared {@code Collection(...)} parsing/validation for {@link #resolveTypeRef} (parse time)
+     * and {@link #fixAlias} (post-pass): trims, rejects nested/malformed {@code Collection(...)}
+     * and stray parentheses, and returns the inner (unwrapped) type name. One implementation
+     * keeps parse-time and post-pass from drifting apart.
+     */
+    private String unwrapCollectionType(String raw, String description) {
+        String value = raw == null ? "" : raw.trim();
+        boolean isCollection = value.startsWith("Collection(");
+        if (value.contains("Collection(") && !isCollection) {
+            throw invalidTypeReference(value, description);
+        }
+        if (isCollection) {
+            if (!value.endsWith(")")) {
+                throw invalidTypeReference(value, description);
+            }
+            value = value.substring("Collection(".length(), value.length() - 1).trim();
+            if (value.isEmpty() || value.indexOf('(') >= 0 || value.indexOf(')') >= 0) {
+                throw invalidTypeReference(value, description);
+            }
+        } else if (value.indexOf('(') >= 0 || value.indexOf(')') >= 0) {
+            throw invalidTypeReference(value, description);
+        }
+        return value;
     }
 
     private IllegalArgumentException invalidTypeReference(String value, String description) {
@@ -1015,7 +1118,14 @@ public class StaxCsdlParser {
         Map<ContainerModel, String> namespaceOf = new IdentityHashMap<>();
         for (SchemaModel schema : schemas) {
             for (ContainerModel container : schema.containers()) {
-                byQualifiedName.putIfAbsent(schema.namespace() + "." + container.name(), container);
+                String qualified = schema.namespace() + "." + container.name();
+                if (byQualifiedName.putIfAbsent(qualified, container) != null) {
+                    // Two schemas in one namespace declaring the same container name — the FQN
+                    // collides, so keeping the first silently would drop the other.
+                    throw new IllegalArgumentException(
+                            "Duplicate EntityContainer '" + qualified + "': more than one container "
+                                    + "shares the same qualified name");
+                }
                 namespaceOf.putIfAbsent(container, schema.namespace());
             }
         }
