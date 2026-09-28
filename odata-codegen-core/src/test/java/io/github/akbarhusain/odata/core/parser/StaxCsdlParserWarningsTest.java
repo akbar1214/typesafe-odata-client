@@ -75,7 +75,7 @@ class StaxCsdlParserWarningsTest {
         CsdlModel model = parse(HEADER + """
                 <Schema Namespace="NS.Test" xmlns="http://docs.oasis-open.org/odata/ns/edm">
                   <EntityType Name="Foo">
-                    <Key><PropertyReff Name="Id"/></Key>
+                    <Key><PropertyReff Name="Id"/><PropertyRef Name="Id"/></Key>
                     <Property Name="Id" Type="Edm.Int32" Nullable="false"/>
                   </EntityType>
                 </Schema>
@@ -163,6 +163,60 @@ class StaxCsdlParserWarningsTest {
                 "a Schema skipped for namespace mismatch must be reported: " + model.warnings());
         assertEquals(1, model.schemas().size(), "wrong-namespace Schema must still be skipped");
         assertEquals("NS.Good", model.schemas().get(0).namespace());
+    }
+
+    @Test
+    void dataServicesUnknownElementWarnsWithNamespace() throws Exception {
+        CsdlModel model = parse(HEADER + """
+                <Widget xmlns="urn:example.widgets"/>
+                <Schema Namespace="NS.Test" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+                  <EntityType Name="Foo">
+                    <Key><PropertyRef Name="Id"/></Key>
+                    <Property Name="Id" Type="Edm.Int32" Nullable="false"/>
+                  </EntityType>
+                </Schema>
+                """ + FOOTER);
+
+        assertTrue(model.warnings().stream().anyMatch(
+                        w -> w.contains("Widget") && w.contains("urn:example.widgets")),
+                "a foreign-namespace DataServices child must be reported with its namespace: "
+                        + model.warnings());
+    }
+
+    @Test
+    void dataServicesForeignNamespaceAnnotationWarns() throws Exception {
+        // The legacy namespace-blind overload silently swallowed ANY <Annotation>, even
+        // a foreign-namespace one. Namespace-aware skips must report the foreign element.
+        CsdlModel model = parse(HEADER + """
+                <Annotation xmlns="urn:example.vocab" Term="X" String="x"/>
+                <Schema Namespace="NS.Test" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+                  <EntityType Name="Foo">
+                    <Key><PropertyRef Name="Id"/></Key>
+                    <Property Name="Id" Type="Edm.Int32" Nullable="false"/>
+                  </EntityType>
+                </Schema>
+                """ + FOOTER);
+
+        assertTrue(model.warnings().stream().anyMatch(
+                        w -> w.contains("Annotation") && w.contains("urn:example.vocab")),
+                "a foreign-namespace Annotation must not be silently exempted: " + model.warnings());
+    }
+
+    @Test
+    void dataServicesEdmAnnotationStaysSilent() throws Exception {
+        CsdlModel model = parse(HEADER + """
+                <Annotation Term="Org.OData.Core.V1.Description" String="x"
+                            xmlns="http://docs.oasis-open.org/odata/ns/edm"/>
+                <Schema Namespace="NS.Test" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+                  <EntityType Name="Foo">
+                    <Key><PropertyRef Name="Id"/></Key>
+                    <Property Name="Id" Type="Edm.Int32" Nullable="false"/>
+                  </EntityType>
+                </Schema>
+                """ + FOOTER);
+
+        assertTrue(model.warnings().isEmpty(),
+                "an EDM-namespace Annotation must stay exempt on every skip path: " + model.warnings());
     }
 
     @Test
