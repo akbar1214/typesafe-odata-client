@@ -20,16 +20,27 @@ public final class ODataLiteral {
 
     private static final Pattern GUID_PATTERN = Pattern.compile(
             "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}");
-    private static final Pattern DATE_PATTERN = Pattern.compile("(-?\\d{4,})-(\\d{2})-(\\d{2})");
+    private static final Pattern DATE_PATTERN = Pattern.compile("(-?\\d+)-(\\d{2})-(\\d{2})");
     private static final Pattern TIME_PATTERN = Pattern.compile(
             "(\\d{2}):(\\d{2})(?::(\\d{2})(?:\\.(\\d{1,12}))?)?");
     private static final Pattern DATETIME_PATTERN = Pattern.compile(
             "(-?\\d{4,}-\\d{2}-\\d{2})T(\\d{2}:\\d{2}(?::\\d{2}(?:\\.\\d{1,12})?)?)(Z|[+-]\\d{2}:\\d{2})");
+    // durationValue = [ SIGN ] "P" [ 1*DIGIT "D" ] [ "T" [ 1*DIGIT "H" ] [ 1*DIGIT "M" ]
+    //                                     [ 1*DIGIT [ "." 1*DIGIT ] "S" ] ]
+    // The trailing group is optional, but the "S" inside it is NOT: a bare seconds
+    // component with no suffix has no valid reading, so "S" is not optional here.
     private static final Pattern DURATION_PATTERN = Pattern.compile(
-            "([+-]?)P(?:(\\d+)D)?(?:T(?:(\\d+)H)?(?:(\\d+)M)?(?:(\\d+)(?:\\.(\\d{1,12}))?)?S?)?");
+            "([+-]?)P(?:(\\d+)D)?(?:T(?:(\\d+)H)?(?:(\\d+)M)?(?:(\\d+)(?:\\.(\\d{1,12}))?S)?)?");
+    // decimalValue = [ SIGN ] 1*DIGIT [ "." 1*DIGIT ] [ "e" [ SIGN ] 1*DIGIT ]
+    // One production covers Edm.Decimal, Edm.Double and Edm.Single (doubleValue and
+    // singleValue are both defined as decimalValue), so all three share this pattern.
+    // Digits are required before AND after the "." and before the value; the exponent is
+    // optional. "e" is an ABNF literal and therefore case-insensitive.
     private static final Pattern DECIMAL_PATTERN = Pattern.compile(
-            "[+-]?(?:(?:\\d+(?:\\.\\d*)?)|(?:\\.\\d+))(?:[eE][+-]?\\d+)?");
-    private static final Pattern EDM_DECIMAL_PATTERN = Pattern.compile("[+-]?\\d+(?:\\.\\d+)?");
+            "[+-]?\\d+(?:\\.\\d+)?(?:[eE][+-]?\\d+)?");
+    // year = [ "-" ] ( "0" 3DIGIT / oneToNine 3*DIGIT ) — exactly four digits, optional
+    // leading minus, never a leading plus and never five or more digits.
+    private static final Pattern YEAR_PATTERN = Pattern.compile("-?\\d{4}");
     private static final Pattern BINARY_PATTERN = Pattern.compile("[A-Za-z0-9_-]*={0,2}");
     private static final Pattern NUMBER_PATTERN = Pattern.compile(
             "[+-]?(?:(?:\\d+(?:\\.\\d*)?)|(?:\\.\\d+))(?:[eE][+-]?\\d+)?|[+-]?INF|NaN");
@@ -67,7 +78,17 @@ public final class ODataLiteral {
                 if (value instanceof String s) {
                     yield quote(s);
                 }
-                yield String.valueOf(value);
+                // Every other branch of this renderer either validates its input or quotes
+                // and escapes it. Falling through to a raw String.valueOf did neither: an
+                // arbitrary object's toString() was emitted bare into a key predicate,
+                // filter or function parameter. Reachable via a keyed accessor for a key
+                // property whose Edm type the generator could not resolve (javaType
+                // "Object", raw CSDL type string). An enum-typed value must still reach
+                // the qualified-literal branch above, so only reject the genuinely
+                // unrenderable remainder.
+                throw new IllegalArgumentException("No OData literal form for "
+                        + value.getClass().getSimpleName() + " value with Edm type '" + edmType
+                        + "'; a literal requires a known Edm type, a String, or an enum");
             }
         };
     }
@@ -171,7 +192,14 @@ public final class ODataLiteral {
 
     private static String formatDate(Object value) {
         if (value instanceof LocalDate date) {
-            return date.toString();
+            // LocalDate.toString() renders an expanded "+12345-01-01" form for years
+            // outside 0000-9999, and the grammar's year is exactly four digits with no
+            // leading plus. Render the parts directly and let requireDate() judge, so the
+            // typed path and the String path agree on what is renderable.
+            return requireDate(String.format(Locale.ROOT, "%s%04d-%02d-%02d",
+                    date.getYear() < 0 ? "-" : "",
+                    Math.abs((long) date.getYear()),
+                    date.getMonthValue(), date.getDayOfMonth()));
         }
         if (value instanceof String text) {
             return requireDate(text);
@@ -321,7 +349,7 @@ public final class ODataLiteral {
             return BigDecimal.valueOf(f.doubleValue()).toPlainString();
         }
         if (value instanceof String text) {
-            if (!EDM_DECIMAL_PATTERN.matcher(text).matches()) {
+            if (!DECIMAL_PATTERN.matcher(text).matches()) {
                 throw new IllegalArgumentException("Invalid Edm.Decimal literal: " + text);
             }
             return text;
@@ -385,6 +413,12 @@ public final class ODataLiteral {
     }
 
     private static String formatDateTime(OffsetDateTime value) {
+        // year is exactly four digits in the grammar, so an expanded year is rejected here
+        // rather than emitted as a %04d-widened (5+ digit) literal.
+        if (value.getYear() < -9999 || value.getYear() > 9999) {
+            throw new IllegalArgumentException("Edm.DateTimeOffset year must be exactly four digits: "
+                    + value.getYear());
+        }
         String year = value.getYear() < 0
                 ? "-" + String.format(Locale.ROOT, "%04d", -value.getYear())
                 : String.format(Locale.ROOT, "%04d", value.getYear());
@@ -447,6 +481,12 @@ public final class ODataLiteral {
         if (!matcher.matches()) {
             invalidTemporal(value, "Edm.Date");
         }
+        // year = [ "-" ] ( "0" 3DIGIT / oneToNine 3*DIGIT ) — exactly four digits. The
+        // regex is deliberately permissive about the width so that a too-long year is
+        // rejected by this explicit check rather than slipping through a wider match.
+        if (!YEAR_PATTERN.matcher(matcher.group(1)).matches()) {
+            invalidTemporal(value, "Edm.Date");
+        }
         int year = Integer.parseInt(matcher.group(1));
         int month = Integer.parseInt(matcher.group(2));
         int day = Integer.parseInt(matcher.group(3));
@@ -482,6 +522,18 @@ public final class ODataLiteral {
                 invalidTemporal(value, "Edm.DateTimeOffset");
             }
         }
+        // OffsetDateTime.parse() cannot represent a leap second (":60"), which the grammar
+        // permits, so it must not be the final word on a time that the checks above
+        // already accepted. Substitute a representable second for the parse only.
+        boolean leapSecond = matcher.group(2).matches("\\d{2}:\\d{2}:60(?:\\.\\d{1,12})?");
+        if (leapSecond) {
+            // Second 60 is only legal at 23:59 UTC; any other minute is a typo, not a leap
+            // second, and no other zone may be attached to one.
+            if (!"23:59".equals(matcher.group(2).substring(0, 5)) || !"Z".equals(zone)) {
+                invalidTemporal(value, "Edm.DateTimeOffset");
+            }
+            return value;
+        }
         try {
             OffsetDateTime.parse(value);
         } catch (DateTimeParseException e) {
@@ -494,7 +546,8 @@ public final class ODataLiteral {
         int hour = Integer.parseInt(matcher.group(1));
         int minute = Integer.parseInt(matcher.group(2));
         int second = matcher.group(3) == null ? 0 : Integer.parseInt(matcher.group(3));
-        if (hour > 23 || minute > 59 || second > 59) {
+        // second = zeroToFiftyNine / "60" — 60 is a legal leap second.
+        if (hour > 23 || minute > 59 || second > 60) {
             invalidTemporal(value, "Edm.TimeOfDay");
         }
     }
@@ -617,6 +670,11 @@ public final class ODataLiteral {
     private static boolean validPositionList(String data, boolean allowEmpty) {
         List<String> parts = splitTopLevel(data);
         if (parts.isEmpty()) return allowEmpty;
+        // lineStringData = OPEN positionLiteral 1*( COMMA positionLiteral ) CLOSE — the
+        // 1* requires at least one position beyond the first, so an empty list and a
+        // single-position list are both invalid. A polygon ring uses a different rule
+        // (validWrappedPositionList) and is validated separately.
+        if (parts.size() < 2) return false;
         for (String part : parts) {
             if (!validPosition(part)) return false;
         }

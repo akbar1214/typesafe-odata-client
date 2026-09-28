@@ -107,9 +107,18 @@ class TypedLiteralConformanceTest {
         assertDoesNotThrow(() -> HttpRequest.builder().url(keyUrl).build());
     }
 
+    /**
+     * OData ABNF v4.01: {@code decimalValue = [ SIGN ] 1*DIGIT [ "." 1*DIGIT ]
+     * [ "e" [ SIGN ] 1*DIGIT ] / nanInfinity}. The exponent is LEGAL for Edm.Decimal
+     * (it was previously rejected, which sent a spec-conformant value out as a server 400)
+     * while {@code nanInfinity} is not — Edm.Decimal has no infinity or NaN form.
+     */
     @Test
-    void decimalLiteralsRejectExponentSpecialValuesAndMalformedSyntax() {
-        for (String value : List.of("1e3", "1E+3", "NaN", "INF", "-INF", "1.", ".5", "+", "1.2.3")) {
+    void decimalLiteralsAcceptExponentButRejectNanInfinityAndMalformedSyntax() {
+        for (String value : List.of("1e3", "1E+3")) {
+            assertEquals(value, ContextPath.formatTypedValue(value, "Edm.Decimal"), value);
+        }
+        for (String value : List.of("NaN", "INF", "-INF", "1.", ".5", "+", "1.2.3")) {
             assertThrows(IllegalArgumentException.class,
                     () -> ContextPath.formatTypedValue(value, "Edm.Decimal"), value);
         }
