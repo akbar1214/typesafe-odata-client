@@ -248,9 +248,9 @@ public class ComplexTypeGenerator extends AbstractTypeGenerator {
         if (!complexType.abstractType() && generateWithMethods) {
             for (PropertyModel prop : allProps) {
                 sb.append(generateWithMethod(prop, allProps, allNavs, className, hierarchyHasOpen, schema));
-        }
-        imports.remove(pkg + "." + className);
-        for (NavigationPropertyModel nav : allNavs) {
+            }
+            imports.remove(pkg + "." + className);
+            for (NavigationPropertyModel nav : allNavs) {
                 sb.append(generateNavWithMethod(nav, allProps, allNavs, className, hierarchyHasOpen, schema));
             }
         }

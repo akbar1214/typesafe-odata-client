@@ -162,15 +162,6 @@ public final class Names {
         return result;
     }
 
-    public static String toOperationParameterName(String edmName) {
-        String result = toJavaFieldName(edmName);
-        return switch (result) {
-            case "context", "body", "basePath" -> result + "_";
-            case "contextPath" -> result;
-            default -> result;
-        };
-    }
-
     public static String toJavaMethodName(String edmName, String prefix) {
         String name = sanitizeIdentifier(edmName);
         return prefix + Character.toUpperCase(name.charAt(0)) + name.substring(1);
