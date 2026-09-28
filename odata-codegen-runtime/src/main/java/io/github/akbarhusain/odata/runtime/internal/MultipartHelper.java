@@ -463,10 +463,13 @@ public final class MultipartHelper {
                 if (results.size() != before + 1) {
                     throw new ODataException("Malformed multipart response: nested group has multiple Content-IDs");
                 }
-                if (results.get(before).result().contentId() == null) {
-                    DecodedPart only = results.get(before);
+                DecodedPart only = results.get(before);
+                String innerId = only.result().contentId();
+                if (innerId == null) {
                     results.set(before, new DecodedPart(
                             only.result().withContentIdAndGroup(contentId, nestedGroup), nestedGroup, only.wireIndex()));
+                } else if (!canonicalContentId(contentId).equals(canonicalContentId(innerId))) {
+                    throw new ODataException("Malformed multipart response: conflicting Content-ID headers");
                 }
             }
             return;
@@ -525,8 +528,7 @@ public final class MultipartHelper {
         Map<String, List<String>> headers = parseHeaders(String.join("\n", java.util.Arrays.copyOfRange(lines, 1, lines.length)), true);
         String embeddedContentId = singleHeader(headers, "Content-ID");
         if (contentId != null && embeddedContentId != null
-                && !BatchOperation.canonicalContentId(contentId)
-                        .equals(BatchOperation.canonicalContentId(embeddedContentId))) {
+                && !canonicalContentId(contentId).equals(canonicalContentId(embeddedContentId))) {
             throw new ODataException("Malformed multipart response: conflicting Content-ID headers");
         }
         if (contentId != null) {
@@ -537,8 +539,23 @@ public final class MultipartHelper {
         if (body != null && body.length == 0) {
             body = null;
         }
-        return new BatchResult<>(statusCode, headers, body, Object.class,
-                contentId != null ? contentId : embeddedContentId, null, groupId, wireIndex);
+        // BatchResult's compact constructor rejects out-of-range statuses / malformed ids with a
+        // raw IllegalArgumentException; surface malformed responses through the same channel as
+        // every other decode failure (callers catch ODataException).
+        try {
+            return new BatchResult<>(statusCode, headers, body, Object.class,
+                    contentId != null ? contentId : embeddedContentId, null, groupId, wireIndex);
+        } catch (IllegalArgumentException e) {
+            throw new ODataException("Malformed multipart response: " + e.getMessage(), e);
+        }
+    }
+
+    private static String canonicalContentId(String value) {
+        try {
+            return BatchOperation.canonicalContentId(value);
+        } catch (IllegalArgumentException e) {
+            throw new ODataException("Malformed multipart response: invalid Content-ID", e);
+        }
     }
 
     private static Map<String, List<String>> parseHeaders(String headerBlock, boolean response) {

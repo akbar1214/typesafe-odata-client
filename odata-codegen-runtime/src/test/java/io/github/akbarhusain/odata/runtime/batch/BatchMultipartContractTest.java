@@ -320,6 +320,18 @@ class BatchMultipartContractTest {
     }
 
     @Test
+    void objectHeaderOverloadFailsFastOnWronglyTypedMaps() {
+        IllegalArgumentException stringValues = assertThrows(IllegalArgumentException.class,
+                () -> BatchOperation.get("People", (Object) Map.of("X-Test", "not-a-list")));
+        assertTrue(stringValues.getMessage().contains("X-Test"));
+        assertThrows(IllegalArgumentException.class,
+                () -> BatchOperation.get("People", (Object) Map.of("X-Test", List.of(1))));
+        assertThrows(IllegalArgumentException.class,
+                () -> BatchOperation.get("People", (Object) Map.of(1, List.of("x"))));
+        assertDoesNotThrow(() -> BatchOperation.get("People", (Object) Map.of("X-Test", List.of("ok"))));
+    }
+
+    @Test
     void requestHeadersAreValidatedAndContentTypeIsCanonical() {
         HttpRequest request = HttpRequest.builder()
                 .url("https://example.com/People")

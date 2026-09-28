@@ -99,6 +99,69 @@ class MultipartHelperTest {
     }
 
     @Test
+    void nestedChangesetWrapperContentIdConflictingWithInnerPartIsRejected() {
+        String response = """
+            --batch_boundary
+            Content-Type: multipart/mixed; boundary=cs_boundary
+            Content-ID: 1
+
+            --cs_boundary
+            Content-Type: application/http
+            Content-Transfer-Encoding: binary
+            Content-ID: 2
+
+            HTTP/1.1 200 OK
+
+            {"x":1}
+            --cs_boundary--
+
+            --batch_boundary--
+            """;
+        assertThrows(ODataException.class, () -> MultipartHelper.decodeResponse("batch_boundary",
+                response.getBytes(StandardCharsets.UTF_8)));
+    }
+
+    @Test
+    void nestedChangesetWrapperContentIdMatchingInnerPartIsAccepted() {
+        String response = """
+            --batch_boundary
+            Content-Type: multipart/mixed; boundary=cs_boundary
+            Content-ID: 1
+
+            --cs_boundary
+            Content-Type: application/http
+            Content-Transfer-Encoding: binary
+            Content-ID: 1
+
+            HTTP/1.1 200 OK
+
+            {"x":1}
+            --cs_boundary--
+
+            --batch_boundary--
+            """;
+        List<BatchResult<?>> results = MultipartHelper.decodeResponse("batch_boundary",
+                response.getBytes(StandardCharsets.UTF_8));
+        assertEquals(1, results.size());
+        assertEquals("1", results.get(0).contentId());
+    }
+
+    @Test
+    void outOfRangeStatusIsMalformedResponseNotRawIllegalArgument() {
+        String response = """
+            --batch_boundary
+            Content-Type: application/http
+            Content-Transfer-Encoding: binary
+
+            HTTP/1.1 999 Weird
+
+            --batch_boundary--
+            """;
+        assertThrows(ODataException.class, () -> MultipartHelper.decodeResponse("batch_boundary",
+                response.getBytes(StandardCharsets.UTF_8)));
+    }
+
+    @Test
     void decodeResponseChangesetOnlyReturnsFlattenedResults() {
         String response = """
             --batch_boundary

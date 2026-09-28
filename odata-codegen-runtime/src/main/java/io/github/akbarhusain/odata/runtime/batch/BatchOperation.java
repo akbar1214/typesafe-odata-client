@@ -4,6 +4,7 @@ import io.github.akbarhusain.odata.runtime.http.HttpHeaders;
 import io.github.akbarhusain.odata.runtime.http.HttpMethod;
 
 import java.net.URI;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -11,6 +12,16 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.regex.Pattern;
 
+/**
+ * A single operation inside a batch request.
+ *
+ * <p>{@link #headers()} are the headers of the <em>embedded HTTP request</em> (rendered inside the
+ * MIME part body by {@code MultipartHelper.encodeOperation}), not the MIME part headers. The
+ * part-level {@code Content-Type: application/http} and {@code Content-Transfer-Encoding: binary}
+ * framing is emitted by the encoder itself, so framing/hop-by-hop fields
+ * ({@code Content-Length}, {@code Host}, {@code Connection}, {@code Content-Transfer-Encoding}, …)
+ * are rejected here rather than silently emitted twice or ignored.
+ */
 public record BatchOperation(
     HttpMethod method,
     String url,
@@ -267,9 +278,27 @@ public record BatchOperation(
         return copy;
     }
 
-    @SuppressWarnings("unchecked")
     private static Map<String, List<String>> castHeaders(Map<?, ?> headers) {
-        return (Map<String, List<String>>) headers;
+        Map<String, List<String>> typed = new LinkedHashMap<>();
+        for (Map.Entry<?, ?> entry : headers.entrySet()) {
+            if (!(entry.getKey() instanceof String name)) {
+                throw new IllegalArgumentException("batch header name must be a String");
+            }
+            if (!(entry.getValue() instanceof List<?> values)) {
+                throw new IllegalArgumentException(
+                        "batch header '" + name + "' must map to a List<String>");
+            }
+            List<String> strings = new ArrayList<>(values.size());
+            for (Object element : values) {
+                if (!(element instanceof String text)) {
+                    throw new IllegalArgumentException(
+                            "batch header '" + name + "' must contain only String values");
+                }
+                strings.add(text);
+            }
+            typed.put(name, strings);
+        }
+        return typed;
     }
 
     private static String requireUrl(String url) {
