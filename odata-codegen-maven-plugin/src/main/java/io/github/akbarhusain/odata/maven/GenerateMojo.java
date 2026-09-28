@@ -110,6 +110,7 @@ public class GenerateMojo extends AbstractMojo {
         boolean downloaded = metadataFile == null;
         try {
             prepareOutputRoot(outputDir);
+            ensureSafeStagingParent(outputDir);
             metadataPath = resolveMetadataPath();
             String currentHash = computeMarkerHash(metadataPath);
 
@@ -438,12 +439,52 @@ public class GenerateMojo extends AbstractMojo {
         return bytesToHex(digest.digest());
     }
 
+    private static volatile String cachedCoreFingerprint;
+    private static volatile String cachedCoreFingerprintStamp;
+
     private String coreImplementationFingerprint() throws Exception {
         CodeSource codeSource = Generator.class.getProtectionDomain().getCodeSource();
         if (codeSource == null || codeSource.getLocation() == null) {
             return resourceFingerprint();
         }
         Path location = Path.of(codeSource.getLocation().toURI());
+        // The plugin classpath does not change within a JVM, so cache the fingerprint and
+        // only recompute when the artifact's cheap stamp (path/count/size/mtime) changes.
+        // Re-reading every core .class on every execution is O(artifact size).
+        String stamp = artifactStamp(location);
+        String cached = cachedCoreFingerprint;
+        if (cached != null && stamp.equals(cachedCoreFingerprintStamp)) {
+            return cached;
+        }
+        String computed = computeCoreFingerprint(location);
+        cachedCoreFingerprint = computed;
+        cachedCoreFingerprintStamp = stamp;
+        return computed;
+    }
+
+    /** Cheap change stamp for the plugin's core artifact — stats only, never reads bytes. */
+    private static String artifactStamp(Path location) throws IOException {
+        if (Files.isDirectory(location)) {
+            long count = 0;
+            long totalSize = 0;
+            long maxModified = 0;
+            try (Stream<Path> files = Files.walk(location)) {
+                for (Path file : (Iterable<Path>) files
+                        .filter(path -> Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS))
+                        .filter(path -> path.toString().endsWith(".class"))::iterator) {
+                    count++;
+                    totalSize += Files.size(file);
+                    maxModified = Math.max(maxModified,
+                            Files.getLastModifiedTime(file, LinkOption.NOFOLLOW_LINKS).toMillis());
+                }
+            }
+            return "dir:" + location + ':' + count + ':' + totalSize + ':' + maxModified;
+        }
+        return "jar:" + location + ':' + Files.size(location) + ':'
+                + Files.getLastModifiedTime(location, LinkOption.NOFOLLOW_LINKS).toMillis();
+    }
+
+    private String computeCoreFingerprint(Path location) throws Exception {
         MessageDigest digest = MessageDigest.getInstance("SHA-256");
         if (Files.isDirectory(location)) {
             List<Path> classes;
@@ -783,8 +824,14 @@ public class GenerateMojo extends AbstractMojo {
                 throw failure;
             }
         } finally {
-            if (publicationMoved) {
+            if (publicationMoved || Files.exists(outputDir, LinkOption.NOFOLLOW_LINKS)) {
+                // Success, or the pre-publication backup was moved back into place: the
+                // backup dir is consumed/empty and can be removed.
                 deleteTree(backup);
+            } else {
+                // The previous output could not be restored — the backup holds its only
+                // copy, so keep it and make the location loud rather than deleting sources.
+                getLog().error("Previous generated output could not be restored; it is preserved at " + backup);
             }
         }
     }
@@ -929,6 +976,18 @@ public class GenerateMojo extends AbstractMojo {
         Files.createDirectories(outputDir);
         if (Files.isSymbolicLink(outputDir) || !Files.isDirectory(outputDir, LinkOption.NOFOLLOW_LINKS)) {
             throw new IOException("Output path is not a safe directory: " + outputDir);
+        }
+    }
+
+    /**
+     * The staging/publication/backup temp directories are created in the output directory's
+     * parent; a symlinked parent (e.g. {@code target -> /tmp/x}) would silently redirect the
+     * atomic swap outside the build tree. Reject it like any other symlink in the output path.
+     */
+    private void ensureSafeStagingParent(Path outputDir) throws IOException {
+        Path parent = stagingParent(outputDir);
+        if (Files.isSymbolicLink(parent)) {
+            throw new IOException("Generation staging parent is a symlink: " + parent);
         }
     }
 

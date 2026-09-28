@@ -154,6 +154,37 @@ class GenerateMojoHardeningTest {
     }
 
     @Test
+    void symlinkedStagingParentIsRejected(@TempDir Path tempDir) throws Exception {
+        Path metadata = writeMetadata(tempDir, FOO);
+        Path realParent = tempDir.resolve("real-target");
+        Files.createDirectories(realParent);
+        Path linkParent = tempDir.resolve("target");
+        Files.createSymbolicLink(linkParent, realParent);
+        Path output = linkParent.resolve("out");
+
+        // The atomic-swap temp dirs would be created through the symlinked parent and land
+        // outside the build tree; the generation must refuse instead.
+        assertThrows(MojoExecutionException.class,
+                () -> newMojo(metadata, output, "com.example.test", List.of()).execute());
+        try (Stream<Path> files = Files.walk(realParent)) {
+            assertEquals(0, files.filter(path -> path.getFileName().toString().endsWith(".java")).count());
+        }
+    }
+
+    @Test
+    void successfulGenerationLeavesNoTempDirsBesideOutput(@TempDir Path tempDir) throws Exception {
+        Path metadata = writeMetadata(tempDir, FOO);
+        Path output = tempDir.resolve("out");
+        newMojo(metadata, output, "com.example.test", List.of()).execute();
+
+        try (Stream<Path> files = Files.list(output.getParent())) {
+            assertEquals(0, files.filter(path -> path.getFileName().toString()
+                            .startsWith(".odata-generation-")).count(),
+                    "staging/publication/backup temp dirs must be cleaned up");
+        }
+    }
+
+    @Test
     void staleDeletionRejectsSymlinkEscape(@TempDir Path tempDir) throws Exception {
         Path metadata = writeMetadata(tempDir, FOO);
         Path output = tempDir.resolve("out");
