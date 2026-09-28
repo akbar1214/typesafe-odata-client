@@ -18,6 +18,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -71,6 +72,48 @@ class GenerateMojoConcurrencyTest {
         assertTrue(lostOutputs == 0,
                 lostOutputs + "/" + iterations + " concurrent runs lost a generated source tree "
                         + "even though both executions reported success");
+    }
+
+    /**
+     * A failed lock acquisition must not strand the publication temp directory. The temp dir
+     * is created BEFORE the lock is taken, so anything thrown between the two leaks it —
+     * and the mojo's own contract is that a failed generation leaves no residue.
+     */
+    @Test
+    void failedLockAcquisitionLeavesNoPublicationDirectory(@TempDir Path tempDir) throws Exception {
+        Path metadata = tempDir.resolve("metadata.xml");
+        Files.writeString(metadata, METADATA, StandardCharsets.UTF_8);
+        Path output = tempDir.resolve("out");
+        Files.createDirectories(output);
+        Path parent = output.getParent();
+
+        // Hold the lock for the whole run and shorten the mojo's wait so the timeout path
+        // is exercised in milliseconds instead of five minutes.
+        Path lock = parent.resolve(".odata-generation-publish.lock");
+        Files.createFile(lock);
+        String previous = System.getProperty("odata.publicationLockTimeoutMillis");
+        System.setProperty("odata.publicationLockTimeoutMillis", "250");
+        try {
+            assertThrows(org.apache.maven.plugin.MojoExecutionException.class,
+                    () -> newMojo(metadata, output, "com.example.one").execute(),
+                    "a held lock must eventually time out rather than block forever");
+
+            try (var entries = Files.list(parent)) {
+                List<String> leftovers = entries
+                        .map(p -> p.getFileName().toString())
+                        .filter(name -> name.startsWith(".odata-generation-publish-"))
+                        .toList();
+                assertTrue(leftovers.isEmpty(),
+                        "a failed lock acquisition leaked publication directories: " + leftovers);
+            }
+        } finally {
+            if (previous == null) {
+                System.clearProperty("odata.publicationLockTimeoutMillis");
+            } else {
+                System.setProperty("odata.publicationLockTimeoutMillis", previous);
+            }
+            Files.deleteIfExists(lock);
+        }
     }
 
     private void runConcurrently(Path metadata, Path output, String firstPackage, String secondPackage)

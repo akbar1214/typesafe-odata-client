@@ -89,6 +89,41 @@ class AliasResolutionScopeTest {
     }
 
     /**
+     * The alias prefix can be ITSELF a declared namespace of a different schema. Then the
+     * reference is already fully qualified and must not be redirected: {@code Contoso} is
+     * both a namespace of its own and another schema's alias, and the qualified reading
+     * is the correct one. Rewriting here would send a legitimate cross-schema reference
+     * to a namespace it was never written against.
+     */
+    @Test
+    void aliasPrefixThatIsAlsoADeclaredNamespaceIsNotRewritten() {
+        CsdlModel model = parse(HEADER
+                + "<Schema Namespace=\"Contoso\" " + EDM + ">"
+                + "<EntityType Name=\"Account\">"
+                + "<Key><PropertyRef Name=\"Id\"/></Key>"
+                + "<Property Name=\"Id\" Type=\"Edm.String\" Nullable=\"false\"/>"
+                + "</EntityType>"
+                + "</Schema>"
+                + "<Schema Namespace=\"Contoso.Model\" Alias=\"Contoso\" " + EDM + ">"
+                + "<ComplexType Name=\"Address\"><Property Name=\"City\" Type=\"Edm.String\"/></ComplexType>"
+                + "</Schema>"
+                + "<Schema Namespace=\"Other\" " + EDM + ">"
+                + "<EntityType Name=\"Foo\">"
+                + "<Key><PropertyRef Name=\"Id\"/></Key>"
+                + "<Property Name=\"Id\" Type=\"Edm.Int32\" Nullable=\"false\"/>"
+                + "<Property Name=\"Account\" Type=\"Contoso.Account\"/>"
+                + "</EntityType>"
+                + "</Schema>"
+                + FOOTER);
+
+        var other = model.schemas().stream()
+                .filter(s -> s.namespace().equals("Other")).findFirst().orElseThrow();
+        assertEquals("Contoso.Account", other.entityTypes().get(0).properties().get(1).edmType(),
+                "a reference qualified by a real namespace must not be redirected to an "
+                        + "alias sharing the same prefix");
+    }
+
+    /**
      * Order independence: the referencing schema may be parsed BEFORE the schema that
      * declares the alias. This is why the post-pass exists at all, and it must keep
      * working with the new namespace check.

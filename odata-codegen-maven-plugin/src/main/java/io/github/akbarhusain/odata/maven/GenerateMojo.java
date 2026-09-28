@@ -134,14 +134,21 @@ public class GenerateMojo extends AbstractMojo {
                 List<Path> generatedFiles = generator.writtenFiles();
                 List<ManifestEntry> entries = manifestEntries(staging, generatedFiles);
                 Path publication = Files.createTempDirectory(stagingParent(outputDir), ".odata-generation-publish-");
+                        // Acquire the lock INSIDE the try so a failure to take it (the bounded-wait
+                // timeout, or an interrupt) does not leak the publication directory created
+                // on the line above: anything thrown before the inner try would strand it.
+                //
+                // Pinned by GenerateMojoConcurrencyTest's sibling leak assertion.
+                //
                 // The lock must span the SNAPSHOT as well as the swap. Each execution builds
                 // its publication by copying the current output tree and then adding its own
                 // files, so a copy taken outside the lock misses whatever a concurrent
                 // execution has not published yet — and the last publisher wins with an
                 // incomplete tree. Holding it across copy -> merge -> swap is what makes
                 // two executions into one directory compose instead of overwrite.
-                Path lock = acquirePublicationLock(outputDir);
+                Path lock = null;
                 try {
+                    lock = acquirePublicationLock(outputDir);
                     copyOutputTree(outputDir, publication);
                     deleteStaleFiles(publication, previousManifest, entries);
                     publishGeneratedFiles(staging, publication, generatedFiles);
@@ -149,7 +156,9 @@ public class GenerateMojo extends AbstractMojo {
                     publishOutputDirectoryLocked(publication, outputDir);
                     publication = null;
                 } finally {
-                    releasePublicationLock(lock);
+                    if (lock != null) {
+                        releasePublicationLock(lock);
+                    }
                     deleteTree(publication);
                 }
             } finally {
@@ -840,6 +849,10 @@ public class GenerateMojo extends AbstractMojo {
      * it survives the swap) created atomically via {@code CREATE_NEW}. Holding it across
      * the whole swap is what makes the sequence atomic with respect to other executions.
      */
+    /**
+     * Swaps the staged tree into place. The caller holds the publication lock; see
+     * {@link #acquirePublicationLock}.
+     */
     private void publishOutputDirectoryLocked(Path publication, Path outputDir) throws IOException {
         Path backup = Files.createTempDirectory(stagingParent(outputDir), ".odata-generation-old-");
         Files.delete(backup);
@@ -879,7 +892,7 @@ public class GenerateMojo extends AbstractMojo {
      */
     private Path acquirePublicationLock(Path outputDir) throws IOException {
         Path lock = stagingParent(outputDir).resolve(".odata-generation-publish.lock");
-        long deadline = System.nanoTime() + TimeUnit.MINUTES.toNanos(5);
+        long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(publicationLockTimeoutMillis());
         while (true) {
             try {
                 return Files.createFile(lock);
@@ -897,6 +910,24 @@ public class GenerateMojo extends AbstractMojo {
                 }
             }
         }
+    }
+
+    /**
+     * How long to wait for a concurrent execution to finish publishing. A generous
+     * default — an unbounded wait would hang the build, and the timeout message names the
+     * lock file so a stale one can be cleared by hand. Overridable by system property so
+     * the leak-on-timeout path is testable without a five-minute test.
+     */
+    private long publicationLockTimeoutMillis() {
+        String override = System.getProperty("odata.publicationLockTimeoutMillis");
+        if (override != null && !override.isBlank()) {
+            try {
+                return Long.parseLong(override.trim());
+            } catch (NumberFormatException e) {
+                getLog().warn("Ignoring non-numeric odata.publicationLockTimeoutMillis: " + override);
+            }
+        }
+        return TimeUnit.MINUTES.toMillis(5);
     }
 
     private void releasePublicationLock(Path lock) {

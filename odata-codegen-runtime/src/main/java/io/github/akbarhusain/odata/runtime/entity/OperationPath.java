@@ -17,6 +17,66 @@ public final class OperationPath {
      * {@code GetNearestAirport(lat=1,lon=2)}. A parameterless operation renders
      * {@code Name()} (empty parens are valid and required by some services).
      */
+    /**
+     * Validates one already-rendered function-parameter value.
+     *
+     * <p>OData ABNF v4.01: {@code functionParameter = parameterName EQ ( parameterAlias /
+     * primitiveLiteral )}, and {@code string = SQUOTE *( SQUOTE-in-string /
+     * pchar-no-SQUOTE ) SQUOTE}. {@code pchar} includes the sub-delims, so {@code ( ) , ; =
+     * *} are LEGAL inside a quoted string — {@code 'Doe, John (Jr.)'} and
+     * {@code geography'SRID=4326;Point(1 2)'} are both well-formed. A flat character
+     * blacklist over the whole value therefore rejects valid invocations, which is a
+     * regression for every function whose string or geography parameter contains a comma,
+     * a parenthesis or an equals sign.
+     *
+     * <p>So the value is scanned <em>structurally</em>: outside a string literal only the
+     * characters that would end the argument list or start new URL structure are rejected
+     * ({@code ) ( , ? # &} and a second {@code =}), while inside a literal only control
+     * characters are rejected, because a literal's own quoting and doubling is the
+     * renderer's job and is already correct. This is what closes the injection
+     * {@code x=1) or (1 eq 1} while leaving every legal literal alone.
+     */
+    private static void requireLiteralValue(String value) {
+        boolean inString = false;
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            if (c < 0x20 || c == 0x7f) {
+                throw new IllegalArgumentException(
+                        "operation parameter value contains a control character: " + value);
+            }
+            if (inString) {
+                // A doubled quote is an escaped quote, not a terminator.
+                if (c == '\'' && i + 1 < value.length() && value.charAt(i + 1) == '\'') {
+                    i++;
+                    continue;
+                }
+                if (c == '\'') {
+                    inString = false;
+                }
+                continue;
+            }
+            if (c == '\'') {
+                inString = true;
+                continue;
+            }
+            if ("(),/?#&".indexOf(c) >= 0) {
+                throw new IllegalArgumentException(
+                        "operation parameter value may not contain '" + c
+                                + "' outside a quoted literal (it would end the argument list or "
+                                + "start new URL structure): " + value);
+            }
+            if (c == '=') {
+                throw new IllegalArgumentException(
+                        "operation parameter value may not contain a second '=' (it would start a "
+                                + "new name=value pair): " + value);
+            }
+        }
+        if (inString) {
+            throw new IllegalArgumentException(
+                    "operation parameter value has an unterminated string literal: " + value);
+        }
+    }
+
     public static String segment(String operationName, String... nameEqualsValuePairs) {
         requireOperationName(operationName);
         if (nameEqualsValuePairs == null) {
@@ -34,24 +94,11 @@ public final class OperationPath {
                     throw new IllegalArgumentException("operation parameter contains an invalid name: " + parameterName);
                 }
             }
-            // The VALUE needs the same scrutiny. functionParameter = parameterName EQ
-            // ( parameterAlias / primitiveLiteral ), so ")" and a second "=" would close
-            // the argument list or start a new name=value, and "&" / "?" / "#" would
-            // start a new query option or fragment. The pair was previously copied into
-            // the segment verbatim, so a value carrying any of these produced a request
-            // target outside the OData grammar — for a mutating action the service sees a
-            // truncated argument list.
             String parameterValue = pair.substring(equals + 1);
             if (parameterValue.isEmpty()) {
                 throw new IllegalArgumentException("operation parameter must be name=value: " + pair);
             }
-            for (int i = 0; i < parameterValue.length(); i++) {
-                char c = parameterValue.charAt(i);
-                if (c < 0x20 || c == 0x7f || "(),/?#&=".indexOf(c) >= 0) {
-                    throw new IllegalArgumentException(
-                            "operation parameter value contains an invalid character: " + parameterValue);
-                }
-            }
+            requireLiteralValue(parameterValue);
         }
         if (nameEqualsValuePairs.length == 0) {
             return operationName + "()";
