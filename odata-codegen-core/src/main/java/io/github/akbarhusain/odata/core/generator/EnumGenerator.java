@@ -105,8 +105,10 @@ public class EnumGenerator {
         // ORDINAL, which is wrong whenever member values are not 0..n-1 in declaration order
         sb.append("    @com.fasterxml.jackson.annotation.JsonCreator\n");
         sb.append("    public static ").append(className).append(" fromJson(Object value) {\n");
+        // Explicit JSON null for a nullable enum property must deserialize to null
+        // (the setter takes the raw enum) — throwing here would break lenient reads.
         sb.append("        if (value == null) {\n");
-        sb.append("            throw new IllegalArgumentException(\"Enum value must not be null\");\n");
+        sb.append("            return null;\n");
         sb.append("        }\n");
         sb.append("        if (value instanceof Number n) {\n");
         sb.append("            try {\n");

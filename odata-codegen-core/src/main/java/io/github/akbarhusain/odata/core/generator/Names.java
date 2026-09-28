@@ -353,7 +353,7 @@ public final class Names {
             "SafeVarargs", "FunctionalInterface", "Builder", "Filterable", "Selector",
             "Optional", "List", "Map", "HashMap", "LinkedHashMap", "TreeMap", "Set",
             "HashSet", "LinkedHashSet", "TreeSet", "Collections", "Objects", "Arrays", "Stream",
-            "ArrayList", "InputStream", "CompletableFuture", "Function", "Predicate", "Supplier",
+            "ArrayList", "InputStream", "CompletableFuture",
             "Collection", "Iterator", "Comparator", "Locale", "Path", "Files", "IOException",
             "BigDecimal", "BigInteger", "LocalDate", "LocalDateTime", "OffsetDateTime", "LocalTime",
             "Duration", "Instant", "ZoneOffset", "Charset", "StandardCharsets", "UUID", "Base64",

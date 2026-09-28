@@ -87,6 +87,36 @@ class BaseChainCycleTest {
     }
 
     @Test
+    void subtypeIndexCycleFailsLoudlyEvenWhenGeneratedTypeHasNoCycle() {
+        // A has no base; the B<->C cycle lives only in the subtype index walked by
+        // ensureSubtypeIndex. It used to silently `break` on revisit, yielding incomplete
+        // <NAV>_AS_<TYPE> constants instead of a loud failure.
+        CsdlModel.EntityTypeModel a = new CsdlModel.EntityTypeModel("A", null,
+                false, false, false,
+                List.of(new CsdlModel.KeyModel(List.of("Id"))),
+                List.of(prop("Id", "Edm.Int32")),
+                List.of());
+        CsdlModel.EntityTypeModel b = new CsdlModel.EntityTypeModel("B", "NS.C",
+                false, false, false,
+                List.of(new CsdlModel.KeyModel(List.of("Id"))),
+                List.of(prop("Id", "Edm.Int32")),
+                List.of());
+        CsdlModel.EntityTypeModel c = new CsdlModel.EntityTypeModel("C", "NS.B",
+                false, false, false,
+                List.of(new CsdlModel.KeyModel(List.of("Id"))),
+                List.of(prop("Id", "Edm.Int32")),
+                List.of());
+        CsdlModel.SchemaModel schema = new CsdlModel.SchemaModel("NS", null,
+                List.of(a, b, c), List.of(), List.of(), List.of(), List.of(), List.of(), List.of());
+
+        IllegalStateException ex = assertThrows(IllegalStateException.class,
+                () -> new EntityGenerator("com.example", Map.of(), null, List.of(schema))
+                        .generate(a, schema),
+                "a BaseType cycle anywhere in the subtype index must fail loudly");
+        assertTrue(ex.getMessage().contains("Cyclic"), ex.getMessage());
+    }
+
+    @Test
     void requestGeneratorBaseCycleFailsLoudly() {
         CsdlModel.SchemaModel schema = cyclicEntitySchema();
         CsdlModel.EntityTypeModel a = schema.entityTypes().get(0);

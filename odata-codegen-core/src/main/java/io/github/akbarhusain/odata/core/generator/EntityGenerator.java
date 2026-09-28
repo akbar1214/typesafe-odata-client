@@ -29,6 +29,9 @@ public class EntityGenerator extends AbstractTypeGenerator {
     private java.util.Map<String, Set<String>> schemaExtendedBases;
     private java.util.Map<String, Set<String>> schemaOpenRootNames;
     private Map<String, List<EntitySubtype>> subtypesByBase;
+    // The schema the caches above were built for. Reusing one generator across schemas
+    // must rebuild them, or findBase/base resolution reads the previous schema's map.
+    private SchemaModel cachedSchema;
 
     private record EntitySubtype(String qualifiedName, EntityTypeModel model) {}
 
@@ -450,7 +453,11 @@ public class EntityGenerator extends AbstractTypeGenerator {
     }
 
     private void ensureSchemaCache(SchemaModel schema) {
-        if (entityTypeMap != null) return;
+        if (entityTypeMap != null && cachedSchema == schema) return;
+        cachedSchema = schema;
+        // Effective schemas may have switched (single-schema mode) — the base/type/subtype
+        // indexes are all derived from them, so drop the subtype index too.
+        subtypesByBase = null;
         entityTypeMap = new HashMap<>();
         Map<String, EntityTypeModel> crossSchemaMap = new HashMap<>();
         java.util.Map<EntityTypeModel, String> nsMap = new java.util.IdentityHashMap<>();
@@ -1025,8 +1032,14 @@ public class EntityGenerator extends AbstractTypeGenerator {
                         break;
                     }
                     String baseQualifiedName = qualifiedNames.get(base);
-                    if (baseQualifiedName == null || !visited.add(baseQualifiedName)) {
+                    if (baseQualifiedName == null) {
                         break;
+                    }
+                    // Every other base-chain walker throws on a revisit (lesson 186a);
+                    // silently breaking here yielded incomplete <NAV>_AS_<TYPE> constants.
+                    if (!visited.add(baseQualifiedName)) {
+                        throw new IllegalStateException("Cyclic entity BaseType chain involving '"
+                                + candidateQualifiedName + "'");
                     }
                     subtypesByBase.computeIfAbsent(baseQualifiedName, ignored -> new ArrayList<>())
                             .add(new EntitySubtype(candidateQualifiedName, candidate));

@@ -25,6 +25,9 @@ public class ComplexTypeGenerator extends AbstractTypeGenerator {
     // so only identity distinguishes equal-valued distinct types.
     private java.util.Map<ComplexTypeModel, String> complexTypeNamespaces;
     private java.util.Map<String, Set<String>> schemaOpenRootNames;
+    // The schema the caches above were built for. Reusing one generator across schemas
+    // must rebuild them, or findBase/type resolution reads the previous schema's map.
+    private SchemaModel cachedSchema;
 
     public ComplexTypeGenerator(String basePackage, Map<String, String> schemaPackages) {
         this(basePackage, schemaPackages, null, List.of());
@@ -448,7 +451,8 @@ public class ComplexTypeGenerator extends AbstractTypeGenerator {
     }
 
     private void ensureSchemaCache(SchemaModel schema) {
-        if (complexTypeMap != null) return;
+        if (complexTypeMap != null && cachedSchema == schema) return;
+        cachedSchema = schema;
         complexTypeMap = new HashMap<>();
         Map<String, ComplexTypeModel> crossSchemaMap = new HashMap<>();
         for (SchemaModel s : effectiveSchemas) {

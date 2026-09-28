@@ -127,6 +127,23 @@ class EnumJsonDeserializationTest {
         }
     }
 
+    @Test
+    void explicitJsonNullDeserializesToNull(@TempDir Path tempDir) throws Exception {
+        // A nullable enum property is deserialized from an explicit JSON null — the
+        // generated mapper (and the setter) must yield null, not throw.
+        String code = generateEnum(METADATA, "Level", tempDir);
+        assertTrue(code.contains("return null;"),
+                "generated fromJson must return null for a null payload. Got:\n" + code);
+
+        try (var loader = loaderFor(tempDir)) {
+            Class<Enum<?>> level = enumClass(loader, "Level");
+            java.lang.reflect.Method fromJson = level.getMethod("fromJson", Object.class);
+            assertNull(fromJson.invoke(null, new Object[]{null}),
+                    "fromJson(null) must return null for a nullable enum property");
+            assertNull(new ObjectMapper().readValue("null", level));
+        }
+    }
+
     // ------------------------------------------------------------------
     // harness
     // ------------------------------------------------------------------
