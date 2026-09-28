@@ -135,4 +135,12 @@ class OperationPathTest {
                 () -> OperationPath.collectionParameter(java.util.Arrays.asList("a", null), "Edm.String"),
                 "null ELEMENTS are also invalid literals");
     }
+
+    @Test
+    void hyphenatedCslNamesAreAcceptedVerbatim() {
+        // CSDL names may contain '-' (XML NCName) and the URL must carry the wire name.
+        assertEquals("A-B()", OperationPath.segment("A-B"));
+        assertEquals("N.Op-Name(x=1)", OperationPath.segment("N.Op-Name", "x=1"));
+        assertThrows(IllegalArgumentException.class, () -> OperationPath.segment("-leading"));
+    }
 }

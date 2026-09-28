@@ -111,8 +111,9 @@ public final class OperationPath {
                 segmentStart = true;
                 continue;
             }
+            // CSDL names may contain '-' (XML NCName); the URL must carry the wire name verbatim.
             if (segmentStart ? !(Character.isLetter(c) || c == '_')
-                    : !(Character.isLetterOrDigit(c) || c == '_')) {
+                    : !(Character.isLetterOrDigit(c) || c == '_' || c == '-')) {
                 throw new IllegalArgumentException("operation name contains an invalid character: " + operationName);
             }
             segmentStart = false;

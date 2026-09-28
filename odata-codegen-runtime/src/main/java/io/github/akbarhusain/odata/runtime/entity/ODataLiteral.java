@@ -89,19 +89,10 @@ public final class ODataLiteral {
 
     private static String formatUntyped(Object value) {
         if (value instanceof String s) {
-            if (s.startsWith("duration'")) {
-                return formatDuration(s);
-            }
-            if (DATETIME_PATTERN.matcher(s).matches()) {
-                return requireDateTime(s);
-            }
-            if (DATE_PATTERN.matcher(s).matches()) {
-                return requireDate(s);
-            }
-            if (TIME_PATTERN.matcher(s).matches()) {
-                return requireTime(s);
-            }
-            return quote(s);
+            // Untyped values are quoted Edm.String by default (legacy-compatible) so that
+            // date/time-shaped strings are not silently treated as temporal literals; a
+            // GUID-shaped string stays bare. Use formatTemporal()/a typed call for temporal intent.
+            return isGuid(s) ? s : quote(s);
         }
         if (value instanceof LocalDate || value instanceof LocalTime || value instanceof OffsetDateTime
                 || value instanceof Duration) {
@@ -602,9 +593,23 @@ public final class ODataLiteral {
 
     private static boolean validPosition(String data) {
         String[] values = data.strip().split("\\s+");
-        if (values.length != 2) return false;
+        // WKT positions are x y, optionally with Z and/or M (2..4 ordinates).
+        if (values.length < 2 || values.length > 4) return false;
         for (String value : values) {
             if (!NUMBER_PATTERN.matcher(value).matches()) return false;
+        }
+        return true;
+    }
+
+    /** Position equality by numeric ordinate, so whitespace/representation differences don't matter. */
+    private static boolean samePosition(String left, String right) {
+        String[] a = left.strip().split("\\s+");
+        String[] b = right.strip().split("\\s+");
+        if (a.length != b.length) return false;
+        for (int i = 0; i < a.length; i++) {
+            if (new java.math.BigDecimal(a[i]).compareTo(new java.math.BigDecimal(b[i])) != 0) {
+                return false;
+            }
         }
         return true;
     }
@@ -649,7 +654,7 @@ public final class ODataLiteral {
             for (String position : positions) {
                 if (!validPosition(position)) return false;
             }
-            if (!positions.get(0).strip().equals(positions.get(positions.size() - 1).strip())) {
+            if (!samePosition(positions.get(0), positions.get(positions.size() - 1))) {
                 return false;
             }
         }

@@ -47,4 +47,31 @@ class ODataLiteralTest {
         assertThrows(IllegalArgumentException.class, () -> ODataLiteral.format(
                 "SRID=4326;MultiPolygon(((0 0,0 1,1 1)))", "Edm.GeographyMultiPolygon"));
     }
+
+    @Test
+    void untypedStringsAreQuotedByDefault() {
+        // Date/time-shaped strings must not be silently treated as temporal literals.
+        assertEquals("'2024-01-01'", ODataLiteral.format("2024-01-01", null));
+        assertEquals("'10:15'", ODataLiteral.format("10:15", null));
+        assertEquals("0c5a0f6d-f3e8-4e11-9e4c-7d2a9a61b001",
+                ODataLiteral.format("0c5a0f6d-f3e8-4e11-9e4c-7d2a9a61b001", null));
+        // Explicit temporal intent still renders unquoted.
+        assertEquals("duration'PT1H'", ODataLiteral.formatTemporal(Duration.ofHours(1)));
+    }
+
+    @Test
+    void ringClosureComparesCoordinatesNumerically() {
+        assertEquals("geography'SRID=4326;Polygon((0 0,0 1,1 1,0.0 0.0))'",
+                ODataLiteral.format("SRID=4326;Polygon((0 0,0 1,1 1,0.0 0.0))", "Edm.GeographyPolygon"));
+        assertEquals("geography'SRID=4326;Polygon((0 0,0 1,1 1,0  0))'",
+                ODataLiteral.format("SRID=4326;Polygon((0 0,0 1,1 1,0  0))", "Edm.GeographyPolygon"));
+    }
+
+    @Test
+    void positionsMayCarryZAndMOrdinates() {
+        assertEquals("geography'SRID=4326;Point(1 2 3)'",
+                ODataLiteral.format("SRID=4326;Point(1 2 3)", "Edm.GeographyPoint"));
+        assertThrows(IllegalArgumentException.class, () -> ODataLiteral.format(
+                "SRID=4326;Point(1 2 3 4 5)", "Edm.GeographyPoint"));
+    }
 }
