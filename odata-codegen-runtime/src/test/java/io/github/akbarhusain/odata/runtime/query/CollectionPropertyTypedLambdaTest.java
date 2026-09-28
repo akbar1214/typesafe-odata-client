@@ -57,6 +57,51 @@ class CollectionPropertyTypedLambdaTest {
                 TripFilterable::new, TripSelector::new);
     }
 
+    enum Color { Red, Green }
+
+    @Test
+    void collectionCastAfterOptionsPreservesThem() {
+        NavCollectionProperty<Person, Trip, TripFilterable, TripSelector> trips = trips();
+
+        // Chaining an option returns a NavQuery; NavQuery.as() must carry the option across
+        // the cast (CollectionProperty.as() itself has no options to carry).
+        assertEquals("Trips/ABC.Doc($select=Name)",
+                trips.select(t -> t.name).as("ABC.Doc", Doc.class).toODataExpand());
+    }
+
+    @Test
+    void constantAnyPredicateIsLegal() {
+        NavCollectionProperty<Object, TripFilterable, TripFilterable, ?> trips =
+                new NavCollectionProperty<>("Trips", Object.class, TripFilterable.class, TripFilterable::new);
+
+        // any(x: true) is valid OData — the alias-reference requirement over-rejected it.
+        assertEquals("Trips/any(x: true)",
+                trips.any(t -> FilterExpression.of("true")).toODataExpression());
+    }
+
+    @Test
+    void nullReturningSelectorFactoryFailsFast() {
+        NavCollectionProperty<Person, Trip, TripFilterable, TripSelector> trips =
+                new NavCollectionProperty<>("Trips", Person.class, Trip.class, TripFilterable::new, () -> null);
+
+        IllegalStateException error = assertThrows(IllegalStateException.class,
+                () -> trips.select(t -> t.name));
+        assertTrue(error.getMessage().toLowerCase().contains("null"));
+    }
+
+    @Test
+    void containsRendersElementLiteralsUsingElementEdmType() {
+        CollectionProperty<Person, Color, CollectionProperty.FilterableElement<Color>, ?> colors =
+                new CollectionProperty<>("Colors", Person.class, Color.class,
+                        CollectionProperty.FilterableElement::new, null, "NS.Color");
+        assertEquals("Colors/any(x: x eq NS.Color'Red')", colors.contains(Color.Red).toODataExpression());
+
+        CollectionProperty<Person, String, CollectionProperty.FilterableElement<String>, ?> names =
+                new CollectionProperty<>("Names", Person.class, String.class,
+                        CollectionProperty.FilterableElement::new, null, "Edm.String");
+        assertEquals("Names/any(x: x eq 'a')", names.contains("a").toODataExpression());
+    }
+
     @Test
     void anyWithTypedFilterable() {
         NavCollectionProperty<Object, TripFilterable, TripFilterable, ?> trips =

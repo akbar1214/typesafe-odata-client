@@ -400,6 +400,20 @@ public abstract class AbstractTypeGenerator {
         return schema.namespace() + "." + edmType;
     }
 
+    /**
+     * The Edm type literal a generated {@code CollectionProperty} must carry so that
+     * {@code contains(value)} renders a valid element literal (quoted string, bare
+     * numeric, qualified {@code NS.Enum'Member'}). Typedefs resolve to their underlying
+     * type; enums qualify with the owning schema's namespace.
+     */
+    protected String collectionElementEdmType(String elementEdmType, SchemaModel schema) {
+        String resolved = resolveTypeDefinition(elementEdmType, schema);
+        if (Names.resolveTypeKind(resolved, effectiveSchemas) == Names.TypeKind.ENUM) {
+            return qualifiedEdmName(resolved, schema);
+        }
+        return resolved;
+    }
+
     // ------------------------------------------------------------------
     // Imports
     // ------------------------------------------------------------------
@@ -558,7 +572,8 @@ public abstract class AbstractTypeGenerator {
                 return "    public final CollectionProperty<" + className + ", " + elementClassName
                         + ", CollectionProperty.FilterableElement<" + elementClassName + ">, ?> " + constantName
                         + " = new CollectionProperty<>(\"x/" + Names.escapeJavaString(prop.name()) + "\", " + className + ".class, "
-                        + elementClassName + ".class, CollectionProperty.FilterableElement::new);\n";
+                        + elementClassName + ".class, CollectionProperty.FilterableElement::new, null, \""
+                        + Names.escapeJavaString(collectionElementEdmType(elementType, schema)) + "\");\n";
             }
         }
 

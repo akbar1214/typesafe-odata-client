@@ -721,7 +721,8 @@ public class EntityGenerator extends AbstractTypeGenerator {
                 return "    public static final CollectionProperty<" + className + ", " + elementClassName
                         + ", CollectionProperty.FilterableElement<" + elementClassName + ">, ?> " + constantName
                         + " = new CollectionProperty<>(\"" + Names.escapeJavaString(prop.name()) + "\", " + className + ".class, "
-                        + elementClassName + ".class, CollectionProperty.FilterableElement::new);\n";
+                        + elementClassName + ".class, CollectionProperty.FilterableElement::new, null, \""
+                        + Names.escapeJavaString(collectionElementEdmType(elementType, schema)) + "\");\n";
             }
         }
 
@@ -850,7 +851,8 @@ public class EntityGenerator extends AbstractTypeGenerator {
                         + ", CollectionProperty.FilterableElement<" + elementClassName + ">, ?> " + constantName
                         + " = " + (own ? shared
                         : "new CollectionProperty<>(\"" + Names.escapeJavaString(prop.name()) + "\", " + className + ".class, "
-                        + elementClassName + ".class, CollectionProperty.FilterableElement::new)") + ";\n";
+                        + elementClassName + ".class, CollectionProperty.FilterableElement::new, null, \""
+                        + Names.escapeJavaString(collectionElementEdmType(elementType, schema)) + "\")") + ";\n";
             }
         }
 

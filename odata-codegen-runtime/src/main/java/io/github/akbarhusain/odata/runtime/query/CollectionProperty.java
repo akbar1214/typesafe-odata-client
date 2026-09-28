@@ -233,7 +233,12 @@ public non-sealed class CollectionProperty<E, T, F, Sel> implements Expandable<E
                     + "Selector::new (generated property constants provide one) "
                     + "(operation: " + operation + ")");
         }
-        return selectorFactory.get();
+        Sel value = selectorFactory.get();
+        if (value == null) {
+            throw new IllegalStateException("selector factory returned null for CollectionProperty '"
+                    + edmName + "' (operation: " + operation + ")");
+        }
+        return value;
     }
 
     // ------------------------------------------------------------------
@@ -277,9 +282,12 @@ public non-sealed class CollectionProperty<E, T, F, Sel> implements Expandable<E
             if (!baseAlias.equals(alias)) {
                 expr = rebindAlias(expr, baseAlias, alias);
             }
-            if (!containsLambdaVariable(expr, alias)) {
-                throw new IllegalArgumentException(operator + " predicate must reference bound variable '"
-                        + alias + "'");
+            // Reject only genuinely invalid predicates: a bare property path that is not
+            // qualified by the lambda variable (`any(x: Name eq 'a')`). Constant/alias-free
+            // predicates such as `any(x: true)` and `any(x: 1 eq 1)` are legal OData and pass.
+            if (referencesUnqualifiedPath(expr)) {
+                throw new IllegalArgumentException(operator + " predicate must reference the bound variable '"
+                        + alias + "/...'");
             }
             return new RawFilterExpression<>(edmName + "/" + operator + "(" + alias + ": " + expr + ")");
         } finally {
@@ -331,30 +339,72 @@ public non-sealed class CollectionProperty<E, T, F, Sel> implements Expandable<E
         return out.toString();
     }
 
-    private static boolean containsLambdaVariable(String expression, String alias) {
-        boolean inLiteral = false;
-        for (int i = 0; i < expression.length(); i++) {
+    private static final java.util.Set<String> LAMBDA_KEYWORDS = java.util.Set.of(
+            "and", "or", "not", "eq", "ne", "gt", "ge", "lt", "le", "in", "has",
+            "add", "sub", "mul", "div", "divby", "mod", "true", "false", "null");
+
+    /**
+     * True when {@code expression} contains an operand that is a bare property name not part of a
+     * path — e.g. {@code Name eq 'a'} instead of {@code x/Name eq 'a'} (invalid OData). Any
+     * {@code root/...} path (outer or nested-lambda alias), function calls, operators,
+     * boolean/null literals and qualified enum/namespace literals are accepted, so
+     * constant/alias-free predicates such as {@code true} are not rejected.
+     */
+    private static boolean referencesUnqualifiedPath(String expression) {
+        int i = 0;
+        while (i < expression.length()) {
             char c = expression.charAt(i);
-            if (inLiteral) {
-                if (c == '\'') {
-                    if (i + 1 < expression.length() && expression.charAt(i + 1) == '\'') {
+            if (c == '\'') { // string / duration literal
+                i++;
+                while (i < expression.length()) {
+                    if (expression.charAt(i) == '\'') {
+                        if (i + 1 < expression.length() && expression.charAt(i + 1) == '\'') {
+                            i += 2;
+                            continue;
+                        }
                         i++;
-                    } else {
-                        inLiteral = false;
+                        break;
                     }
+                    i++;
                 }
                 continue;
             }
-            if (c == '\'') {
-                inLiteral = true;
+            if (!isODataIdentifierStart(c)) {
+                i++;
                 continue;
             }
-            if (expression.startsWith(alias, i)
-                    && (i == 0 || !isODataIdentifierPart(expression.charAt(i - 1)))
-                    && (i + alias.length() == expression.length()
-                    || !isODataIdentifierPart(expression.charAt(i + alias.length())))) {
-                return true;
+            int start = i;
+            i++;
+            while (i < expression.length() && isODataIdentifierPart(expression.charAt(i))) {
+                i++;
             }
+            String token = expression.substring(start, i);
+            char prev = start > 0 ? expression.charAt(start - 1) : '\0';
+            if (prev == '.') {
+                continue; // namespace/enum segment
+            }
+            if (i < expression.length() && expression.charAt(i) == '/') {
+                // any path root is qualified (x/Name, x1/Value, ...) — consume the whole path
+                while (i < expression.length()
+                        && (expression.charAt(i) == '/' || isODataIdentifierPart(expression.charAt(i)))) {
+                    i++;
+                }
+                continue;
+            }
+            int j = i;
+            while (j < expression.length() && Character.isWhitespace(expression.charAt(j))) {
+                j++;
+            }
+            if (j < expression.length()) {
+                char next = expression.charAt(j);
+                if (next == '(' || next == '\'' || next == '.' || next == ':') {
+                    continue; // function call / enum literal / qualified name / lambda binding
+                }
+            }
+            if (LAMBDA_KEYWORDS.contains(token.toLowerCase(java.util.Locale.ROOT))) {
+                continue;
+            }
+            return true;
         }
         return false;
     }

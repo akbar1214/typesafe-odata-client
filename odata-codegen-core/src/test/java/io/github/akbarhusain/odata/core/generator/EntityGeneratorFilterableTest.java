@@ -71,4 +71,11 @@ class EntityGeneratorFilterableTest {
         assertTrue(code.contains("public final CollectionProperty<Trip, PlanItem, PlanItem.Filterable, ?> PLAN_ITEMS"),
                 "Trip.Filterable should expose collection navigation properties for nested any/all");
     }
+
+    @Test
+    void primitiveCollectionConstantsCarryElementEdmTypeForContains() throws Exception {
+        String code = generateEntity("Person");
+        assertTrue(code.contains("CollectionProperty.FilterableElement::new, null, \"Edm.String\")"),
+                "primitive collection constants must pass the element Edm type so contains() renders literals");
+    }
 }
