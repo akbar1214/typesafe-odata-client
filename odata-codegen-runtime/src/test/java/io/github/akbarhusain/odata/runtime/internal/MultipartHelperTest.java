@@ -3,6 +3,7 @@ package io.github.akbarhusain.odata.runtime.internal;
 import io.github.akbarhusain.odata.runtime.batch.BatchOperation;
 import io.github.akbarhusain.odata.runtime.batch.BatchResult;
 import io.github.akbarhusain.odata.runtime.batch.Changeset;
+import io.github.akbarhusain.odata.runtime.exception.ODataException;
 import org.junit.jupiter.api.Test;
 
 import java.nio.charset.StandardCharsets;
@@ -309,15 +310,15 @@ class MultipartHelperTest {
     }
 
     @Test
-    void decodeResponseEmpty() {
-        List<BatchResult<?>> results = MultipartHelper.decodeResponse("batch_boundary", new byte[0]);
-        assertTrue(results.isEmpty());
+    void decodeResponseEmptyFailsLoudly() {
+        assertThrows(ODataException.class,
+                () -> MultipartHelper.decodeResponse("batch_boundary", new byte[0]));
     }
 
     @Test
-    void decodeResponseNullBody() {
-        List<BatchResult<?>> results = MultipartHelper.decodeResponse("batch_boundary", null);
-        assertTrue(results.isEmpty());
+    void decodeResponseNullBodyFailsLoudly() {
+        assertThrows(ODataException.class,
+                () -> MultipartHelper.decodeResponse("batch_boundary", null));
     }
 
     @Test
