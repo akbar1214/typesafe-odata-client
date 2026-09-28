@@ -12,6 +12,12 @@ public class BasicAuthProvider implements AuthProvider {
         if (username == null || password == null) {
             throw new IllegalArgumentException("Username and password must not be null");
         }
+        if (username.isEmpty()) {
+            throw new IllegalArgumentException("Username must not be empty");
+        }
+        if (username.indexOf(':') >= 0) {
+            throw new IllegalArgumentException("Basic username must not contain ':'");
+        }
         String credentials = username + ":" + password;
         this.encodedCredentials = Base64.getEncoder()
                 .encodeToString(credentials.getBytes(StandardCharsets.UTF_8));
