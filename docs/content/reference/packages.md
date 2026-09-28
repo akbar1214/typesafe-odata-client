@@ -1,109 +1,70 @@
 # Package Structure
 
-Module organization and dependency graph.
+The repository is split into a parser/generator, a runtime, a Maven plugin, and generated-client tests.
 
-## Modules
-
-```
+```text
 odata-codegen/
-├── odata-codegen-core/        # Parser + Code Generator
-├── odata-codegen-runtime/     # Runtime library
-├── odata-codegen-maven-plugin/ # Build-time code generation
-└── docs/                     # Documentation (MkDocs)
+├── odata-codegen-core/
+├── odata-codegen-runtime/
+├── odata-codegen-maven-plugin/
+└── odata-codegen-test/
 ```
 
-## Dependency Graph
+## Dependency Direction
 
-```
+```text
 odata-codegen-maven-plugin
-    └── odata-codegen-core
+    -> odata-codegen-core
+
+generated code
+    -> odata-codegen-runtime
 
 odata-codegen-runtime
-    └── (no internal dependencies)
-
-Generated code
-    └── odata-codegen-runtime
+    -> Jackson and SLF4J (no internal module dependency)
 ```
 
-## odata-codegen-core
+`odata-codegen-core` uses the JDK StAX API and SLF4J. Its test scope also uses the runtime and Jackson to compile and deserialize generated fixtures.
 
-Parser and code generator.
+## Runtime Packages
 
-### Contents
+- `entity/` — `Context`, `ContextPath`, `OperationPath`, `SchemaInfo`, model interfaces, and entity/literal helpers
+- `query/` — property, filter, order, collection/navigation builder, and `$apply` expression types; generated model classes supply their own `Selector` and `Filterable` views
+- `http/` — `HttpTransport`, `HttpRequest`, `HttpResponse`, `HttpInterceptor`, `HttpMethod`, `HttpHeaders`, and `JdkHttpTransport`
+- `auth/` — `AuthProvider`, bearer, API-key, and basic authentication providers
+- `serialization/` — `Serializer`, `JacksonSerializer`, and `DynamicPropertyConverter`
+- `paging/` — `CollectionPage`
+- `batch/` — `BatchOperation`, `Changeset`, `BatchRequest`, `BatchResponse`, and `BatchResult`
+- `exception/` — typed OData exceptions and `ODataError`
+- `client/` — synchronous execution helpers used by generated requests
+- `internal/` — `MultipartHelper`, an internal multipart implementation detail
 
-- `model/` — CsdlModel records (29 types)
-- `parser/` — StaxCsdlParser
-- `generator/` — 7 code generators
-- `test/` — Parser and generator tests
+The runtime has no Apache HttpClient or OkHttp dependency. The built-in transport uses `java.net.http.HttpClient`; another transport is application-provided.
 
-### Dependencies
+## Generated Packages
 
-- `javax.xml.stream` (JDK built-in)
-- No external dependencies
+For a base package `com.example.trippin`:
 
-## odata-codegen-runtime
+- `entity/` — entity model classes
+- `complex/` — complex model classes
+- `enums/` — generated enums implementing `ODataEnumValue`
+- `entity/request/` — keyed entity request classes
+- `collection/request/` — collection query and CRUD request classes
+- `operation/` — function/action import and bound-operation request classes
+- `container/` — generated service-container entry points
+- `schema/` — aggregate `SchemaInfo` registry classes
 
-Runtime library for generated code.
-
-### Contents
-
-- `entity/` — Context, ContextPath, SchemaInfo
-- `query/` — Expression hierarchy (StringProperty, NumberProperty, BooleanProperty, DateTimeProperty, GuidProperty, EnumProperty, CollectionProperty, FilterExpression)
-- `http/` — HttpTransport, HttpRequest, HttpResponse, JdkHttpTransport
-- `auth/` — AuthProvider implementations
-- `serialization/` — JacksonSerializer, DynamicPropertyConverter
-- `paging/` — CollectionPage
-- `batch/` — BatchOperation, BatchRequest, BatchResponse, MultipartHelper
-- `exception/` — Typed exceptions (ODataException hierarchy)
-- `client/` — EntityOperations (HTTP execution)
-
-### Dependencies
-
-- Jackson (optional, default serializer)
-- Apache HttpClient (optional)
-- Java 17+
-
-## odata-codegen-maven-plugin
-
-Maven plugin for code generation.
-
-### Contents
-
-- `GenerateMojo.java` — Maven goal
-
-### Dependencies
-
-- `maven-core`
-- `odata-codegen-core`
-
-## Generated Code
-
-Code generated from CSDL metadata.
-
-### Contents
-
-- `entity/` — Immutable entity classes (final, copy-on-write, `with*()` / `Builder`)
-- `complex/` — Immutable complex type classes
-- `enums/` — Java enums (with `fromValue` / `fromJson` / `fromFlags`)
-- `request/` — Collection and entity request classes (type-safe query, CRUD, `$ref`, media)
-- `container/` — Client entry points (e.g., `DefaultContainer`)
-- `schema/` — SchemaInfo implementations (`SchemaInfo`)
-
-### Dependencies
-
-- `odata-codegen-runtime`
-- Jackson (optional)
-- Apache HttpClient (optional)
+Generated classes use the runtime's HTTP and serialization APIs and Jackson annotations on model setters. The default serializer is Jackson; replacing it requires honoring that generated model contract.
 
 ## Versioning
 
-All modules share the same version number:
+All repository modules currently use:
 
-```
-{{ odata_client_version }}
+```text
+0.1.0-SNAPSHOT
 ```
 
 ## What's Next
 
-- [Contributing](../contributing.md) — How to contribute
-- [Release Notes](../release-notes.md) — What's new
+- [Contributing](../contributing.md)
+- [Release Notes](../release-notes.md)
+- [Maven Plugin Configuration](maven-plugin.md)

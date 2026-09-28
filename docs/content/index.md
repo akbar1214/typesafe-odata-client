@@ -1,92 +1,74 @@
 # OData Codegen
 
-_A type-safe OData v4 client generator for Java.
-Immutable entities, compile-time validated queries, pluggable HTTP._
+_A type-safe OData v4 client generator for Java. Generated models, request objects, and compile-time checked query expressions._
 
-!!! success "Production-Ready Pipeline"
-
-    Parser, code generator, runtime, Maven plugin, and live integration tests against TripPin, Northwind, and OData Demo services — all working. **285 tests passing.**
+OData Codegen reads a service's CSDL metadata and generates Java sources for entities, complex types, enums, collection requests, entity requests, operation requests, containers, and a per-package `SchemaInfo` registry.
 
 ## Why OData Codegen
 
-Most OData clients for Java force you into string-based queries, mutable entities, and tight coupling to specific HTTP libraries. OData Codegen generates clean, immutable Java classes from OData CSDL metadata with compile-time safety at every step:
-
-* **Type-safe queries** — `Person.FIRST_NAME.equalTo("Scott")` not `filter("FirstName eq 'Scott'")`. Typos caught at compile time.
-* **Truly immutable entities** — All fields `final`, copy-on-write semantics. No mutable state, no null fields, no `@JacksonInject` coupling.
-* **Pluggable HTTP** — Use the built-in JDK `HttpClient` transport or any custom `HttpTransport` implementation. The transport layer is async (`CompletableFuture`); generated request methods are synchronous on top of it.
-* **Pluggable serialization** — Jackson by default, but swap in Gson or Jakarta JSON-B. Generated entities are annotation-free.
-* **Typed exceptions** — `NotFoundException`, `UnauthorizedException`, `RateLimitException` — catch what matters, not generic `ClientException`.
-* **Zero runtime overhead** — Code generated at build time. No reflection, no proxies, no magic.
-* **Entity inheritance** — Subtypes emit real Java `extends` clauses; base-type query predicates type-check against subtypes.
-* **Media streams** — `HasStream` entities and `Edm.Stream` named properties get `stream*` / `set*` accessors on the entity request.
-* **OpenType dynamic properties** — `OpenType="true"` types capture unknown JSON fields into `unmappedFields` and round-trip them on writes.
+- **Type-safe queries** — `Person.FIRST_NAME.equalTo("Scott")` is checked by the generated property type instead of being assembled as an unchecked string.
+- **Generated model and request layers** — model objects hold data; generated request objects own HTTP execution state and navigation paths.
+- **Pluggable HTTP** — `HttpTransport.submit(...)` and `stream(...)` return `CompletableFuture` values. `JdkHttpTransport` is the built-in implementation.
+- **Pluggable serialization** — `JacksonSerializer` is the default. Generated model setters use Jackson annotations, so a replacement serializer must handle that model contract.
+- **Typed errors** — HTTP status codes map to specific `ODataException` subclasses, and parsed service errors are available from `getError()`.
+- **Inheritance and polymorphism** — CSDL inheritance becomes Java inheritance; generated request reads resolve `@odata.type` through the generated `SchemaInfo` registry.
+- **Media and open types** — media requests and dynamic open-type properties are generated when the metadata declares them.
 
 ## Quick Example
 
 ```java
-// 1. Create context
 Context ctx = Context.builder()
     .baseUrl("https://services.odata.org/V4/TripPinService")
     .build();
 
-// 2. Create client
 DefaultContainer client = new DefaultContainer(ctx);
 
-// 3. Type-safe query
 CollectionPage<Person> people = client.people()
-    .filter(Person.FIRST_NAME.equalTo("Scott")
-        .and(Person.LAST_NAME.startsWith("K")))
-    .select(Person.FIRST_NAME, Person.LAST_NAME)
-    .orderBy(Person.LAST_NAME.asc())
+    .filter(p -> p.FIRST_NAME.equalTo("Scott"))
+    .select(p -> p.FIRST_NAME, p -> p.LAST_NAME)
+    .orderBy(p -> p.LAST_NAME.asc())
     .top(10)
     .get();
 
-// 4. Navigate (with nested $expand options)
-PersonEntityRequest req = client.people("scottketchum");
-Person scott = req.get();
-CollectionPage<Trip> trips = req.trips()
-    .filter(Trip.BUDGET.greaterThan(500.0f))
-    .get();
+PersonEntityRequest personRequest = client.people("scottketchum");
+Person person = personRequest.get();
 
-// 5. Nested $expand: expand trips, selecting only a few fields and top 5
-CollectionPage<Person> peopleWithTrips = client.people()
-    .expand(Person.TRIPS.select(Person.FIRST_NAME).top(5))
+CollectionPage<Trip> trips = personRequest.trips()
+    .filter(t -> t.BUDGET.greaterThan(500.0f))
     .get();
 ```
 
-New to OData? Start with [OData for Newcomers](concepts/odata-for-newcomers.md).
+`PersonEntityRequest.get()` returns the generated entity type directly. It is not an `Optional`; a service that returns an empty body can still produce `null` for that direct return value.
 
-Ready? [Install the Maven plugin](getting-started.md), then run [your first query](tutorial/first-query.md).
+New to OData? Start with [OData for Newcomers](concepts/odata-for-newcomers.md). To install the plugin, see [Getting Started](getting-started.md).
 
 ## Architecture
 
-```
+```text
 odata-codegen/
-├── odata-codegen-core/        # Parser + Code Generator
-│   ├── model/                # CsdlModel (records)
-│   ├── parser/               # StAX CSDL parser
-│   └── generator/            # Entity, Request, Container generators
-├── odata-codegen-runtime/     # Runtime library
-│   ├── entity/               # Context, ContextPath, SchemaInfo
-│   ├── query/                # Expression builders (StringProperty, etc.)
-│   ├── http/                 # HttpTransport + JdkHttpTransport + JdkHttpTransport
-│   ├── auth/                 # AuthProvider implementations
-│   ├── serialization/        # JacksonSerializer
-│   ├── paging/               # CollectionPage<T>
-│   └── exception/            # Typed exception hierarchy
-└── odata-codegen-maven-plugin/ # Build-time code generation
+├── odata-codegen-core/       # CSDL parser, model records, generators
+├── odata-codegen-runtime/    # Runtime used by generated code
+├── odata-codegen-maven-plugin/
+└── odata-codegen-test/       # Generated-client tests
 ```
 
-## Status
+The runtime depends on Jackson and SLF4J. The built-in HTTP implementation uses the JDK `HttpClient`; no Apache or OkHttp transport is bundled.
 
-- **285 tests passing** — Parser, generator, runtime, and live integration tests
-- **Full pipeline** — CSDL → generated client → HTTP execution
-- **Multiple services tested** — TripPin, Northwind, and OData Demo (incl. inheritance hierarchies)
-- **Maven plugin working** — `odata-codegen:generate` goal in the `generate-sources` phase
+## Documentation
+
+- [Getting Started](getting-started.md)
+- [How-to Guides](how-to/index.md)
+- [Concepts](concepts/code-generation.md)
+- [Reference](reference/maven-plugin.md)
+- [Release Notes](release-notes.md)
+
+## Project Status
+
+The default Maven test run is hermetic and excludes live-service tests. Use the `live-tests` profile when running the public TripPin, Northwind, and OData Demo integration suites.
 
 ## Getting Help
 
-- **New to OData?** — [OData for Newcomers](concepts/odata-for-newcomers.md)
-- **Questions** — [GitHub Discussions](https://github.com/odata-codegen/odata-codegen/discussions)
-- **Bug reports** — [GitHub Issues](https://github.com/odata-codegen/odata-codegen/issues)
-- **OData reference** — See [ODATA.md](https://github.com/odata-codegen/odata-codegen/blob/main/ODATA.md)
+- [OData for Newcomers](concepts/odata-for-newcomers.md)
+- [GitHub Discussions](https://github.com/akbar1214/typesafe-odata-client/discussions)
+- [GitHub Issues](https://github.com/akbar1214/typesafe-odata-client/issues)
+- [OData reference](https://github.com/akbar1214/typesafe-odata-client/blob/main/ODATA.md)

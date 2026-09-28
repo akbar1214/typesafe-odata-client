@@ -5,6 +5,10 @@ system query option. `$compute` is **not** a standalone option — it is a
 transformation *inside* `$apply`. Both are surfaced on the generated collection
 request via `apply(...)`, and free-text `$search` via `search(...)`.
 
+The examples below assume a generated `Product` entity set and a container accessor named
+`products()`, as in the OData Demo fixture. Use the entity-set and container names from
+your own metadata.
+
 ## Free-Text Search (`$search`)
 
 ```java
@@ -37,14 +41,14 @@ CollectionPage<Product> totals = client.products()
 client.products()
     .apply(ApplyExpression.builder()
         .filter(Product.PRICE.greaterThan(10.0))   // typed FilterExpression
-        .groupBy(Product.CATEGORY)                  // typed PropertyExpression
+        .groupBy(Product.NAME)                     // typed PropertyExpression
         .aggregate("Price with average as AvgPrice"))
     .get();
 ```
 
 ## Compute Derived Properties (`$compute`)
 
-`compute(...)` adds calculated properties you can then select, filter, or order by:
+`compute(...)` appends a calculated-property transformation to the pipeline:
 
 ```java
 // compute(Price mul 2 as DoublePrice)
@@ -53,6 +57,8 @@ client.products()
         .compute("Price mul 2 as DoublePrice"))
     .get();
 ```
+
+The builder emits the transformation text, but it does not synthesize a generated Java property constant for `DoublePrice`; the typed request API therefore cannot refer to that computed name as though it were a declared model property.
 
 ## Builder Transformations
 
@@ -71,7 +77,7 @@ For transformations the builder doesn't model, pass the raw OData string:
 
 ```java
 client.products()
-    .apply("groupby((Category),aggregate(Price with sum as Total))")
+    .apply("groupby((Category))/aggregate(Price with sum as Total)")
     .get();
 
 // or via the interface:

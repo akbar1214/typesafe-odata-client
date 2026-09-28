@@ -1,8 +1,7 @@
 site_name: OData Codegen
-site_description: A type-safe OData v4 client generator for Java — immutable entities, compile-time validated queries, pluggable HTTP
-site_url: https://odata-codegen.dev/
-repo_url: https://github.com/odata-codegen/odata-codegen
-repo_name: odata-codegen/odata-codegen
+site_description: A type-safe OData v4 client generator for Java — immutable-by-contract models, compile-time validated queries, pluggable HTTP
+repo_url: https://github.com/akbar1214/typesafe-odata-client
+repo_name: akbar1214/typesafe-odata-client
 edit_uri: edit/main/docs/content/
 
 docs_dir: content
@@ -27,7 +26,7 @@ nav:
     - Handle ETags and Concurrency: how-to/etag.md
     - Manage Navigation Links ($ref): how-to/ref.md
     - Add Authentication: how-to/auth.md
-    - Use Custom HTTP Transport: how-to/custom-transport.md
+    - Use a Custom HTTP Transport: how-to/custom-transport.md
     - Handle Errors Gracefully: how-to/error-handling.md
     - Batch Requests: how-to/batch.md
   - Concepts:
@@ -103,5 +102,4 @@ extra:
     default: latest
   social:
     - icon: fontawesome/brands/github
-      link: https://github.com/odata-codegen/odata-codegen
-  odata_client_version: 0.1.0-SNAPSHOT
+      link: https://github.com/akbar1214/typesafe-odata-client

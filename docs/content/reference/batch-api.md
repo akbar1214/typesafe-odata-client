@@ -1,217 +1,147 @@
-# Batch API Reference
+# Batch API
 
-Complete API reference for batch request support.
+The runtime batch API models an OData v4 `multipart/mixed` request. It supports standalone operations, atomic changesets, explicit or generated Content-IDs, URL references, and typed response views.
 
-## Changeset
-
-A group of operations executed atomically by the server. All operations in a changeset
-succeed or fail together.
-
-### Fields
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `operations` | `List<BatchOperation>` | Operations in the changeset (immutable) |
-
-### Constructor
+## `Changeset`
 
 ```java
-Changeset cs = new Changeset(List.of(
-    BatchOperation.post("Customers", customerJson),
-    BatchOperation.post("Orders", orderJson)
-));
+public record Changeset(List<BatchOperation> operations)
 ```
 
-## BatchOperation
+A changeset must contain at least one operation, cannot contain GET, and rejects duplicate explicit Content-IDs. Its operation list is immutable.
 
-A single operation within a batch.
+## `BatchOperation`
+
+```java
+public record BatchOperation(
+    HttpMethod method,
+    String url,
+    Map<String, List<String>> headers,
+    byte[] body,
+    String contentId
+)
+```
+
+Headers and body bytes are defensively copied. URLs may be absolute HTTP(S) URLs or service-root-relative request targets; `BatchRequest` resolves relative targets before encoding.
 
 ### Factory Methods
 
-| Method | Description |
-|--------|-------------|
-| `get(String url)` | Create a GET request |
-| `get(String url, Map<String, List<String>> headers)` | GET with custom headers |
-| `post(String url, byte[] body)` | Create a POST request |
-| `post(String url, byte[] body, Map<String, List<String>> headers)` | POST with custom headers |
-| `patch(String url, byte[] body)` | Create a PATCH request |
-| `patch(String url, byte[] body, String etag)` | PATCH with ETag |
-| `put(String url, byte[] body)` | Create a PUT request |
-| `delete(String url)` | Create a DELETE request |
+| Method | Result |
+|--------|--------|
+| `get(url)` | GET operation |
+| `get(url, headers)` | GET with custom headers |
+| `get(url, contentId)` | GET with explicit Content-ID |
+| `getWithContentId(url, contentId)` | Explicit GET Content-ID |
+| `post(url, body)` | JSON-compatible POST operation |
+| `post(url, body, headers)` | POST with custom headers |
+| `post(url, body, contentId)` | POST with explicit Content-ID |
+| `postWithContentId(url, body, contentId)` | Explicit POST Content-ID |
+| `postWithContentType(url, body, contentType)` | POST with a media type |
+| `patch(url, body)` | PATCH operation |
+| `patch(url, body, etag)` | PATCH with `If-Match` |
+| `patch(url, body, contentId, etag)` | Conditional PATCH with explicit ID |
+| `put(url, body)` | PUT operation |
+| `put(url, body, headers)` | PUT with custom headers |
+| `put(url, body, contentId)` | PUT with explicit ID |
+| `putWithContentId(url, body, contentId)` | Explicit PUT Content-ID |
+| `media(url, body, contentType)` | Binary PUT with the supplied content type |
+| `binary(url, body, contentType)` | Alias for `media` |
+| `putMedia(...)` / `postMedia(...)` | Related media factories |
+| `delete(url)` | DELETE operation |
+| `delete(url, headers)` | DELETE with custom headers |
+| `delete(url, contentId)` | DELETE with explicit ID |
+| `deleteWithContentId(url, contentId)` | Explicit DELETE Content-ID |
 
-### Fields
+`withContentId(String)` returns a copy with an explicit ID. `withUrl(String)` returns a copy with a new request target.
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `method` | `HttpMethod` | HTTP method (GET, POST, PATCH, PUT, DELETE) |
-| `url` | `String` | Relative or absolute URL |
-| `headers` | `Map<String, List<String>>` | Request headers |
-| `body` | `byte[]` | Request body (null for GET/DELETE) |
-
-## BatchRequest
-
-Collects operations and executes them as a single HTTP request.
-
-### Methods
-
-| Method | Returns | Description |
-|--------|---------|-------------|
-| `add(BatchOperation)` | `BatchRequest` | Add an operation (fluent) |
-| `addChangeset(Changeset)` | `BatchRequest` | Add an atomic changeset (fluent) |
-| `execute()` | `BatchResponse` | Execute synchronously |
-| `executeAsync()` | `CompletableFuture<BatchResponse>` | Execute asynchronously |
-| `size()` | `int` | Number of operations (flattened across changesets) |
-| `isEmpty()` | `boolean` | Whether no operations are queued |
-
-### Usage
-
-```java
-// Standalone operations
-context.batch()
-    .add(BatchOperation.get("People('scott')"))
-    .add(BatchOperation.get("Airlines"))
-    .execute();
-
-// With changeset (atomic mutations)
-Changeset cs = new Changeset(List.of(
-    BatchOperation.post("Customers", customerJson),
-    BatchOperation.patch("Orders(1)", orderUpdateJson, "W/\"etag\"")
-));
-
-context.batch()
-    .addChangeset(cs)
-    .add(BatchOperation.get("Customers"))
-    .execute();
-```
-
-## BatchResponse
-
-Result of a batch execution.
-
-### Methods
-
-| Method | Returns | Description |
-|--------|---------|-------------|
-| `get(int index)` | `BatchResult<?>` | Get result by index |
-| `get(int index, Class<T> type)` | `BatchResult<T>` | Get result with typed deserialization |
-| `get(int index, Type type)` | `BatchResult<T>` | Get result with generic type |
-| `getAll(Class<T> type)` | `List<BatchResult<T>>` | Get all results with type |
-| `size()` | `int` | Number of results |
-| `isEmpty()` | `boolean` | Whether no results |
-| `iterator()` | `Iterator<BatchResult<?>>` | Iterate over results |
-
-## BatchResult\<T\>
-
-Individual result within a batch response.
-
-### Methods
-
-| Method | Returns | Description |
-|--------|---------|-------------|
-| `statusCode()` | `int` | HTTP status code |
-| `headers()` | `Map<String, List<String>>` | Response headers |
-| `body()` | `byte[]` | Raw response body |
-| `isSuccessful()` | `boolean` | True if 2xx status |
-| `isDeleted()` | `boolean` | True if 204 No Content |
-| `getText()` | `String` | Body as UTF-8 string |
-| `getEntity(Serializer)` | `T` | Deserialize body to type |
-| `getHeader(String name)` | `String` | Get header value |
-
-## Context.batch()
-
-Creates a new `BatchRequest` bound to the context.
+## `BatchRequest`
 
 ```java
 BatchRequest batch = context.batch();
+batch.add(operation);
+batch.addChangeset(changeset);
+batch.continueOnError();
+BatchResponse response = batch.execute();
+CompletableFuture<BatchResponse> future = batch.executeAsync();
 ```
 
-## Generated Request Methods
+`size()` counts operations inside changesets, not just top-level entries. `continueOnError()` adds `Prefer: continue-on-error=true` to the outer request.
 
-### EntityRequest
+The encoder assigns Content-IDs to changeset operations in one batch-wide sequence. `$1`, `$2`, and similar references are resolved only to earlier operations. Explicit IDs are preserved, and duplicate or unresolved references fail during request preparation.
 
-| Method | Returns | Description |
-|--------|---------|-------------|
-| `toBatchOperation()` | `BatchOperation` | GET the entity (with the request's `$select`/`$expand`) |
-| `patchToBatchOperation(T entity)` | `BatchOperation` | PATCH the entity — only the tracked `changedFields`, like `patch()` |
-| `patchToBatchOperation(T entity, String etag)` | `BatchOperation` | Conditional PATCH (`If-Match`) |
-| `deleteToBatchOperation()` | `BatchOperation` | DELETE the entity |
+## `BatchResponse`
 
-### CollectionRequest
-
-| Method | Returns | Description |
-|--------|---------|-------------|
-| `toBatchOperation()` | `BatchOperation` | GET the collection with current query |
-
-## Multipart Format
-
-### Request Format (Standalone Operations)
-
-```
-POST /V4/TripPinService/$batch HTTP/1.1
-Content-Type: multipart/mixed; boundary={boundary}
-
---{boundary}
-Content-Type: application/http
-Content-Transfer-Encoding: binary
-
-GET https://services.odata.org/V4/TripPinService/People('scottketchum') HTTP/1.1
-
---{boundary}--
+```java
+public class BatchResponse implements Iterable<BatchResult<?>> {
+    public int size();
+    public boolean isEmpty();
+    public BatchResult<?> get(int index);
+    public List<BatchResult<?>> results();
+    public List<BatchResult<?>> wireOrder();
+    public List<BatchResult<?>> wireResults();
+    public BatchResult<?> getByContentId(String contentId);
+    public BatchResult<?> getByRelatedContentId(String contentId);
+    public <T> BatchResult<T> get(int index, Class<T> type);
+    public <T> List<BatchResult<T>> getAll(Class<T> type);
+}
 ```
 
-### Request Format (With Changeset)
+`get(index)` is the submitted-operation view. `wireOrder()` is the actual response-part view. Standalone parts without explicit IDs are matched by relative wire order; keyed parts and changeset parts are correlated by Content-ID.
 
-```
-POST /V4/TripPinService/$batch HTTP/1.1
-Content-Type: multipart/mixed; boundary=batch_1
+`getByContentId(...)` accepts a real ID or a related ID and returns `null` when no submitted operation has that ID. `getByRelatedContentId(...)` is an alias. `wireResults()` is an alias for `wireOrder()`. Null and blank lookup arguments are rejected.
 
---batch_1
-Content-Type: multipart/mixed; boundary=cs_1
+### Typed Entity Reads
 
---cs_1
-Content-Type: application/http
-Content-Transfer-Encoding: binary
-Content-ID: 1
-
-POST https://services.odata.org/V4/TripPinService/Customers HTTP/1.1
-Content-Type: application/json
-
-{"Name":"Acme"}
-
---cs_1
-Content-Type: application/http
-Content-Transfer-Encoding: binary
-Content-ID: 2
-
-POST https://services.odata.org/V4/TripPinService/Orders HTTP/1.1
-Content-Type: application/json
-
-{"CustomerId":1}
-
---cs_1--
-
---batch_1
-Content-Type: application/http
-Content-Transfer-Encoding: binary
-
-GET https://services.odata.org/V4/TripPinService/Customers HTTP/1.1
-
---batch_1--
+```java
+Person person = response.getEntity(
+    0,
+    Person.class,
+    context.serializer(),
+    com.example.trippin.schema.SchemaInfo.INSTANCE);
 ```
 
-### Response Format
+The overload uses the generated `SchemaInfo` registry for `@odata.type` resolution and applies a response `ETag` header when the deserialized entity has no body ETag. The `get(index, type)` and `getAll(type)` views preserve all `BatchResult` metadata.
 
+## `BatchResult`
+
+```java
+public record BatchResult<T>(
+    int statusCode,
+    Map<String, List<String>> headers,
+    byte[] body,
+    Type targetType,
+    String contentId,
+    Set<String> relatedContentIds,
+    String contentIdGroup,
+    int wireIndex
+)
 ```
-HTTP/1.1 200 OK
-Content-Type: multipart/mixed; boundary={boundary}
 
---{boundary}
-Content-Type: application/http
-Content-Transfer-Encoding: binary
+Useful methods include:
 
-HTTP/1.1 200 OK
-Content-Type: application/json
+- `isSuccessful()` and `isDeleted()`
+- `getText()` for UTF-8 text
+- `getHeader(String)` with case-insensitive lookup
+- `getEntity(Serializer)` and `getEntity(Serializer, SchemaInfo)`
+- `withType(Type)`, `withWireIndex(int)`, and metadata-preserving copy methods
+- `relatedContentIdSet()` / `relatedIds()`
+- `groupId()` / `contentIdGroupId()`
+- `wireOrderIndex()`
 
-{"UserName":"scottketchum",...}
---{boundary}--
-```
+A failed changeset can produce one non-success part for several submitted operations. In that case the correlated result is repeated at each submitted index; `relatedContentIds()` preserves the represented IDs and `contentIdGroup()` is the runtime's internal correlation-group identifier.
+
+## Multipart Contract
+
+The outer request is `multipart/mixed`. Each standalone operation is an `application/http` part. A changeset is a nested `multipart/mixed` part whose operations are encoded as `application/http` parts with `Content-ID` headers. Response parsing requires a valid boundary, line-anchored delimiters, and complete closing boundaries; malformed parts throw `ODataException`.
+
+The runtime accepts quoted, case-varying boundary parameters and preserves binary response bodies byte-for-byte.
+
+## Errors and Async
+
+A non-2xx outer response is converted with `ODataException.fromResponse(...)`. Individual operation failures are returned as `BatchResult` values. `executeAsync()` returns a future and reports preparation, transport, parsing, and correlation failures through that future.
+
+## What's Next
+
+- [HTTP Transport](http-transport.md)
+- [Error Handling](error-handling.md)
+- [OData URL Patterns](odata-urls.md)

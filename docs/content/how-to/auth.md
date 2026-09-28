@@ -15,7 +15,7 @@ DefaultContainer client = new DefaultContainer(ctx);
 
 ## API Key Authentication
 
-### Using Query Parameter
+### Default Header
 
 ```java
 Context ctx = Context.builder()
@@ -26,7 +26,7 @@ Context ctx = Context.builder()
 DefaultContainer client = new DefaultContainer(ctx);
 ```
 
-### Using Header
+### Custom Header
 
 ```java
 Context ctx = Context.builder()
@@ -91,5 +91,5 @@ Context ctx = Context.builder()
 
 ## What's Next
 
-- [Use Custom HTTP Transport](custom-transport.md) — OkHttp, Apache, or your own
+- [Use a Custom HTTP Transport](custom-transport.md) — Implement `HttpTransport` with any HTTP client
 - [Handle Errors Gracefully](error-handling.md) — Error handling strategies
