@@ -9,7 +9,7 @@ package io.github.akbarhusain.odata.runtime.query;
  *
  * @param <E> the source entity type the expansion is scoped to
  */
-public sealed interface Expandable<E> permits NavQuery, CollectionProperty {
+public sealed interface Expandable<E> permits NavQuery, CollectionProperty, NavCollectionProperty {
 
     /** The OData {@code $expand} segment this value renders to. */
     String toODataExpand();

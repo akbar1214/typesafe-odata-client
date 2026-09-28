@@ -5,6 +5,9 @@ public final class BooleanProperty<E> implements PropertyExpression<E, Boolean> 
     private final Class<E> entityType;
 
     public BooleanProperty(String edmName, Class<E> entityType) {
+        if (edmName == null || edmName.isBlank()) {
+            throw new IllegalArgumentException("boolean property name must not be blank");
+        }
         this.edmName = edmName;
         this.entityType = entityType;
     }
@@ -23,12 +26,6 @@ public final class BooleanProperty<E> implements PropertyExpression<E, Boolean> 
 
     @Override
     public OrderExpression<E, Boolean> desc() { return cast(new OrderedProperty(edmName, false)); }
-
-    @Override
-    public OrderExpression<E, Boolean> nullsFirst() { return cast(new OrderedProperty(edmName, true, true, false)); }
-
-    @Override
-    public OrderExpression<E, Boolean> nullsLast() { return cast(new OrderedProperty(edmName, true, false, true)); }
 
     @SuppressWarnings("unchecked")
     private OrderExpression<E, Boolean> cast(OrderExpression<?, ?> expr) {
