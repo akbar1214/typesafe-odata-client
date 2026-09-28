@@ -104,12 +104,24 @@ public class StaxCsdlParser {
             schemas = fixupCrossSchemaAliases(schemas);
             validateTypeDefinitionCycles(schemas);
 
-            return new CsdlModel(mergeContainerInheritance(schemas), List.copyOf(warnings));
+            CsdlModel result = new CsdlModel(mergeContainerInheritance(schemas), List.copyOf(warnings));
+            try {
+                reader.close();
+            } catch (XMLStreamException e) {
+                // Close BEFORE returning: CsdlModel snapshots the warning list in its
+                // compact constructor, so a warning appended in a finally would never reach
+                // the caller. Re-wrap the model with the warning included.
+                log.warn("Failed to close the XML event reader: " + e.getMessage());
+                java.util.List<String> withClose = new ArrayList<>(warnings);
+                withClose.add("Failed to close the XML event reader: " + e.getMessage());
+                result = new CsdlModel(result.schemas(), List.copyOf(withClose));
+            }
+            return result;
         } finally {
             try {
                 reader.close();
             } catch (XMLStreamException e) {
-                warnings.add("Failed to close the XML event reader: " + e.getMessage());
+                log.warn("Failed to close the XML event reader: " + e.getMessage());
             }
         }
     }
@@ -306,11 +318,13 @@ public class StaxCsdlParser {
      *
      * <p>An alias is a prefix substitution for the schema that DECLARES it, and it never
      * shadows a real namespace. Keying the rewrite on the first dot-separated segment
-     * alone therefore corrupts a legitimate fully-qualified reference whose leading
-     * segment happens to equal some schema's alias: with
+     * alone therefore corrupts a legitimate fully-qualified reference in two ways: with
      * {@code Namespace="Contoso.Model" Alias="Contoso"}, another schema's
-     * {@code Contoso.Model.Address} was rewritten to {@code Contoso.Model.Model.Address}.
-     * A name that already resolves to a declared namespace is left untouched.
+     * {@code Contoso.Model.Address} became {@code Contoso.Model.Model.Address}; and when
+     * the alias prefix is ALSO a declared namespace of its own
+     * ({@code Namespace="Contoso"} alongside the above), a reference
+     * {@code Contoso.Account} was redirected to {@code Contoso.Model.Account}. Both are
+     * guarded by leaving a reference that resolves without the alias alone.
      */
     private String applyAliasMap(String inner, int dot) {
         String alias = inner.substring(0, dot);
@@ -327,14 +341,28 @@ public class StaxCsdlParser {
         if (inner.startsWith(ns)) {
             return null;
         }
+        // The alias prefix is ITSELF a declared namespace of some other schema, so `alias`
+        // is being used as a real namespace qualifier here and the reference is already
+        // fully qualified. Rewriting it would redirect a legitimate cross-schema reference
+        // into a namespace it was never written against. When both readings are possible
+        // the qualified one wins: an alias is only ever a shorthand, and a reference that
+        // resolves without it is not using it.
+        if (isDeclaredNamespace(alias)) {
+            return null;
+        }
         return rewritten;
     }
 
     /**
-     * True when {@code candidate} is the namespace of some schema in this document. An
-     * alias is a prefix substitution for the schema that DECLARES it and never shadows a
-     * real namespace, so this distinguishes a genuine alias reference from a fully
-     * qualified name whose first segment happens to equal an alias.
+     * True when {@code candidate} is the namespace of some schema in this document, i.e. a
+     * real namespace rather than an alias.
+     *
+     * <p>An alias is a prefix substitution for the schema that DECLARES it and never
+     * shadows a real namespace. The alias prefix can itself be a declared namespace of a
+     * DIFFERENT schema ({@code Namespace="Contoso"} alongside
+     * {@code Namespace="Contoso.Model" Alias="Contoso"}), and then a reference using it is
+     * already fully qualified. Without this check the rewrite would redirect a legitimate
+     * cross-schema reference into a namespace it was never written against.
      */
     private boolean isDeclaredNamespace(String candidate) {
         return declaredNamespaces.contains(candidate);

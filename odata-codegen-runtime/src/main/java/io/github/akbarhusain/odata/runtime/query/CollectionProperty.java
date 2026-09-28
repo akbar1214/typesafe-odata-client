@@ -348,6 +348,15 @@ public class CollectionProperty<E, T, F, Sel> {
      * constant/alias-free predicates such as {@code true} are not rejected.
      */
     private static boolean referencesUnqualifiedPath(String expression, String baseAlias, String alias) {
+        // The aliases a nested lambda actually introduces in THIS expression, i.e. the
+        // identifier immediately following each "any(" / "all(". Collected here rather
+        // than assumed from the alias shape, so a depth-shaped token that nothing binds is
+        // still caught.
+        java.util.Set<String> boundAliasesInScope = new java.util.HashSet<>();
+        java.util.regex.Matcher binding = NESTED_BINDING.matcher(expression);
+        while (binding.find()) {
+            boundAliasesInScope.add(binding.group(1));
+        }
         int i = 0;
         while (i < expression.length()) {
             char c = expression.charAt(i);
@@ -381,7 +390,14 @@ public class CollectionProperty<E, T, F, Sel> {
                 continue; // namespace/enum segment
             }
             if (prev == '$') {
-                continue; // system path segment: $count, $filter, ... (URL Conventions §11.2.4.3)
+                // A '$'-prefixed SYSTEM SEGMENT: $count, $filter, $it, $this, $root (URL
+                // Conventions §11.2.4.3). Only the ones the grammar defines as implicit
+                // variables or path segments are accepted — an arbitrary $Name is not a
+                // legal OData token and would smuggle an unqualified path past this guard.
+                if (SYSTEM_SEGMENTS.contains(token)) {
+                    continue;
+                }
+                return true;
             }
             if (i < expression.length() && expression.charAt(i) == '/') {
                 // any path root is qualified (x/Name, x1/Value, x/Names/$count, ...) — consume
@@ -394,11 +410,14 @@ public class CollectionProperty<E, T, F, Sel> {
                 }
                 continue;
             }
-            if (isLambdaAlias(token, baseAlias, alias)) {
-                // The bound variable itself, used as a bare path (`x eq 'a'`). Nested
-                // lambdas inside the predicate render their own depth alias
-                // (`any(x1: x1 eq 'a')`), so the whole depth family counts as a bound
-                // variable, not just this level's alias.
+            if (token.equals(alias) || boundAliasesInScope.contains(token)) {
+                // The bound variable itself, used as a bare path (`x eq 'a'`). A nested
+                // lambda in this predicate introduces its own depth alias
+                // (`any(x1: x1 eq 'a')`), and the outer guard scans that rendered text, so
+                // the aliases INTRODUCED by a nested any/all in this expression count as
+                // bound. A depth-shaped name that no nested lambda actually binds is not
+                // accepted — `x1 eq 'a'` in a predicate with no inner lambda is invalid
+                // OData, and accepting it would weaken the check this guard exists for.
                 continue;
             }
             int j = i;
@@ -420,24 +439,16 @@ public class CollectionProperty<E, T, F, Sel> {
     }
 
     /**
-     * True when {@code token} names a lambda-bound variable for this predicate: this
-     * level's alias, or any nested depth alias built from the base alias
-     * ({@code x}, {@code x1}, {@code x2}, ...).
+     * The identifier bound by a nested lambda: the segment after "any(" or "all(" up to
+     * the ":" that introduces the predicate.
      */
-    private static boolean isLambdaAlias(String token, String baseAlias, String alias) {
-        if (token.equals(alias)) {
-            return true;
-        }
-        if (baseAlias == null || token.length() <= baseAlias.length() || !token.startsWith(baseAlias)) {
-            return false;
-        }
-        for (int i = baseAlias.length(); i < token.length(); i++) {
-            if (!Character.isDigit(token.charAt(i))) {
-                return false;
-            }
-        }
-        return true;
-    }
+    private static final java.util.regex.Pattern NESTED_BINDING =
+            java.util.regex.Pattern.compile("\\b(?:any|all)\\(\\s*([A-Za-z_][A-Za-z0-9_]*)\\s*:");
+
+    /** System segments and implicit variables the OData grammar defines with a '$'. */
+    private static final java.util.Set<String> SYSTEM_SEGMENTS = java.util.Set.of(
+            "count", "filter", "expand", "select", "orderby", "top", "skip", "search",
+            "apply", "compute", "it", "this", "root");
 
     private static void requireODataIdentifier(String value) {
         if (value == null || value.isEmpty() || !isODataIdentifierStart(value.charAt(0))) {

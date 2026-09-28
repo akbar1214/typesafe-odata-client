@@ -73,6 +73,31 @@ class CollectionPropertyLambdaGuardTest {
     }
 
     /**
+     * The widened acceptance must not extend to depth-shaped names that nothing binds.
+     * `x1 eq 'a'` in a predicate with no inner lambda references an unbound variable and
+     * is invalid OData; accepting it because it "looks like" a nested alias would quietly
+     * remove the check the guard exists to perform. Same for an arbitrary '$Name', which
+     * is not a defined OData system segment.
+     */
+    @Test
+    void unboundDepthShapedAndDollarNamesAreStillRejected() {
+        assertThrows(IllegalArgumentException.class,
+                () -> tags().any(t -> FilterExpression.<Tag>of("x1 eq 'a'")));
+        assertThrows(IllegalArgumentException.class,
+                () -> tags().any(t -> FilterExpression.<Tag>of("x2 eq 'a'")));
+        assertThrows(IllegalArgumentException.class,
+                () -> tags().any(t -> FilterExpression.<Tag>of("$Name eq 'a'")));
+    }
+
+    /** A nested lambda's alias IS bound, so it is accepted even though the shape matched. */
+    @Test
+    void nestedLambdaAliasIsAcceptedBecauseItIsActuallyBound() {
+        // contains() renders the nested any() itself, so x1 is genuinely in scope here.
+        assertEquals("Tags/any(x: x/Names/any(x1: x1 eq 'a'))",
+                tags().any(t -> t.NAMES.contains("a")).toODataExpression());
+    }
+
+    /**
      * A qualified path stays accepted, and a constant-only predicate (no variable at all)
      * is legal OData and must not be rejected either.
      */
