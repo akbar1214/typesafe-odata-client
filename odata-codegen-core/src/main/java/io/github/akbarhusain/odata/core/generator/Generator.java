@@ -155,45 +155,55 @@ public class Generator {
         }
     }
 
-    private record PriorFile(boolean existed, boolean regular, byte[] content) {}
+    /**
+     * A prior on-disk path, snapshotted before the commit. Regular files are backed up to a
+     * temporary directory on disk rather than held in memory — at large scale, retaining the
+     * bytes of every previous file alongside the pending sources doubles peak heap.
+     */
+    private record PriorFile(boolean existed, boolean regular, Path backup) {}
 
     private void commit(Map<Path, String> previous, Map<Path, String> pending) throws IOException {
-        Map<Path, PriorFile> priorFiles = snapshot(previous, pending);
+        Path backupDir = Files.createTempDirectory("odata-codegen-backup-");
         Set<Path> directoriesCreated = new java.util.LinkedHashSet<>();
         try {
-            for (Map.Entry<Path, String> entry : pending.entrySet()) {
-                Path file = entry.getKey().toAbsolutePath().normalize();
-                ensureParentDirectory(file, directoriesCreated);
-                Files.writeString(file, entry.getValue());
-            }
-            for (Path old : previous.keySet()) {
-                if (pending.containsKey(old)) {
-                    continue;
-                }
-                Path oldFile = old.toAbsolutePath().normalize();
-                String oldKey = oldFile.toString().toLowerCase(java.util.Locale.ROOT);
-                Path replacement = pendingCasePathsByLowerCase.get(oldKey);
-                if (!sameFile(oldFile, replacement)) {
-                    Files.deleteIfExists(oldFile);
-                    log.debug("Deleted stale file: {}", oldFile);
-                }
-            }
-            createdDirectories.addAll(directoriesCreated);
-            written.clear();
-            written.putAll(pending);
-        } catch (IOException | RuntimeException failure) {
+            Map<Path, PriorFile> priorFiles = snapshot(previous, pending, backupDir);
             try {
-                rollback(priorFiles, directoriesCreated);
-            } catch (IOException rollbackFailure) {
-                failure.addSuppressed(rollbackFailure);
+                for (Map.Entry<Path, String> entry : pending.entrySet()) {
+                    Path file = entry.getKey().toAbsolutePath().normalize();
+                    ensureParentDirectory(file, directoriesCreated);
+                    Files.writeString(file, entry.getValue());
+                }
+                for (Path old : previous.keySet()) {
+                    if (pending.containsKey(old)) {
+                        continue;
+                    }
+                    Path oldFile = old.toAbsolutePath().normalize();
+                    String oldKey = oldFile.toString().toLowerCase(java.util.Locale.ROOT);
+                    Path replacement = pendingCasePathsByLowerCase.get(oldKey);
+                    if (!sameFile(oldFile, replacement)) {
+                        Files.deleteIfExists(oldFile);
+                        log.debug("Deleted stale file: {}", oldFile);
+                    }
+                }
+                createdDirectories.addAll(directoriesCreated);
+                written.clear();
+                written.putAll(pending);
+            } catch (IOException | RuntimeException failure) {
+                try {
+                    rollback(priorFiles, directoriesCreated);
+                } catch (IOException rollbackFailure) {
+                    failure.addSuppressed(rollbackFailure);
+                }
+                createdDirectories.removeAll(directoriesCreated);
+                throw failure;
             }
-            createdDirectories.removeAll(directoriesCreated);
-            throw failure;
+        } finally {
+            deleteRecursively(backupDir);
         }
     }
 
-    private Map<Path, PriorFile> snapshot(Map<Path, String> previous, Map<Path, String> pending)
-            throws IOException {
+    private Map<Path, PriorFile> snapshot(Map<Path, String> previous, Map<Path, String> pending,
+                                          Path backupDir) throws IOException {
         Set<Path> paths = new java.util.LinkedHashSet<>();
         for (Path path : previous.keySet()) {
             paths.add(path.toAbsolutePath().normalize());
@@ -202,11 +212,14 @@ public class Generator {
             paths.add(path.toAbsolutePath().normalize());
         }
         Map<Path, PriorFile> result = new LinkedHashMap<>();
+        int backupIndex = 0;
         for (Path path : paths) {
             if (!Files.exists(path)) {
                 result.put(path, new PriorFile(false, false, null));
             } else if (Files.isRegularFile(path)) {
-                result.put(path, new PriorFile(true, true, Files.readAllBytes(path)));
+                Path backup = backupDir.resolve("prior-" + backupIndex++);
+                Files.copy(path, backup, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                result.put(path, new PriorFile(true, true, backup));
             } else {
                 result.put(path, new PriorFile(true, false, null));
             }
@@ -266,7 +279,12 @@ public class Generator {
                     }
                 } else if (prior.regular()) {
                     Files.createDirectories(file.getParent());
-                    Files.write(file, prior.content());
+                    Files.copy(prior.backup(), file, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                } else if (Files.isRegularFile(file)) {
+                    // The prior was a directory/symlink (never writable by Files.writeString),
+                    // but a dangling symlink can have become a regular file through the link —
+                    // remove it so the non-regular prior state is restored.
+                    Files.deleteIfExists(file);
                 }
             } catch (IOException e) {
                 if (failure == null) failure = e;
@@ -289,6 +307,23 @@ public class Generator {
         }
         if (failure != null) {
             throw failure;
+        }
+    }
+
+    private static void deleteRecursively(Path directory) {
+        if (directory == null) {
+            return;
+        }
+        try (var walk = Files.walk(directory)) {
+            walk.sorted(java.util.Comparator.reverseOrder()).forEach(path -> {
+                try {
+                    Files.deleteIfExists(path);
+                } catch (IOException e) {
+                    log.debug("Could not delete backup path {}", path, e);
+                }
+            });
+        } catch (IOException e) {
+            log.debug("Could not clean backup directory {}", directory, e);
         }
     }
 

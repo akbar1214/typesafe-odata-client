@@ -137,14 +137,18 @@ public class OperationGenerator extends AbstractTypeGenerator {
                     String currentReturn = returnTypeIdentity(o);
                     if (!previousReturn.equals(currentReturn)) {
                         throw new IllegalStateException("FunctionImport '" + importLabel + "': function '"
-                                + reference + "' has overloads with identical parameter names and types "
-                                + parameterNames(o.model()) + " but different return types "
-                                + previousReturn + " and " + currentReturn);
+                                + reference + "' has overloads with identical parameter names and types — "
+                                + parameterSignature(previous.model().parameters(), previous.owner())
+                                + " and " + parameterSignature(o.model().parameters(), o.owner())
+                                + " — but different return types " + previousReturn + " and " + currentReturn);
                     }
                     throw new IllegalStateException("FunctionImport '" + importLabel + "': function '"
-                            + reference + "' has multiple overloads with identical parameter names and types "
-                            + parameterNames(o.model()) + " — OData requires overloads to differ by the "
-                            + "ordered set of parameter types (ODATA-500)");
+                            + reference + "' has multiple overloads with identical parameter names and types — "
+                            + parameterSignature(previous.model().parameters(), previous.owner())
+                            + " and " + parameterSignature(o.model().parameters(), o.owner())
+                            + " — OData identifies an unbound function overload by its parameter names and "
+                            + "types, and parameter nullability is not rendered in the invocation URL, so "
+                            + "these overloads are indistinguishable (ODATA-500)");
                 }
             }
         } else {
@@ -216,8 +220,16 @@ public class OperationGenerator extends AbstractTypeGenerator {
     }
 
     /** Order-insensitive parameter-name key: OData URL parameters are named, so the SET of names must identify the overload. */
-    private static String parameterNames(FunctionModel f) {
-        return f.parameters().stream().map(ParameterModel::name).sorted()
+    /**
+     * Renders parameters as {@code [name:resolvedType?]} (the {@code ?} marks nullable) for
+     * diagnostics. Nullability is deliberately NOT part of overload identity — it is not
+     * rendered in an invocation URL — but it is shown here so a failure over overloads that
+     * differ only by nullability names the actual difference.
+     */
+    private String parameterSignature(List<ParameterModel> parameters, SchemaModel owner) {
+        return parameters.stream()
+                .map(p -> p.name() + ":" + resolveTypeDefinition(p.type(), owner)
+                        + (p.nullable() ? "?" : ""))
                 .collect(java.util.stream.Collectors.joining(", ", "[", "]"));
     }
 
@@ -586,8 +598,10 @@ public class OperationGenerator extends AbstractTypeGenerator {
                         .collect(java.util.stream.Collectors.joining("|"));
                 if (!identities.add(identity)) {
                     throw new IllegalStateException("Bound function '" + c.opName()
-                            + "' has overloads with identical parameter names and types — they are "
-                            + "indistinguishable in an invocation URL");
+                            + "' has overloads with identical binding type and parameter names and types "
+                            + "(binding " + c.bindingQualified() + "; "
+                            + parameterSignature(c.invocationParams(), c.owner()) + ") — parameter "
+                            + "nullability is not rendered in an invocation URL, so they are indistinguishable");
                 }
             }
             List<String> suffixes = allocateBoundSuffixes(group);

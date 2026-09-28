@@ -60,10 +60,14 @@ public class ContainerGenerator {
     }
 
     private void refreshSharedStateForSchema(CsdlModel.SchemaModel schema) {
+        // SchemaModel is a record: membership and cache validity are decided by VALUE, so an
+        // equal-valued (but non-identical) schema instance neither rebuilds the shared
+        // generators nor silently degrades to single-schema mode. Namespaces are unique per
+        // document, so value-equal schemas are interchangeable.
         boolean hasCompleteSchemaList = allSchemas != null && !allSchemas.isEmpty();
-        boolean schemaInList = hasCompleteSchemaList && allSchemas.stream().anyMatch(candidate -> candidate == schema);
+        boolean schemaInList = hasCompleteSchemaList && allSchemas.contains(schema);
         if (!hasCompleteSchemaList || !schemaInList) {
-            if (cachedSingleSchema != null && cachedSingleSchema != schema) {
+            if (cachedSingleSchema != null && !cachedSingleSchema.equals(schema)) {
                 sharedOperationGenerator = null;
                 sharedRequestGenerator = null;
             }
@@ -75,8 +79,7 @@ public class ContainerGenerator {
         if (allSchemas == null || allSchemas.isEmpty()) {
             return List.of(schema);
         }
-        boolean included = allSchemas.stream().anyMatch(candidate -> candidate == schema);
-        return included ? allSchemas : List.of(schema);
+        return allSchemas.contains(schema) ? allSchemas : List.of(schema);
     }
 
     private OperationGenerator operationGenerator(CsdlModel.SchemaModel schema) {
@@ -88,10 +91,13 @@ public class ContainerGenerator {
     }
 
     private RequestGenerator requestGenerator(CsdlModel.SchemaModel schema) {
-        refreshSharedStateForSchema(schema);
+        // Build the operation generator first: refreshSharedStateForSchema may have just
+        // nulled both shared generators, and RequestGenerator needs a non-null op-gen.
+        // (Relying on generate() to call operationGenerator() first was an ordering trap.)
+        OperationGenerator ops = operationGenerator(schema);
         if (sharedRequestGenerator != null) return sharedRequestGenerator;
         sharedRequestGenerator = new RequestGenerator(basePackage, schemaPackages, defaultBasePackage,
-                schemasFor(schema), sharedOperationGenerator);
+                schemasFor(schema), ops);
         return sharedRequestGenerator;
     }
 

@@ -27,6 +27,10 @@ class OperationImportOverloadTest {
         return new CsdlModel.ParameterModel(name, type, true);
     }
 
+    private static CsdlModel.ParameterModel nonNullParam(String name, String type) {
+        return new CsdlModel.ParameterModel(name, type, false);
+    }
+
     private static CsdlModel.FunctionModel fn(String name, List<CsdlModel.ParameterModel> params) {
         return new CsdlModel.FunctionModel(name, false, false, null, params,
                 new CsdlModel.ReturnTypeModel("Edm.Boolean", false));
@@ -151,6 +155,21 @@ class OperationImportOverloadTest {
                 generator(m).generateFunctionImportRequests(fi(m), schema(m)));
         assertTrue(ex.getMessage().contains("IsSiteAdmin"), ex.getMessage());
         assertTrue(ex.getMessage().contains("parameter names"), ex.getMessage());
+        assertTrue(ex.getMessage().contains("[x:Edm.String?]"), ex.getMessage());
+    }
+
+    @Test
+    void overloadsDifferingOnlyByNullabilityFailLoudlyAndShowBothSignatures() {
+        // Nullability is not rendered in an invocation URL, so these are indistinguishable —
+        // the message must show both signatures so the actual difference is visible.
+        CsdlModel m = model(
+                fn("IsSiteAdmin", List.of(nonNullParam("x", "Edm.String"))),
+                fn("IsSiteAdmin", List.of(param("x", "Edm.String"))));
+        IllegalStateException ex = assertThrows(IllegalStateException.class, () ->
+                generator(m).generateFunctionImportRequests(fi(m), schema(m)));
+        assertTrue(ex.getMessage().contains("[x:Edm.String]"), ex.getMessage());
+        assertTrue(ex.getMessage().contains("[x:Edm.String?]"), ex.getMessage());
+        assertTrue(ex.getMessage().contains("nullability"), ex.getMessage());
     }
 
     // ------------------------------------------------------------------

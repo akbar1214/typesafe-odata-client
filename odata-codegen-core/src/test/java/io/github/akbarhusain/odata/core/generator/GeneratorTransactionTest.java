@@ -51,6 +51,27 @@ class GeneratorTransactionTest {
         assertTrue(ex.getMessage().toLowerCase().contains("case") || ex.getMessage().contains("Foo"), ex.getMessage());
     }
 
+    @Test
+    void regularPriorFileIsRestoredOnMidCommitFailure(@TempDir Path tempDir) throws Exception {
+        Path out = tempDir.resolve("out");
+        Generator generator = new Generator(out, Map.of(), "com.example");
+        generator.generate(model(entity("Good", List.of())));
+        Path good = out.resolve("com/example/entity/Good.java");
+        String original = Files.readString(good);
+
+        // A directory where Other.java will be written makes that write fail AFTER Good.java
+        // has been rewritten, forcing a rollback of Good.java's (changed) content.
+        Files.createDirectories(out.resolve("com/example/entity/Other.java"));
+
+        CsdlModel.EntityTypeModel changedGood = entity("Good", List.of(
+                new CsdlModel.PropertyModel("Extra", "Edm.String", true, null, List.of())));
+        assertThrows(java.io.IOException.class,
+                () -> generator.generate(model(changedGood, entity("Other", List.of()))));
+
+        assertEquals(original, Files.readString(good),
+                "Good.java must be restored to its pre-commit content after a failed commit");
+    }
+
     private static CsdlModel.EntityTypeModel entity(String name, List<CsdlModel.PropertyModel> properties) {
         return new CsdlModel.EntityTypeModel(name, null, false, false, false,
                 List.of(new CsdlModel.KeyModel(List.of("Id"))), concat(properties,
