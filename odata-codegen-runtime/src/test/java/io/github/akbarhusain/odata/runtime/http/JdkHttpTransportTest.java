@@ -5,6 +5,9 @@ import io.github.akbarhusain.odata.runtime.client.EntityOperations;
 
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Field;
+import java.time.Duration;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.Set;
@@ -52,6 +55,20 @@ class JdkHttpTransportTest {
         assertSame(default30, also30, "same connect timeout must reuse the cached client");
         assertSame(default30, nullDuration, "null request timeout falls back to the 30s default client");
         assertNotSame(default30, five, "connect timeout is per-HttpClient; different durations need distinct clients");
+    }
+
+    @Test
+    void clientPoolHonorsRequestedTimeoutWithoutUnboundedRetention() throws Exception {
+        JdkHttpTransport transport = new JdkHttpTransport();
+        assertEquals(Duration.ofSeconds(2),
+                transport.clientFor(Duration.ofSeconds(2)).connectTimeout().orElseThrow());
+        for (int i = 1; i <= 32; i++) {
+            transport.clientFor(Duration.ofMillis(i));
+        }
+        Field field = JdkHttpTransport.class.getDeclaredField("clientsByConnectTimeout");
+        field.setAccessible(true);
+        Map<?, ?> clients = (Map<?, ?>) field.get(transport);
+        assertTrue(clients.size() < 32, "client retention must be bounded");
     }
 
     @Test
