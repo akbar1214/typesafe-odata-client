@@ -12,8 +12,10 @@ import io.github.akbarhusain.odata.runtime.internal.MultipartHelper;
 
 import java.net.URI;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -193,7 +195,11 @@ public class BatchRequest {
         } catch (ODataException e) {
             throw e;
         } catch (IllegalArgumentException e) {
-            throw new ODataException(response.statusCode(), "Invalid multipart response boundary", e);
+            // Only part-header validation still reaches here (boundary extraction is wrapped
+            // in its own catch above). Reporting it as a boundary problem sent triage after
+            // the wrong cause — the boundary was already accepted at this point.
+            throw new ODataException(response.statusCode(),
+                    "Malformed multipart response part header", e);
         }
     }
 
@@ -273,7 +279,7 @@ public class BatchRequest {
         }
         byGroup = normalizedGroups;
         associateKeyedFlatParts(wireParts, byId, byGroup, plannedById);
-        associateUnkeyedFlatFailedParts(unkeyed, byGroup, plannedGroups);
+        associateUnkeyedFlatFailedParts(operations, unkeyed, byGroup, plannedGroups);
 
         for (String id : byId.keySet()) {
             if (!plannedById.containsKey(id)) {
@@ -312,7 +318,20 @@ public class BatchRequest {
             if (observed.isEmpty()) {
                 throw new ODataException("Missing response part for changeset " + group.getKey());
             }
-            if (observed.size() == expected.size()) {
+            // A failed change set is answered with a SINGLE part carrying 424 and NO
+            // Content-ID (OData v4.01 Part 1 §11.7.4: the service echoes Content-ID only
+            // when the request supplied one, and a collapsed error part has none). For a
+            // one-operation change set that shape is indistinguishable from the success
+            // shape by part count alone, so it must be recognised BEFORE the equal-count
+            // branch — otherwise the missing id is reported as a protocol violation and
+            // the collapse handling below is unreachable.
+            if (observed.size() == 1 && expected.size() == 1
+                    && !observed.get(0).result().isSuccessful()
+                    && observed.get(0).result().contentId() == null) {
+                Set<String> related = Set.of(expected.get(0).contentId());
+                resolvedById.put(expected.get(0).contentId(), observed.get(0).result()
+                        .withRelatedContentIds(related, group.getKey()));
+            } else if (observed.size() == expected.size()) {
                 Set<String> seen = new HashSet<>();
                 for (MultipartHelper.DecodedPart part : observed) {
                     String id = part.result().contentId();
@@ -334,12 +353,6 @@ public class BatchRequest {
                 expected.forEach(op -> related.add(op.contentId()));
                 BatchResult<?> collapsed = observed.get(0).result().withRelatedContentIds(related, group.getKey());
                 expected.forEach(op -> resolvedById.put(op.contentId(), collapsed));
-            } else if (observed.size() == 1 && expected.size() == 1
-                    && !observed.get(0).result().isSuccessful()
-                    && observed.get(0).result().contentId() == null) {
-                Set<String> related = Set.of(expected.get(0).contentId());
-                resolvedById.put(expected.get(0).contentId(), observed.get(0).result()
-                        .withRelatedContentIds(related, group.getKey()));
             } else {
                 throw new ODataException("Unexpected number of response parts for changeset " + group.getKey());
             }
@@ -387,38 +400,77 @@ public class BatchRequest {
         }
     }
 
+    /**
+     * Associates a flattened (non-nested) collapsed change-set failure part with the change
+     * set it belongs to.
+     *
+     * <p>OData v4.01 Part 1 §11.7.1 requires response parts to appear in the same order as
+     * the corresponding request parts, so a change set answered with a single error part
+     * occupies the position of its <em>first</em> operation in that ordering. Walking the
+     * submitted plan and consuming one pool slot per standalone unkeyed operation and one
+     * per change set reproduces that ordering deterministically.
+     *
+     * <p>Selecting "the first failing part anywhere in the pool" instead — the previous
+     * behaviour — is not decidable from the wire, because a coincidentally failing
+     * standalone operation is indistinguishable from the collapsed part. Guessing there
+     * removed an unrelated operation's part from the positional pool, so every later
+     * standalone result shifted by one and was returned with another operation's status
+     * code and body, with no error raised. Anything the ordering does not force is left
+     * unassociated, which surfaces as a loud "Missing response part for changeset".
+     */
     private static void associateUnkeyedFlatFailedParts(
+            List<PlannedOperation> operations,
             List<MultipartHelper.DecodedPart> unkeyed,
             Map<String, List<MultipartHelper.DecodedPart>> byGroup,
             Map<String, List<PlannedOperation>> plannedGroups) {
         if (unkeyed.isEmpty()) {
             return;
         }
-        List<String> missingGroups = plannedGroups.entrySet().stream()
-                .filter(entry -> byGroup.getOrDefault(entry.getKey(), List.of()).isEmpty())
-                .map(Map.Entry::getKey)
-                .toList();
-        if (missingGroups.isEmpty() || unkeyed.size() < missingGroups.size()) {
+        Set<String> missing = new LinkedHashSet<>();
+        for (Map.Entry<String, List<PlannedOperation>> entry : plannedGroups.entrySet()) {
+            if (byGroup.getOrDefault(entry.getKey(), List.of()).isEmpty()) {
+                missing.add(entry.getKey());
+            }
+        }
+        if (missing.isEmpty()) {
             return;
         }
-        List<MultipartHelper.DecodedPart> remaining = new ArrayList<>(unkeyed);
+        List<MultipartHelper.DecodedPart> pool = new ArrayList<>(unkeyed);
         Map<String, MultipartHelper.DecodedPart> collapsed = new LinkedHashMap<>();
-        for (String groupId : missingGroups) {
-            MultipartHelper.DecodedPart failure = remaining.stream()
-                    .filter(part -> !part.result().isSuccessful())
-                    .findFirst()
-                    .orElse(null);
-            if (failure == null) {
-                return;
+        int cursor = 0;
+        for (PlannedOperation operation : operations) {
+            if (operation.groupId() == null) {
+                // A standalone unkeyed operation occupies exactly one slot; a standalone
+                // operation carrying an explicit Content-ID is correlated by id elsewhere.
+                if (operation.contentId() == null) {
+                    cursor++;
+                }
+                continue;
             }
-            collapsed.put(groupId, failure);
-            remaining.remove(failure);
+            if (!missing.contains(operation.groupId()) || collapsed.containsKey(operation.groupId())) {
+                continue;
+            }
+            if (cursor >= pool.size()) {
+                break;
+            }
+            MultipartHelper.DecodedPart candidate = pool.get(cursor);
+            cursor++;
+            if (candidate.result().isSuccessful()) {
+                // A successful part at the change set's position is not a collapsed
+                // failure; leave the group unassociated rather than mis-attribute it.
+                continue;
+            }
+            collapsed.put(operation.groupId(), candidate);
+        }
+        if (collapsed.isEmpty()) {
+            return;
         }
         for (Map.Entry<String, MultipartHelper.DecodedPart> entry : collapsed.entrySet()) {
             byGroup.computeIfAbsent(entry.getKey(), ignored -> new ArrayList<>()).add(entry.getValue());
         }
-        unkeyed.clear();
-        unkeyed.addAll(remaining);
+        Set<MultipartHelper.DecodedPart> claimed = Collections.newSetFromMap(new IdentityHashMap<>());
+        claimed.addAll(collapsed.values());
+        unkeyed.removeIf(claimed::contains);
     }
 
     private static String plannedId(BatchOperation operation) {

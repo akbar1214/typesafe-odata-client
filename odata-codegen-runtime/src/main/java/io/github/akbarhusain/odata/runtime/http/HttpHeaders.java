@@ -96,14 +96,30 @@ public final class HttpHeaders {
             }
         }
         if (responseHeaders) {
+            // A response that declares two DIFFERENT MEDIA TYPES is undecodable for any
+            // consumer, so it is rejected here. Differing PARAMETERS are not: RFC 9110 §5.3
+            // folds duplicate field lines into one comma-joined value, and a service that
+            // emits `multipart/mixed; boundary=x` alongside `multipart/mixed; boundary="x"`
+            // is sloppy but decodable. Rejecting on any difference fired while the
+            // transport built the response — before any consumer could compare the values —
+            // and made BatchRequest's own "Conflicting multipart response boundaries"
+            // comparison unreachable, reporting a decodable batch as a request failure.
             List<String> contentTypes = findName(copy, "Content-Type") == null
                     ? null : copy.get(findName(copy, "Content-Type"));
             if (contentTypes != null && contentTypes.size() > 1
-                    && contentTypes.stream().distinct().count() > 1) {
+                    && contentTypes.stream().map(HttpHeaders::mediaType)
+                            .distinct().count() > 1) {
                 throw new IllegalArgumentException("HTTP response contains conflicting Content-Type headers");
             }
         }
         return new CaseInsensitiveMap(copy, responseHeaders, requestHeaders);
+    }
+
+    /** The media type of a Content-Type value: everything before the first parameter. */
+    private static String mediaType(String contentType) {
+        int semicolon = contentType.indexOf(';');
+        String type = semicolon < 0 ? contentType : contentType.substring(0, semicolon);
+        return type.trim().toLowerCase(java.util.Locale.ROOT);
     }
 
     private static String requireHeaderName(String name, boolean responseHeaders, boolean requestHeaders) {

@@ -369,6 +369,17 @@ public final class MultipartHelper {
                     throw new IllegalArgumentException("unresolved changeset Content-ID reference: $" + id);
                 }
             } else {
+                if (replacement.indexOf('?') >= 0) {
+                    // The referenced operation's URL is spliced into the MIDDLE of this
+                    // path, so a referenced URL carrying a query string would splice the
+                    // query in mid-path and emit an invalid request target
+                    // ("POST Customers?$expand=Orders/Orders HTTP/1.1") that the service
+                    // rejects with an opaque 400. Fail locally with the offending URL.
+                    throw new IllegalArgumentException(
+                            "Content-ID reference $" + id + " cannot target '" + replacement
+                                    + "': a referenced operation URL carrying a query string cannot be used "
+                                    + "as a path prefix");
+                }
                 result.append(replacement);
             }
             i = end - 1;
@@ -481,36 +492,88 @@ public final class MultipartHelper {
                 groupId, wireIndex[0] - 1));
     }
 
+    /**
+     * Finds the next blank-line header terminator at or after {@code from}, preferring
+     * CRLFCRLF. Returns the index of the terminator's first byte, or -1.
+     */
+    private static int findHeaderSeparator(byte[] block, int from) {
+        int crlf = indexOf(block, CRLFCRLF, Math.max(from, 0), block.length);
+        int lf = indexOf(block, DOUBLE_LF, Math.max(from, 0), block.length);
+        if (crlf < 0) {
+            return lf;
+        }
+        if (lf < 0) {
+            return crlf;
+        }
+        return Math.min(crlf, lf);
+    }
+
+    /**
+     * Length of the blank-line terminator matched by {@link #findHeaderSeparator}: a
+     * CRLFCRLF match points at the {@code \r}, a bare-LF match at the {@code \n}.
+     */
+    private static int separatorLength(byte[] block, int separator) {
+        return block[separator] == '\n' ? 2 : 4;
+    }
+
+    /**
+     * True when the header block spanning {@code [from, separator)} opens with a 1xx
+     * (interim) status line, which RFC 9110 §15.2 requires a client to be able to skip.
+     */
+    private static boolean isInterimResponse(byte[] block, int from, int separator) {
+        int lineEnd = from;
+        while (lineEnd < separator && block[lineEnd] != '\n' && block[lineEnd] != '\r') {
+            lineEnd++;
+        }
+        if (lineEnd == from) {
+            return false;
+        }
+        String statusLine = new String(block, from, lineEnd - from, StandardCharsets.US_ASCII).strip();
+        Matcher matcher = STATUS_LINE_PATTERN.matcher(statusLine);
+        if (!matcher.matches()) {
+            return false;
+        }
+        try {
+            int code = Integer.parseInt(matcher.group(1));
+            return code >= 100 && code < 200;
+        } catch (NumberFormatException e) {
+            return false;
+        }
+    }
+
     private static BatchResult<?> decodeSinglePart(byte[] httpBlock, String contentId, String groupId,
                                                    int wireIndex) {
-        int separator = indexOf(httpBlock, CRLFCRLF, 0, httpBlock.length);
-        int separatorLength = 4;
+        // RFC 9110 §15.2: "A client MUST be able to parse one or more 1xx responses received
+        // prior to a final response." A part may therefore open with one or more interim
+        // blocks; each is a complete header block terminated by a blank line, and the final
+        // response follows. Locate the LAST header block, so both the parsed headers and the
+        // body offset come from the final response rather than the first block.
+        int start = 0;
+        int separator = findHeaderSeparator(httpBlock, start);
+        while (separator >= 0 && isInterimResponse(httpBlock, start, separator)) {
+            start = separator + separatorLength(httpBlock, separator);
+            separator = findHeaderSeparator(httpBlock, start);
+        }
         int headerEnd;
         int bodyStart;
         if (separator >= 0) {
             headerEnd = separator;
-            bodyStart = separator + separatorLength;
+            bodyStart = separator + separatorLength(httpBlock, separator);
         } else {
-            separator = indexOf(httpBlock, DOUBLE_LF, 0, httpBlock.length);
-            if (separator >= 0) {
-                headerEnd = separator;
-                bodyStart = separator + 2;
-            } else {
-                int trimmed = httpBlock.length;
-                if (trimmed > 0 && httpBlock[trimmed - 1] == '\n') {
+            int trimmed = httpBlock.length;
+            if (trimmed > 0 && httpBlock[trimmed - 1] == '\n') {
+                trimmed--;
+                if (trimmed > 0 && httpBlock[trimmed - 1] == '\r') {
                     trimmed--;
-                    if (trimmed > 0 && httpBlock[trimmed - 1] == '\r') {
-                        trimmed--;
-                    }
                 }
-                if (trimmed == 0) {
-                    throw new ODataException("Malformed multipart response: empty HTTP part");
-                }
-                headerEnd = trimmed;
-                bodyStart = trimmed;
             }
+            if (trimmed <= start) {
+                throw new ODataException("Malformed multipart response: empty HTTP part");
+            }
+            headerEnd = trimmed;
+            bodyStart = trimmed;
         }
-        String headerBlock = new String(httpBlock, 0, headerEnd, StandardCharsets.UTF_8);
+        String headerBlock = new String(httpBlock, start, headerEnd - start, StandardCharsets.UTF_8);
         String[] lines = headerBlock.split("\\r?\\n", -1);
         if (lines.length == 0 || lines[0].isBlank()) {
             throw new ODataException("Malformed multipart response: empty HTTP part");
@@ -525,7 +588,8 @@ public final class MultipartHelper {
         } catch (NumberFormatException e) {
             throw new ODataException("Malformed multipart response: invalid status code", e);
         }
-        Map<String, List<String>> headers = parseHeaders(String.join("\n", java.util.Arrays.copyOfRange(lines, 1, lines.length)), true);
+        String[] headerLines = java.util.Arrays.copyOfRange(lines, 1, lines.length);
+        Map<String, List<String>> headers = parseHeaders(String.join("\n", headerLines), true);
         String embeddedContentId = singleHeader(headers, "Content-ID");
         if (contentId != null && embeddedContentId != null
                 && !canonicalContentId(contentId).equals(canonicalContentId(embeddedContentId))) {
