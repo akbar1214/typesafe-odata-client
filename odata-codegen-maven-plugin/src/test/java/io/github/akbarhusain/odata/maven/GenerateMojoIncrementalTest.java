@@ -119,7 +119,7 @@ class GenerateMojoIncrementalTest {
     }
 
     @Test
-    void unchangedMetadataSkipsRegeneration() throws Exception {
+    void unchangedMetadataRegeneratesMissingManifestFile() throws Exception {
         File metadata = writeMetadata("""
                 <?xml version="1.0" encoding="utf-8"?>
                 <edmx:Edmx xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx" Version="4.0">
@@ -150,8 +150,9 @@ class GenerateMojoIncrementalTest {
         GenerateMojo second = createMojo(metadata, outputDir);
         second.execute();
 
-        assertEquals(firstCount - 1, countGeneratedFiles(outputDir),
-                "Second run should skip regeneration when metadata is unchanged");
+        assertEquals(firstCount, countGeneratedFiles(outputDir),
+                "A missing manifest file must be regenerated");
+        assertTrue(generated.isFile(), "The deleted manifest file must be restored");
     }
 
     @Test
@@ -409,9 +410,11 @@ class GenerateMojoIncrementalTest {
         File outputDir = tempDir.resolve("out-m27").toFile();
 
         GenerateMojo first = createMojo(metadataA, outputDir);
+        setField(first, "basePackage", "com.example.one");
         first.execute();
 
         GenerateMojo second = createMojo(metadataB, outputDir);
+        setField(second, "basePackage", "com.example.two");
         second.execute();
 
         // Two distinct config/metadata hashes -> two distinct markers, each still valid
@@ -420,19 +423,17 @@ class GenerateMojoIncrementalTest {
             markers = stream.filter(f -> f.getFileName().toString().startsWith(".odata-generation-marker-")).toList();
         }
         assertEquals(2, markers.size(), "each execution (config hash) keeps its own marker: " + markers);
-        Path firstMarker = markers.get(0);
-        Path secondMarker = markers.get(1);
-
-        // Re-running each execution must be up-to-date (its marker was not clobbered)
-        long firstMtime = Files.getLastModifiedTime(firstMarker).toMillis();
-        long secondMtime = Files.getLastModifiedTime(secondMarker).toMillis();
+        java.util.Map<Path, Long> markerTimes = new java.util.HashMap<>();
+        for (Path marker : markers) {
+            markerTimes.put(marker, Files.getLastModifiedTime(marker).toMillis());
+        }
         Thread.sleep(50);
         first.execute();
         second.execute();
-        assertEquals(firstMtime, Files.getLastModifiedTime(firstMarker).toMillis(),
-                "sharing an output directory must not invalidate other executions' markers");
-        assertEquals(secondMtime, Files.getLastModifiedTime(secondMarker).toMillis(),
-                "sharing an output directory must not invalidate other executions' markers");
+        for (java.util.Map.Entry<Path, Long> entry : markerTimes.entrySet()) {
+            assertEquals(entry.getValue(), Files.getLastModifiedTime(entry.getKey()).toMillis(),
+                    "sharing an output directory must not invalidate other executions' markers");
+        }
         assertTrue(countFiles(outputDir.toPath(), "Gamma.java") >= 1);
         assertTrue(countFiles(outputDir.toPath(), "Delta.java") >= 1);
     }
