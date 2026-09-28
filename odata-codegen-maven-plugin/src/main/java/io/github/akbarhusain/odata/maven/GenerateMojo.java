@@ -20,9 +20,11 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.FileAlreadyExistsException;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.util.concurrent.TimeUnit;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.BasicFileAttributes;
@@ -132,14 +134,22 @@ public class GenerateMojo extends AbstractMojo {
                 List<Path> generatedFiles = generator.writtenFiles();
                 List<ManifestEntry> entries = manifestEntries(staging, generatedFiles);
                 Path publication = Files.createTempDirectory(stagingParent(outputDir), ".odata-generation-publish-");
+                // The lock must span the SNAPSHOT as well as the swap. Each execution builds
+                // its publication by copying the current output tree and then adding its own
+                // files, so a copy taken outside the lock misses whatever a concurrent
+                // execution has not published yet — and the last publisher wins with an
+                // incomplete tree. Holding it across copy -> merge -> swap is what makes
+                // two executions into one directory compose instead of overwrite.
+                Path lock = acquirePublicationLock(outputDir);
                 try {
                     copyOutputTree(outputDir, publication);
                     deleteStaleFiles(publication, previousManifest, entries);
                     publishGeneratedFiles(staging, publication, generatedFiles);
                     writeMarker(publication, currentHash, entries);
-                    publishOutputDirectory(publication, outputDir);
+                    publishOutputDirectoryLocked(publication, outputDir);
                     publication = null;
                 } finally {
+                    releasePublicationLock(lock);
                     deleteTree(publication);
                 }
             } finally {
@@ -805,7 +815,20 @@ public class GenerateMojo extends AbstractMojo {
         }
     }
 
-    private void publishOutputDirectory(Path publication, Path outputDir) throws IOException {
+    /**
+     * Serializes the move-aside/move-in swap on a per-output-directory lock file.
+     *
+     * <p>The mojo declares {@code threadSafe = true}, so concurrent executions sharing an
+     * output directory must be safe. Publication is two renames with a window between them
+     * in which the output directory does not exist, and there was no mutual exclusion: one
+     * execution moved the other's freshly published tree into its own backup and then
+     * deleted it. Both then logged success while one client's sources were gone.
+     *
+     * <p>The lock is a file in the staging parent (a sibling of the output directory, so
+     * it survives the swap) created atomically via {@code CREATE_NEW}. Holding it across
+     * the whole swap is what makes the sequence atomic with respect to other executions.
+     */
+    private void publishOutputDirectoryLocked(Path publication, Path outputDir) throws IOException {
         Path backup = Files.createTempDirectory(stagingParent(outputDir), ".odata-generation-old-");
         Files.delete(backup);
         boolean publicationMoved = false;
@@ -833,6 +856,45 @@ public class GenerateMojo extends AbstractMojo {
                 // copy, so keep it and make the location loud rather than deleting sources.
                 getLog().error("Previous generated output could not be restored; it is preserved at " + backup);
             }
+        }
+    }
+
+    /**
+     * Acquires the cross-process publication lock for {@code outputDir}, waiting for a
+     * concurrent execution to finish. A bounded wait with a clear message: an unbounded
+     * wait would hang the build, and a lock that cannot be taken is a real condition the
+     * user must see rather than a silent skip.
+     */
+    private Path acquirePublicationLock(Path outputDir) throws IOException {
+        Path lock = stagingParent(outputDir).resolve(".odata-generation-publish.lock");
+        long deadline = System.nanoTime() + TimeUnit.MINUTES.toNanos(5);
+        while (true) {
+            try {
+                return Files.createFile(lock);
+            } catch (FileAlreadyExistsException e) {
+                if (System.nanoTime() >= deadline) {
+                    throw new IOException("Timed out waiting for another concurrent OData "
+                            + "generation to publish to " + outputDir
+                            + "; if no other build is running, remove the stale lock " + lock);
+                }
+                try {
+                    Thread.sleep(25);
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    throw new IOException("Interrupted while waiting to publish to " + outputDir, interrupted);
+                }
+            }
+        }
+    }
+
+    private void releasePublicationLock(Path lock) {
+        try {
+            Files.deleteIfExists(lock);
+        } catch (IOException e) {
+            // A leftover lock blocks later builds, so say so; the wait above is bounded
+            // and its message names the path to remove.
+            getLog().warn("Could not remove the OData generation lock " + lock
+                    + "; a later build may need it deleted by hand: " + e.getMessage());
         }
     }
 
