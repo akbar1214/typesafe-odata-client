@@ -44,6 +44,24 @@ class HttpHeadersTest {
         assertThrows(IllegalArgumentException.class, () -> HttpHeaders.immutableResponseCopy(source));
     }
 
+    /**
+     * Differing Content-Type PARAMETERS are not a media-type conflict and must survive
+     * construction: BatchRequest compares the extracted boundaries itself, and a response
+     * carrying {@code boundary=x} plus {@code boundary="x"} is decodable. Rejecting on any
+     * string difference fired before that comparison could run.
+     */
+    @Test
+    void differingResponseContentTypeParametersArePreservedForTheConsumer() {
+        Map<String, List<String>> source = new LinkedHashMap<>();
+        source.put("Content-Type", new ArrayList<>(List.of("multipart/mixed; boundary=abc")));
+        source.put("content-type", new ArrayList<>(List.of("multipart/mixed; boundary=\"abc\"")));
+
+        Map<String, List<String>> copy = HttpHeaders.immutableResponseCopy(source);
+
+        assertEquals(List.of("multipart/mixed; boundary=abc", "multipart/mixed; boundary=\"abc\""),
+                copy.get("Content-Type"));
+    }
+
     @Test
     void statusPseudoHeaderAllowedOnlyOnResponses() {
         Map<String, List<String>> source = new LinkedHashMap<>();

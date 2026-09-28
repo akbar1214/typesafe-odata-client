@@ -16,6 +16,7 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -462,6 +463,167 @@ class BatchMultipartContractTest {
         assertInstanceOf(SubEntity.class, entity);
         assertEquals("W/\"batch-etag\"", ((ODataEntityType) entity).getETag().orElse(null));
         assertEquals("1", typed.contentId());
+    }
+
+    /**
+     * OData v4.01 Part 1 §11.7.4 canonical failed-change-set response: the service
+     * answers the whole change set with a SINGLE {@code application/http} part carrying
+     * {@code 424 Failed Dependency} and NO {@code Content-ID} (the spec only requires the
+     * echo when the request supplied one, and a collapsed error part has no id to echo).
+     * For a one-operation change set the collapsed shape is indistinguishable from the
+     * success shape by count alone, so it must be recognised by the absence of the id.
+     */
+    @Test
+    void singleOperationFailedChangesetWithoutContentIdIsCorrelated() {
+        String body = "--batch_r\r\n"
+                + "Content-Type: multipart/mixed; boundary=cs_r\r\n\r\n"
+                + "--cs_r\r\nContent-Type: application/http\r\n\r\n"
+                + "HTTP/1.1 424 Failed Dependency\r\n\r\n"
+                + "{\"error\":{\"message\":\"atomic change set failed\"}}\r\n"
+                + "--cs_r--\r\n"
+                + "--batch_r--\r\n";
+
+        BatchResponse result = context(new StubTransport(new HttpResponse(200,
+                Map.of("Content-Type", List.of("multipart/mixed; boundary=batch_r")),
+                bytes(body))))
+                .batch()
+                .addChangeset(new Changeset(List.of(BatchOperation.post("Customers", bytes("{}")))))
+                .execute();
+
+        assertEquals(1, result.size());
+        assertEquals(424, result.get(0).statusCode());
+        // The collapsed part carries no Content-ID of its own — that is what makes the
+        // shape identifiable — so the correlation is exposed through relatedContentIds.
+        assertEquals(Set.of("1"), result.get(0).relatedContentIds());
+        assertNull(result.get(0).contentId());
+        assertEquals("1", result.getByContentId("1").relatedContentIds().iterator().next());
+    }
+
+    /**
+     * A collapsed change-set failure must never be taken from a standalone operation's
+     * part. {@code associateUnkeyedFlatFailedParts} picks "the first failing unkeyed part,
+     * anywhere" and removes it from the positional pool, so a coincidentally failing
+     * standalone GET is stolen and every later positional result shifts by one — returning
+     * another operation's status code and body with no error at all.
+     */
+    @Test
+    void collapsedChangesetFailureIsNotTakenFromAFailingStandaloneOperation() {
+        String body = "--batch_r\r\n"
+                + "Content-Type: application/http\r\n\r\n"
+                + "HTTP/1.1 404 Not Found\r\n\r\n{\"err\":\"GET failed\"}\r\n"
+                + "--batch_r\r\n"
+                + "Content-Type: application/http\r\n\r\n"
+                + "HTTP/1.1 500 Internal Server Error\r\n\r\n{\"err\":\"changeset failed\"}\r\n"
+                + "--batch_r--\r\n";
+
+        BatchResponse result = context(new StubTransport(new HttpResponse(200,
+                Map.of("Content-Type", List.of("multipart/mixed; boundary=batch_r")),
+                bytes(body))))
+                .batch()
+                .add(BatchOperation.get("People('nobody')"))
+                .addChangeset(new Changeset(List.of(
+                        BatchOperation.post("Customers", bytes("{}")),
+                        BatchOperation.post("Orders", bytes("{}")))))
+                .execute();
+
+        assertEquals(404, result.get(0).statusCode(),
+                "the standalone GET must keep its own result, not the change set's failure");
+        assertEquals(500, result.getByContentId("1").statusCode(),
+                "the collapsed change-set failure belongs to Content-IDs 1 and 2");
+        assertEquals(500, result.getByContentId("2").statusCode());
+    }
+
+    /**
+     * A referenced operation's URL is spliced into the middle of the referring path. When
+     * the referenced URL carries a query string the splice produces
+     * {@code POST Customers?$expand=Orders/Orders HTTP/1.1} — a syntactically invalid
+     * request target the service rejects with an opaque 400. Fail locally instead.
+     */
+    @Test
+    void contentIdReferenceToAnOperationCarryingAQueryIsRejected() {
+        Changeset changeset = new Changeset(List.of(
+                BatchOperation.post("Customers?$expand=Orders", bytes("{}"), "1"),
+                BatchOperation.post("$1/Orders", bytes("{}"), "2")));
+
+        IllegalArgumentException failure = assertThrows(IllegalArgumentException.class,
+                () -> MultipartHelper.encodeBatchRequest("batch_x", List.of(changeset)));
+        assertTrue(failure.getMessage().contains("Customers"), failure.getMessage());
+    }
+
+    /**
+     * RFC 9110 §15.2: "A client MUST be able to parse one or more 1xx responses received
+     * prior to a final response." Taking {@code lines[0]} as the final status line turns a
+     * {@code 100 Continue} into the operation's result and pushes the real status and body
+     * into the body — and {@code isSuccessful()} then reports false for a request the
+     * service accepted.
+     */
+    @Test
+    void interimResponseLineBeforeTheFinalResponseIsSkipped() {
+        String body = "--batch_r\r\n"
+                + "Content-Type: application/http\r\n\r\n"
+                + "HTTP/1.1 100 Continue\r\n\r\n"
+                + "HTTP/1.1 201 Created\r\n\r\n"
+                + "{}\r\n"
+                + "--batch_r--\r\n";
+
+        List<BatchResult<?>> decoded = MultipartHelper.decodeResponse("batch_r", bytes(body));
+
+        assertEquals(1, decoded.size());
+        assertEquals(201, decoded.get(0).statusCode());
+        assertTrue(decoded.get(0).isSuccessful());
+        assertEquals("{}", new String(decoded.get(0).body(), StandardCharsets.UTF_8));
+    }
+
+    /**
+     * The {@code catch (IllegalArgumentException)} that reports "Invalid multipart
+     * response boundary" also covers part-header parsing, so a malformed embedded header
+     * is misattributed to the boundary. Keep the boundary diagnosis specific to the
+     * boundary.
+     */
+    @Test
+    void malformedPartHeaderIsNotReportedAsABoundaryProblem() {
+        String body = "--batch_r\r\n"
+                + "Content-Type: application/http\r\n\r\n"
+                + "HTTP/1.1 200 OK\r\nBad Header: x\r\n\r\n"
+                + "{}\r\n"
+                + "--batch_r--\r\n";
+
+        ODataException failure = assertThrows(ODataException.class,
+                () -> context(new StubTransport(new HttpResponse(200,
+                        Map.of("Content-Type", List.of("multipart/mixed; boundary=batch_r")),
+                        bytes(body))))
+                        .batch().add(BatchOperation.get("People")).execute());
+
+        assertTrue(failure.getMessage().toLowerCase().contains("header"), failure.getMessage());
+        assertFalse(failure.getMessage().contains("boundary"), failure.getMessage());
+    }
+
+    /**
+     * A service that emits two {@code Content-Type} field lines differing only in the
+     * boundary spelling ({@code boundary=abc} vs {@code boundary="abc"}) is tolerated by
+     * the batch layer, which compares the extracted boundaries. A response-side rejection
+     * of differing Content-Type values fires first, inside {@code new HttpResponse(...)},
+     * making that comparison unreachable and reporting a legal response as a request
+     * failure. RFC 9110 §5.3 folds duplicate field lines into one comma-joined value, so
+     * construction must not reject them; the batch layer decides.
+     */
+    @Test
+    void batchResponseWithQuotedBoundaryInSecondContentTypeIsDecodedNotRejected() {
+        Map<String, List<String>> headers = new LinkedHashMap<>();
+        headers.put("Content-Type", List.of(
+                "multipart/mixed; boundary=batch_r",
+                "multipart/mixed; boundary=\"batch_r\""));
+        String body = "--batch_r\r\n"
+                + "Content-Type: application/http\r\n\r\n"
+                + "HTTP/1.1 200 OK\r\n\r\n"
+                + "{}\r\n"
+                + "--batch_r--\r\n";
+
+        BatchResponse result = assertDoesNotThrow(() -> context(new StubTransport(
+                new HttpResponse(200, headers, bytes(body))))
+                .batch().add(BatchOperation.get("People")).execute());
+
+        assertEquals(200, result.get(0).statusCode());
     }
 
     private static Context context(HttpTransport transport) {
