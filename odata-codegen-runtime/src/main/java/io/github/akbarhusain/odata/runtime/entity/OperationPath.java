@@ -18,6 +18,23 @@ public final class OperationPath {
      * {@code Name()} (empty parens are valid and required by some services).
      */
     public static String segment(String operationName, String... nameEqualsValuePairs) {
+        requireOperationName(operationName);
+        if (nameEqualsValuePairs == null) {
+            throw new IllegalArgumentException("operation parameter pairs must not be null");
+        }
+        for (String pair : nameEqualsValuePairs) {
+            int equals = pair == null ? -1 : pair.indexOf('=');
+            if (pair == null || pair.isBlank() || equals <= 0) {
+                throw new IllegalArgumentException("operation parameter must be name=value");
+            }
+            String parameterName = pair.substring(0, equals);
+            for (int i = 0; i < parameterName.length(); i++) {
+                char c = parameterName.charAt(i);
+                if (c < 0x20 || c == 0x7f || "(),/?#&".indexOf(c) >= 0) {
+                    throw new IllegalArgumentException("operation parameter contains an invalid name: " + parameterName);
+                }
+            }
+        }
         if (nameEqualsValuePairs.length == 0) {
             return operationName + "()";
         }
@@ -43,6 +60,7 @@ public final class OperationPath {
                     "parameter value must not be null; nullable parameters must be omitted "
                             + "from the invocation, not rendered as 'null'");
         }
+        requireEdmType(edmType);
         return ContextPath.formatTypedValue(value, edmType);
     }
 
@@ -62,6 +80,7 @@ public final class OperationPath {
                     "collection parameter value must not be null; nullable parameters must be "
                             + "omitted from the invocation, not rendered as 'null'");
         }
+        requireEdmType(elementEdmType);
         StringBuilder sb = new StringBuilder("[");
         for (int i = 0; i < values.size(); i++) {
             if (i > 0) {
@@ -70,5 +89,37 @@ public final class OperationPath {
             sb.append(parameter(values.get(i), elementEdmType));
         }
         return sb.append(']').toString();
+    }
+
+    private static void requireEdmType(String edmType) {
+        if (edmType == null || edmType.isBlank()) {
+            throw new IllegalArgumentException("parameter Edm type must not be blank");
+        }
+    }
+
+    private static void requireOperationName(String operationName) {
+        if (operationName == null || operationName.isBlank()) {
+            throw new IllegalArgumentException("operation name must not be blank");
+        }
+        boolean segmentStart = true;
+        for (int i = 0; i < operationName.length(); i++) {
+            char c = operationName.charAt(i);
+            if (c == '.') {
+                if (segmentStart) {
+                    throw new IllegalArgumentException("operation name contains an invalid segment: " + operationName);
+                }
+                segmentStart = true;
+                continue;
+            }
+            // CSDL names may contain '-' (XML NCName); the URL must carry the wire name verbatim.
+            if (segmentStart ? !(Character.isLetter(c) || c == '_')
+                    : !(Character.isLetterOrDigit(c) || c == '_' || c == '-')) {
+                throw new IllegalArgumentException("operation name contains an invalid character: " + operationName);
+            }
+            segmentStart = false;
+        }
+        if (segmentStart) {
+            throw new IllegalArgumentException("operation name must not end with '.'");
+        }
     }
 }

@@ -13,6 +13,7 @@ public record ContextPath(
 ) {
     public ContextPath {
         Objects.requireNonNull(basePath);
+        Objects.requireNonNull(segments);
         segments = List.copyOf(segments);
     }
 
@@ -21,6 +22,7 @@ public record ContextPath(
     }
 
     public ContextPath addSegment(String segment) {
+        requireName(segment, "segment");
         return new ContextPath(basePath, append(segments, new Segment(segment, List.of())));
     }
 
@@ -34,15 +36,17 @@ public record ContextPath(
         if (segments.isEmpty()) {
             throw new IllegalStateException("Cannot add key without a segment");
         }
-        if (name == null) {
-            throw new IllegalArgumentException("key name must not be null");
+        if (name == null || name.isBlank()) {
+            throw new IllegalArgumentException("key name must not be blank");
         }
+        requireNoControl(name, "key name");
         if (value == null) {
             throw new IllegalArgumentException("key '" + name + "' value must not be null");
         }
-        if (edmType == null) {
-            throw new IllegalArgumentException("key '" + name + "' edmType must not be null");
+        if (edmType == null || edmType.isBlank()) {
+            throw new IllegalArgumentException("key '" + name + "' edmType must not be blank");
         }
+        formatTypedValue(value, edmType);
         Segment last = segments.get(segments.size() - 1);
         Segment updated = new Segment(last.name(),
                 append(last.keys(), new KeyValuePair(name, new TypedValue(value, edmType))),
@@ -56,9 +60,10 @@ public record ContextPath(
         if (segments.isEmpty()) {
             throw new IllegalStateException("Cannot add key without a segment");
         }
-        if (name == null) {
-            throw new IllegalArgumentException("key name must not be null");
+        if (name == null || name.isBlank()) {
+            throw new IllegalArgumentException("key name must not be blank");
         }
+        requireNoControl(name, "key name");
         if (value == null) {
             throw new IllegalArgumentException("key '" + name + "' value must not be null");
         }
@@ -70,9 +75,10 @@ public record ContextPath(
     }
 
     public ContextPath addQuery(String name, String value) {
-        if (name == null) {
-            throw new IllegalArgumentException("query parameter name must not be null");
+        if (name == null || name.isBlank()) {
+            throw new IllegalArgumentException("query parameter name must not be blank");
         }
+        requireNoControl(name, "query parameter name");
         if (value == null) {
             throw new IllegalArgumentException("query parameter '" + name + "' value must not be null");
         }
@@ -249,17 +255,17 @@ public record ContextPath(
         for (Segment segment : segments) {
             if (!segment.name().isEmpty()) {
                 if (sb.length() > 0 && sb.charAt(sb.length() - 1) != '/') sb.append("/");
-                sb.append(segment.name());
+                sb.append(encodePathSpaces(segment.name()));
 
                 if (!segment.keys().isEmpty()) {
                     sb.append("(");
                     if (segment.keys().size() == 1) {
-                        sb.append(formatValue(segment.keys().get(0).value()));
+                        sb.append(encodePathSpaces(formatValue(segment.keys().get(0).value())));
                     } else {
                         for (int i = 0; i < segment.keys().size(); i++) {
                             if (i > 0) sb.append(",");
                             KeyValuePair kv = segment.keys().get(i);
-                            sb.append(kv.name()).append("=").append(formatValue(kv.value()));
+                            sb.append(kv.name()).append("=").append(encodePathSpaces(formatValue(kv.value())));
                         }
                     }
                     sb.append(")");
@@ -284,6 +290,10 @@ public record ContextPath(
                 sb.append(encodeQueryParam(String.valueOf(kv.value())));
             }
         }
+    }
+
+    private static String encodePathSpaces(String value) {
+        return value.indexOf(' ') < 0 ? value : value.replace(" ", "%20");
     }
 
     private static String encodeQueryParam(String value) {
@@ -317,74 +327,43 @@ public record ContextPath(
         return sb.toString();
     }
 
-    private static final java.util.regex.Pattern GUID_PATTERN = java.util.regex.Pattern.compile(
-            "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}");
-
-    /** Carries the Edm type alongside the raw key value so formatting is type-driven. */
     private record TypedValue(Object value, String edmType) {}
 
     private static String formatValue(Object valueOrTyped) {
-        if (valueOrTyped instanceof TypedValue typed && typed.edmType() != null && !typed.edmType().isBlank()) {
+        if (valueOrTyped instanceof TypedValue typed) {
             return formatTypedValue(typed.value(), typed.edmType());
         }
-        Object value = valueOrTyped instanceof TypedValue typed ? typed.value() : valueOrTyped;
-        // legacy untyped path (direct addKey callers): original heuristics
-        if (value instanceof String s) {
-            // Edm.Guid keys are written unquoted (e.g. Advertisements(<guid>)); services reject
-            // the quoted form ('<guid>') and the guid'...' literal (OData Demo returns 400).
-            if (GUID_PATTERN.matcher(s).matches()) return s;
-            return "'" + encodeKeyValue(s) + "'";
+        if (valueOrTyped instanceof String s) {
+            return ODataLiteral.isGuid(s) ? s : ODataLiteral.format(s, "Edm.String");
         }
-        return String.valueOf(value);
+        return String.valueOf(valueOrTyped);
     }
 
-    static String formatTypedValue(Object value, String edmType) {
-        return switch (edmType) {
-            case "Edm.String" -> "'" + encodeKeyValue(String.valueOf(value)) + "'";
-            case "Edm.Guid" -> String.valueOf(value);
-            case "Edm.DateTimeOffset", "Edm.Date" -> String.valueOf(value); // bare ISO literals
-            case "Edm.TimeOfDay" -> value instanceof java.time.LocalTime t
-                    ? t.format(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss"))
-                    : String.valueOf(value);
-            case "Edm.Duration" -> "duration'" + value + "'";
-            case "Edm.Boolean", "Edm.Byte", "Edm.SByte", "Edm.Int16", "Edm.Int32", "Edm.Int64",
-                 "Edm.Single", "Edm.Double", "Edm.Decimal" -> String.valueOf(value);
-            default -> {
-                if (value instanceof Enum<?> e) {
-                    yield edmType + "'" + enumWireName(e) + "'";
-                }
-                if (value instanceof String s) yield "'" + encodeKeyValue(s) + "'";
-                yield String.valueOf(value);
-            }
-        };
+    public static String formatTypedValue(Object value, String edmType) {
+        return ODataLiteral.format(value, edmType);
     }
 
-    /**
-     * Enum literals must carry the CSDL member name; sanitized Java identifiers
-     * ({@code A-B} → {@code A_B}) would be rejected by services. Generated enums
-     * implement {@link ODataEnumValue}; plain enums keep the {@code name()} fallback.
-     */
+    public static String formatTemporal(Object value) {
+        return ODataLiteral.formatTemporal(value);
+    }
+
     public static String enumWireName(Enum<?> e) {
         return e instanceof ODataEnumValue w ? w.wireName() : e.name();
     }
 
-    private static String encodeKeyValue(String value) {
-        StringBuilder sb = new StringBuilder(value.length());
+    private static void requireName(String value, String kind) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException(kind + " name must not be blank");
+        }
+    }
+
+    private static void requireNoControl(String value, String kind) {
         for (int i = 0; i < value.length(); i++) {
             char c = value.charAt(i);
-            switch (c) {
-                case '\'' -> sb.append("''");
-                case '&'  -> sb.append("%26");
-                case '?'  -> sb.append("%3F");
-                case '#'  -> sb.append("%23");
-                case '%'  -> sb.append("%25");
-                case ' '  -> sb.append("%20");
-                case '/'  -> sb.append("%2F");
-                case '+'  -> sb.append("%2B");
-                default   -> sb.append(c);
+            if (c < 0x20 || c == 0x7f) {
+                throw new IllegalArgumentException(kind + " contains a control character");
             }
         }
-        return sb.toString();
     }
 
     @SafeVarargs
@@ -401,10 +380,29 @@ public record ContextPath(
     }
 
     public record Segment(String name, List<KeyValuePair> keys, List<KeyValuePair> queries) {
+        public Segment {
+            if (name == null || ( !name.isEmpty() && name.isBlank())) {
+                throw new IllegalArgumentException("segment name must not be blank");
+            }
+            requireNoControl(name, "segment name");
+            keys = List.copyOf(keys);
+            queries = List.copyOf(queries);
+        }
+
         public Segment(String name, List<KeyValuePair> keys) {
             this(name, keys, List.of());
         }
     }
 
-    public record KeyValuePair(String name, Object value) {}
+    public record KeyValuePair(String name, Object value) {
+        public KeyValuePair {
+            if (name == null || name.isBlank()) {
+                throw new IllegalArgumentException("key/value name must not be blank");
+            }
+            requireNoControl(name, "key/value name");
+            if (value == null) {
+                throw new IllegalArgumentException("key/value value must not be null");
+            }
+        }
+    }
 }
