@@ -30,19 +30,13 @@ client.people()
 Cross-entity mistakes are compile errors in both spellings: `Trip.NAME` is not a
 member of `Person.Selector`, so `select(p -> p.NAME)` does not compile.
 
-### Select with Star
+### Select All Fields
 
-```java
-client.people()
-    .select("*")
-    .get();
-```
-
-Returns all fields (this is the default behavior).
+Omit `select(...)` when the service should return the entity's normal representation. The generated `select()` zero-argument bridge exists for overload resolution, but it does not add a `$select` option and is not needed for this case.
 
 ### Select Nested Properties
 
-`$select` accepts only structural properties (`PropertyExpression`), not navigation properties. To include related entities, use `$expand`:
+`$select` accepts generated scalar and enum property expressions (`PropertyExpression`). Collection-valued structural properties and navigation properties have different builder types and cannot be passed to `select(...)`; use their collection/filter or expand APIs instead:
 
 ```java
 client.people()
@@ -88,7 +82,7 @@ client.people()
 
 ```java
 client.people()
-    .filter(Person.CONCURRENCY.greaterThan(25))
+    .filter(Person.CONCURRENCY.greaterThan(25L))
     .select(Person.FIRST_NAME, Person.LAST_NAME)
     .orderBy(Person.LAST_NAME.asc())
     .top(10)

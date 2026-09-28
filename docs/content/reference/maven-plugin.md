@@ -1,16 +1,18 @@
 # Maven Plugin Configuration
 
-Configure the `odata-codegen-maven-plugin` for code generation.
+Configure `io.github.akbarhusain:odata-codegen-maven-plugin` to generate a client during Maven's `generate-sources` phase.
 
 ## Basic Configuration
+
+The current project version is `0.1.0-SNAPSHOT`. These snapshot artifacts are not published; install this checkout with `./mvnw -DskipTests install` before consuming them from another Maven project.
 
 ```xml
 <build>
     <plugins>
         <plugin>
-            <groupId>io.github.akbarhusain.odata</groupId>
+            <groupId>io.github.akbarhusain</groupId>
             <artifactId>odata-codegen-maven-plugin</artifactId>
-            <version>{{ odata_client_version }}</version>
+            <version>0.1.0-SNAPSHOT</version>
             <executions>
                 <execution>
                     <goals>
@@ -27,22 +29,23 @@ Configure the `odata-codegen-maven-plugin` for code generation.
 </build>
 ```
 
-## Configuration Options
+## Options
 
 | Option | Type | Required | Description |
 |--------|------|----------|-------------|
-| `metadataUrl` | String | Yes* | URL to CSDL metadata endpoint |
-| `metadataFile` | File | Yes* | Local path to CSDL metadata file |
-| `basePackage` | String | Yes | Base package for generated classes |
-| `schemaPackages` | List | No | Schema-to-package mappings (list of `<schema>` elements) |
-| `generateWithMethods` | Boolean | No | Generate `with*()` copy-on-write methods on entities and complex types (default `false`). See [Immutability](../concepts/immutability.md) for tradeoffs. |
-| `metadataHeaders` | Properties | No | Extra HTTP headers sent when downloading `metadataUrl` — e.g. `<metadataHeaders><Authorization>Bearer …</Authorization></metadataHeaders>` for non-public endpoints. |
-| `skip` | Boolean | No | Skip generation entirely (`-Dodata.skip=true`). |
-| `forceRegenerate` | Boolean | No | Regenerate even when incremental state says everything is up to date (`-Dodata.forceRegenerate=true`). |
+| `metadataUrl` | `String` | One of URL/file | HTTP(S) CSDL metadata URL |
+| `metadataFile` | `File` | One of URL/file | Local CSDL metadata file |
+| `basePackage` | `String` | No | Default output package; derived from the schema namespace when omitted |
+| `schemaPackages` | List | No | Per-schema namespace-to-package mappings |
+| `outputDirectory` | `File` | No | Defaults to `${project.build.directory}/generated-sources/odata` |
+| `generateWithMethods` | `boolean` | No | Generate copy-on-write methods; defaults to `false` |
+| `metadataHeaders` | `Properties` | No | Headers used when downloading `metadataUrl` |
+| `skip` | `boolean` | No | Skip generation with `-Dodata.skip=true` |
+| `forceRegenerate` | `boolean` | No | Ignore incremental state with `-Dodata.forceRegenerate=true` |
 
-*Either `metadataUrl` or `metadataFile` is required.
+Exactly one of `metadataUrl` and `metadataFile` is normally supplied. If both are present, the file wins and the URL is ignored.
 
-## Using a Local File
+## Local Metadata
 
 ```xml
 <configuration>
@@ -51,103 +54,60 @@ Configure the `odata-codegen-maven-plugin` for code generation.
 </configuration>
 ```
 
-## Schema-to-Package Mappings
-
-When your metadata has multiple schemas, map them to different packages:
+A private metadata endpoint can receive authentication headers:
 
 ```xml
 <configuration>
-    <metadataUrl>https://services.odata.org/V4/TripPinService/$metadata</metadataUrl>
-    <basePackage>com.example.trippin</basePackage>
+    <metadataUrl>https://your-service.example/odata/$metadata</metadataUrl>
+    <metadataHeaders>
+        <Authorization>Bearer token</Authorization>
+    </metadataHeaders>
+    <basePackage>com.example.myservice</basePackage>
+</configuration>
+```
+
+The plugin follows HTTP redirects for metadata downloads and rejects malformed or unsupported metadata sources.
+
+## Schema-to-Package Mappings
+
+When a metadata document contains several schemas, map namespaces explicitly when they should not share the default package:
+
+```xml
+<configuration>
+    <metadataFile>src/main/resources/metadata.xml</metadataFile>
+    <basePackage>com.example.default</basePackage>
     <schemaPackages>
         <schema>
-            <namespace>Microsoft.OData.SampleService.Models.TripPin</namespace>
-            <packageName>com.example.trippin</packageName>
+            <namespace>Example.Models</namespace>
+            <packageName>com.example.models</packageName>
+        </schema>
+        <schema>
+            <namespace>Example.Shared</namespace>
+            <packageName>com.example.shared</packageName>
         </schema>
     </schemaPackages>
 </configuration>
 ```
 
-Multiple schemas:
+Generated output uses the following package suffixes:
 
-```xml
-<schemaPackages>
-    <schema>
-        <namespace>MyService.Models</namespace>
-        <packageName>com.example.myservice.models</packageName>
-    </schema>
-    <schema>
-        <namespace>MyService.Shared</namespace>
-        <packageName>com.example.myservice.shared</packageName>
-    </schema>
-</schemaPackages>
+```text
+com/example/models/
+├── entity/
+├── complex/
+├── enums/
+├── entity/request/
+├── collection/request/
+├── operation/
+├── container/
+└── schema/
 ```
 
-## Downloading Metadata
+One `SchemaInfo` class is generated per output package, even when multiple schemas are mapped to that package.
 
-If your metadata endpoint requires authentication or redirects, download it first:
+## Generated Source Root
 
-```bash
-# Download with authentication
-curl -H "Authorization: Bearer token" \
-     -o metadata.xml \
-     https://your-service.com/odata/$metadata
-
-# Follow redirects
-curl -L -o metadata.xml https://services.odata.org/V4/TripPinService/$metadata
-```
-
-Then reference the local file:
-
-```xml
-<configuration>
-    <metadataFile>metadata.xml</metadataFile>
-    <basePackage>com.example.myservice</basePackage>
-</configuration>
-```
-
-## Generated Output
-
-The plugin generates Java files in `target/generated-sources/odata/`:
-
-```
-target/generated-sources/odata/
-└── com/example/trippin/
-    ├── entity/
-    │   ├── Person.java
-    │   ├── Trip.java
-    │   └── ...
-    ├── complex/
-    │   ├── Location.java
-    │   └── City.java
-    ├── enums/
-    │   └── PersonGender.java
-    ├── request/
-    │   ├── PersonEntityRequest.java
-    │   ├── PersonCollectionRequest.java
-    │   └── ...
-    ├── container/
-    │   └── DefaultContainer.java
-    └── schema/
-        └── SchemaInfo.java
-```
-
-## Adding Generated Sources
-
-Most IDEs automatically detect `target/generated-sources/`. If not, add manually:
-
-### IntelliJ IDEA
-
-1. Right-click `target/generated-sources/odata`
-2. Mark Directory as → Generated Sources Root
-
-### Eclipse
-
-1. Project → Properties → Java Build Path
-2. Source tab → Add Folder
-3. Select `target/generated-sources/odata`
-
-### Maven Build Helper
+The plugin adds its output directory to the Maven compile source roots. If an IDE does not detect it, add `target/generated-sources/odata` as a generated source root, or use `build-helper-maven-plugin`:
 
 ```xml
 <plugin>
@@ -155,14 +115,14 @@ Most IDEs automatically detect `target/generated-sources/`. If not, add manually
     <artifactId>build-helper-maven-plugin</artifactId>
     <executions>
         <execution>
-            <id>add-source</id>
+            <id>add-generated-sources</id>
             <phase>generate-sources</phase>
             <goals>
                 <goal>add-source</goal>
             </goals>
             <configuration>
                 <sources>
-                    <source>target/generated-sources/odata</source>
+                    <source>${project.build.directory}/generated-sources/odata</source>
                 </sources>
             </configuration>
         </execution>
@@ -170,18 +130,13 @@ Most IDEs automatically detect `target/generated-sources/`. If not, add manually
 </plugin>
 ```
 
-## What's Next
-
-- [Generated Code Reference](generated-code.md) — Complete structure
-- [Query Expression API](query-api.md) — Complete list of operations
-
 ## Incremental Generation
 
-Generation is incremental by default: a marker file (keyed per metadata source —
-multiple executions may share an output directory) records the metadata/config hash and
-a manifest of generated files. When nothing changed, the plugin reuses the existing
-sources; when the metadata changes, files that are no longer generated (renamed or
-removed types, package remaps) are deleted automatically. Override with
-`-Dodata.forceRegenerate=true`.
+Generation is incremental by default. A marker records the metadata source/configuration identity, plugin and core implementation fingerprint, and a manifest of generated files. When the marker is current, the plugin reuses the source tree; when generation runs, stale files from the previous manifest are removed safely. Use `-Dodata.forceRegenerate=true` to bypass incremental reuse explicitly.
 
-The plugin is marked thread-safe and works with `mvn -T` parallel builds.
+The goal is marked thread-safe for Maven parallel builds.
+
+## What's Next
+
+- [Generated Code Structure](generated-code.md)
+- [Query Expression API](query-api.md)

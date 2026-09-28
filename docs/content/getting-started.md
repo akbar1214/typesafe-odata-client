@@ -10,15 +10,17 @@ This guide walks you through setting up OData Codegen in your Maven project.
 
 ## 1. Add the Maven Plugin
 
+The current `0.1.0-SNAPSHOT` artifacts are not published. If you are consuming this checkout from another project, install them first with `./mvnw -DskipTests install`.
+
 Add the plugin to your `pom.xml`:
 
 ```xml
 <build>
     <plugins>
         <plugin>
-            <groupId>io.github.akbarhusain.odata</groupId>
+            <groupId>io.github.akbarhusain</groupId>
             <artifactId>odata-codegen-maven-plugin</artifactId>
-            <version>{{ odata_client_version }}</version>
+            <version>0.1.0-SNAPSHOT</version>
             <executions>
                 <execution>
                     <goals>
@@ -40,9 +42,9 @@ Add the plugin to your `pom.xml`:
 ```xml
 <dependencies>
     <dependency>
-        <groupId>io.github.akbarhusain.odata</groupId>
+        <groupId>io.github.akbarhusain</groupId>
         <artifactId>odata-codegen-runtime</artifactId>
-        <version>{{ odata_client_version }}</version>
+        <version>0.1.0-SNAPSHOT</version>
     </dependency>
 </dependencies>
 ```
@@ -62,15 +64,19 @@ com/example/trippin/
 │   ├── Trip.java
 │   ├── Photo.java
 │   └── ...
-├── enums/
-│   └── PersonGender.java
 ├── complex/
 │   ├── Location.java
 │   └── City.java
-├── request/
+├── enums/
+│   └── PersonGender.java
+├── entity/request/
 │   ├── PersonEntityRequest.java
+│   └── ...
+├── collection/request/
 │   ├── PersonCollectionRequest.java
 │   └── ...
+├── operation/
+│   └── GetNearestAirportFunctionRequest.java
 ├── container/
 │   └── DefaultContainer.java
 └── schema/

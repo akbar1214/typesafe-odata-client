@@ -49,7 +49,7 @@ if (page.hasNextPage()) {
 }
 ```
 
-### Automatic Pagination
+### Follow All Pages
 
 ```java
 // Iterate all results across pages
@@ -74,6 +74,8 @@ while (true) {
 ### Inline Count
 
 ```java
+import java.util.Optional;
+
 CollectionPage<Person> people = client.people()
     .count()
     .get();
@@ -93,7 +95,7 @@ long total = client.people().countValue();
 
 // With a filter
 long adults = client.people()
-    .filter(Person.CONCURRENCY.greaterThan(25))
+    .filter(Person.CONCURRENCY.greaterThan(25L))
     .countValue();
 ```
 
@@ -101,11 +103,11 @@ long adults = client.people()
 
 ```java
 CollectionPage<Person> people = client.people()
-    .filter(Person.CONCURRENCY.greaterThan(25))
+    .filter(Person.CONCURRENCY.greaterThan(25L))
     .count()
     .get();
 
-Optional<Long> totalAdults = people.count();
+long totalAdults = people.count().orElse(0L);
 ```
 
 ## Best Practices

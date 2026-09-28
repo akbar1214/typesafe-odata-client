@@ -57,41 +57,50 @@ public class CodegenBenchmark {
         String defaultBasePackage = "com.shop";
 
         Path root = Files.createTempDirectory("codegen-bench");
-
-        // Warmup: one full generation (JIT + caches), not measured
-        new Generator(freshDir(root, "warmup"), schemaPackages, defaultBasePackage)
-                .withGenerateWithMethods(true)
-                .generate(model);
-        System.out.println("WARMUP_COMPLETE");
-        System.out.flush();
-
-        long checksum = 0;
-        for (int i = 0; i < iterations; i++) {
-            Path out = freshDir(root, "iter" + i);
-            long start = System.nanoTime();
-            new Generator(out, schemaPackages, defaultBasePackage)
+        try {
+            // Warmup: one full generation (JIT + caches), not measured
+            new Generator(freshDir(root, "warmup"), schemaPackages, defaultBasePackage)
                     .withGenerateWithMethods(true)
                     .generate(model);
-            long ms = (System.nanoTime() - start) / 1_000_000;
-            long files;
-            try (Stream<Path> walk = Files.walk(out)) {
-                files = walk.filter(p -> p.toString().endsWith(".java")).count();
-            }
-            checksum += files;
-            System.out.println("RESULT:iteration=" + i + " genMs=" + ms + " files=" + files);
+            System.out.println("WARMUP_COMPLETE");
             System.out.flush();
+
+            long checksum = 0;
+            for (int i = 0; i < iterations; i++) {
+                Path out = freshDir(root, "iter" + i);
+                long start = System.nanoTime();
+                new Generator(out, schemaPackages, defaultBasePackage)
+                        .withGenerateWithMethods(true)
+                        .generate(model);
+                long ms = (System.nanoTime() - start) / 1_000_000;
+                long files;
+                try (Stream<Path> walk = Files.walk(out)) {
+                    files = walk.filter(p -> p.toString().endsWith(".java")).count();
+                }
+                checksum += files;
+                System.out.println("RESULT:iteration=" + i + " genMs=" + ms + " files=" + files);
+                System.out.flush();
+            }
+            System.out.println("RESULT:done iterations=" + iterations + " checksum=" + checksum);
+            System.out.flush();
+        } finally {
+            deleteTree(root);
         }
-        System.out.println("RESULT:done iterations=" + iterations + " checksum=" + checksum);
-        System.out.flush();
+    }
+
+    private static void deleteTree(Path root) throws Exception {
+        if (!Files.exists(root)) return;
+        try (Stream<Path> walk = Files.walk(root)) {
+            for (Path path : walk.sorted(Comparator.reverseOrder()).toList()) {
+                Files.deleteIfExists(path);
+            }
+        }
     }
 
     private static Path freshDir(Path root, String name) throws Exception {
         Path dir = root.resolve(name);
         if (Files.exists(dir)) {
-            try (Stream<Path> walk = Files.walk(dir)) {
-                walk.sorted(Comparator.reverseOrder())
-                        .forEach(p -> p.toFile().delete());
-            }
+            deleteTree(dir);
         }
         return Files.createDirectories(dir);
     }

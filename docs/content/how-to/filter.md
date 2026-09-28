@@ -8,7 +8,7 @@ A filter is a `FilterExpression<E>` parameterized by the entity type it applies
 to. This gives two compile-time guarantees:
 
 - **Cross-entity filters are rejected.** You cannot filter `People` with a
-  `Trip` predicate — `client.people().filter(Trip.BUDGET.greaterThan(500))`
+  `Trip` predicate — `client.people().filter(Trip.BUDGET.greaterThan(500.0f))`
   fails to compile.
 - **Base-type predicates work on subtypes.** Because `filter()` accepts
   `FilterExpression<? super E>`, a predicate written against a base type (e.g.
@@ -70,16 +70,16 @@ client.people()
 ```java
 // Comparison operators (Person.CONCURRENCY is Edm.Int64)
 client.people()
-    .filter(Person.CONCURRENCY.greaterThan(25))
+    .filter(Person.CONCURRENCY.greaterThan(25L))
     .get();
 
 client.people()
-    .filter(Person.CONCURRENCY.greaterThanOrEqualTo(18))
+    .filter(Person.CONCURRENCY.greaterThanOrEqualTo(18L))
     .get();
 
 // Arithmetic on the related collection via a typed lambda
 client.people()
-    .filter(Person.TRIPS.any(trip -> trip.BUDGET.multiply(2).greaterThan(1000.0f)))
+    .filter(Person.TRIPS.any(trip -> trip.BUDGET.multiply(2.0f).greaterThan(1000.0f)))
     .get();
 ```
 
@@ -89,12 +89,9 @@ client.people()
 client.people()
     .filter(Person.GENDER.equalTo(PersonGender.Male))
     .get();
-
-// Flags membership (IsFlags enums): Gender has NS.PersonGender'Male'
-client.people()
-    .filter(Person.GENDER.has(PersonGender.Male))
-    .get();
 ```
+
+For an enum declared with `IsFlags="true"`, the generated enum property also exposes `has(value)` for flags membership. Non-flags enums should use `equalTo` or `notEqualTo`.
 
 ## Logical Operators
 
@@ -135,7 +132,7 @@ implicit `and`:
 client.people()
     .filter(Person.FIRST_NAME.equalTo("Scott")
         .or(Person.FIRST_NAME.equalTo("Keith")))
-    .filter(Person.CONCURRENCY.greaterThan(25))
+    .filter(Person.CONCURRENCY.greaterThan(25L))
     .get();
 ```
 
@@ -145,13 +142,13 @@ chaining is a convenience for independent conditions.
 ### Complex Expressions
 
 ```java
-// (FirstName = 'Scott' OR FirstName = 'Keith') AND Concurrency > 25
+// (FirstName eq 'Scott' or FirstName eq 'Keith') and Concurrency gt 25
 client.people()
     .filter(
         Person.FIRST_NAME.equalTo("Scott")
             .or(Person.FIRST_NAME.equalTo("Keith"))
+            .and(Person.CONCURRENCY.greaterThan(25L))
     )
-    .and(Person.CONCURRENCY.greaterThan(25))
     .get();
 ```
 
@@ -170,7 +167,11 @@ client.people()
     .get();
 ```
 
-## Collection Functions
+## Collection filters
+
+The generated navigation constants are `NavCollectionProperty` instances. Their `any` and `all` methods receive the target type's generated `Filterable` view, while nested expand options use the same constant as a `NavQuery` builder.
+
+### Collection functions
 
 ```java
 // Length
@@ -220,7 +221,8 @@ client.people()
 
 // Durations render as duration'...' literals
 client.people()
-    .expand(Person.TRIPS.filter(Trip.STARTS_AT.year().equalTo(2024)))
+    .expand(Person.TRIPS.expand(Trip.PLAN_ITEMS.filter(
+        PlanItem.DURATION.greaterThan(Duration.ofHours(1)))))
     .get();
 ```
 

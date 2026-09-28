@@ -13,8 +13,8 @@ How to contribute to OData Codegen.
 ### Clone the Repository
 
 ```bash
-git clone https://github.com/odata-codegen/odata-codegen.git
-cd odata-codegen
+git clone https://github.com/akbar1214/typesafe-odata-client.git
+cd typesafe-odata-client
 ```
 
 ### Build
@@ -31,7 +31,7 @@ mvn test
 
 ### Run Integration Tests
 
-Integration tests require a running TripPin service:
+Integration tests use the public TripPin, Northwind, and OData Demo services and are excluded from the default test run:
 
 ```bash
 mvn verify -Plive-tests
@@ -44,7 +44,8 @@ odata-codegen/
 ├── odata-codegen-core/        # Parser + Code Generator
 ├── odata-codegen-runtime/     # Runtime library
 ├── odata-codegen-maven-plugin/ # Build-time code generation
-└── docs/                     # Documentation (MkDocs)
+├── odata-codegen-test/         # Generated-client tests
+└── docs/                      # Documentation (MkDocs)
 ```
 
 ## Development Workflow

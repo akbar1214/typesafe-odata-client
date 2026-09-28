@@ -1,64 +1,64 @@
 # Serialization
 
-Configure JSON serialization for entity conversion.
+The runtime uses a small `Serializer` interface. `JacksonSerializer` is the default and is the implementation used by the generated model annotations.
 
-## Serializer Interface
+## `Serializer`
 
 ```java
 public interface Serializer {
     <T> byte[] serialize(T value, Class<T> type);
+
+    default <T> byte[] serialize(
+        T value, Class<T> type, Set<String> includeFields) {
+        return serialize(value, type);
+    }
+
     <T> T deserialize(byte[] data, Class<T> type);
+    <T> T deserialize(byte[] data, Type type);
 }
 ```
 
-## Built-in Implementations
+The three-argument serialization method is used for tracked PATCH fields. Its default implementation sends the full value, so custom serializers can opt into partial PATCH behavior later.
 
-### JacksonSerializer (Default)
+## `JacksonSerializer`
 
 ```java
+import io.github.akbarhusain.odata.runtime.serialization.JacksonSerializer;
+
 Context ctx = Context.builder()
     .baseUrl("https://services.odata.org/V4/TripPinService")
     .serializer(new JacksonSerializer())
     .build();
 ```
 
-**Features:**
+The runtime creates its wire mappers through `JacksonSerializer.newODataMapper()`. That configuration:
 
-- Uses Jackson ObjectMapper
-- Java 8+ module support
-- Handles records automatically
-- No annotations required on entities
+- serializes `Edm.Date`, `Edm.DateTimeOffset`, `Edm.TimeOfDay`, and `Edm.Duration` as ISO 8601 strings;
+- preserves the offset supplied by a service on reads;
+- tolerates unknown JSON properties;
+- serializes generated enum wire names through their `@JsonValue` method; and
+- omits lifecycle metadata and empty collections from ordinary write bodies.
 
-**OData JSON format contract** (`JacksonSerializer.newODataMapper()` — the one
-configuration every runtime mapper shares, including action bodies and parameter aliases):
+`serializeIncludeNulls()`, `toJson(Object)`, and `serializeToString(Object)` are convenience methods on `JacksonSerializer`; the ordinary runtime write path uses `serialize(...)`.
 
-- Temporal values are ISO 8601 strings: `Edm.DateTimeOffset` → `"2014-01-01T00:00:00Z"`,
-  `Edm.Date` → `"2014-01-01"`, `Edm.TimeOfDay` → `"09:05:07"`, `Edm.Duration` → `"PT1H30M"`
-  (never Jackson's numeric timestamps or `[y, m, d]` arrays).
-- The offset a service sends in an `Edm.DateTimeOffset` is preserved on read (no
-  normalization to UTC).
-- Enum members serialize as their CSDL member name (`@JsonValue` on `wireName()`), even
-  when the Java constant had to be sanitized.
-- Derived entity and complex types carry `"@odata.type": "#Namespace.Type"` so services
-  materialize the subtype (JSON Format §4.5.3); root types stay annotation-free.
-- Partial PATCH bodies keep `@`-prefixed control information alongside the tracked fields.
+## Generated Model Annotations
 
-A custom `Serializer` must honor the same wire format.
+Generated model classes use `@JsonProperty` on public setters for declared properties, navigations, and `@odata.etag`. Derived types emit a getter-only `@JsonProperty("@odata.type")`. Open types use Jackson any-getter/any-setter annotations for dynamic properties.
 
-> Only `JacksonSerializer` ships as a built-in implementation. To use Gson or
-> Jakarta JSON-B, implement the `Serializer` interface yourself — see
-> [Custom Implementations](#custom-implementations) below.
+The serializer is therefore pluggable at the interface level, but a replacement must honor the generated model annotations and OData JSON conventions if it relies on Jackson-style mapping. A Gson or JSON-B implementation is not bundled.
 
-## Custom Implementations
-
-### Implement Serializer
+## Custom Serializer
 
 ```java
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.akbarhusain.odata.runtime.exception.ODataException;
+import io.github.akbarhusain.odata.runtime.serialization.JacksonSerializer;
 import io.github.akbarhusain.odata.runtime.serialization.Serializer;
 
-public class CustomSerializer implements Serializer {
-    private final ObjectMapper mapper = new ObjectMapper();
+import java.lang.reflect.Type;
+
+public final class CustomSerializer implements Serializer {
+    private final ObjectMapper mapper = JacksonSerializer.newODataMapper();
 
     @Override
     public <T> byte[] serialize(T value, Class<T> type) {
@@ -77,76 +77,25 @@ public class CustomSerializer implements Serializer {
             throw new ODataException("Deserialization failed", e);
         }
     }
-}
-```
-
-### Use Custom Serializer
-
-```java
-Context ctx = Context.builder()
-    .baseUrl("https://services.odata.org/V4/TripPinService")
-    .serializer(new CustomSerializer())
-    .build();
-```
-
-## Configuration Options
-
-### Jackson Configuration
-
-`JacksonSerializer` is configured internally (FAIL_ON_UNKNOWN_PROPERTIES disabled,
-JavaTime + Jdk8 modules registered). You can supply your own `Serializer`
-implementation if you need a different ObjectMapper:
-
-```java
-Context ctx = Context.builder()
-    .baseUrl("https://services.odata.org/V4/TripPinService")
-    .serializer(new JacksonSerializer())
-    .build();
-```
-
-### Gson Configuration
-
-Gson is not built in. Implement the `Serializer` interface with a Gson-backed
-mapper and register it via `Context.builder().serializer(...)`:
-
-```java
-import java.nio.charset.StandardCharsets;
-
-public class GsonSerializer implements Serializer {
-    private final Gson gson = new GsonBuilder()
-        .setDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSSZ")
-        .create();
 
     @Override
-    public <T> byte[] serialize(T value, Class<T> type) {
-        return gson.toJson(value, type).getBytes(StandardCharsets.UTF_8);
-    }
-
-    @Override
-    public <T> T deserialize(byte[] data, Class<T> type) {
-        return gson.fromJson(new String(data, StandardCharsets.UTF_8), type);
+    public <T> T deserialize(byte[] data, Type type) {
+        try {
+            return mapper.readValue(data, mapper.getTypeFactory().constructType(type));
+        } catch (Exception e) {
+            throw new ODataException("Deserialization failed", e);
+        }
     }
 }
 ```
 
-## OData Response Format
+Register it with `Context.builder().serializer(new CustomSerializer())`. Custom serializers must also deserialize the entity element bodies used by collection reads and must preserve OData temporal and enum wire formats.
 
-The serializer handles OData response wrapping:
+## OData Response Shape
 
-```json
-{
-    "value": [
-        {"UserName": "scott", "FirstName": "Scott"},
-        {"UserName": "keith", "FirstName": "Keith"}
-    ],
-    "@odata.count": 8,
-    "@odata.nextLink": "..."
-}
-```
-
-The `EntityOperations` extracts the `value` array and passes it to the serializer.
+Collection responses are JSON objects with a `value` array and optional annotations such as `@odata.count` and `@odata.nextLink`. The runtime unwraps that envelope. The default `JacksonSerializer` path uses the shared mapper's typed conversion fast path; a custom serializer receives each element's bytes through `deserialize(...)`.
 
 ## What's Next
 
-- [Error Handling](error-handling.md) — Typed exceptions
-- [OData URL Patterns](odata-urls.md) — URL building rules
+- [Error Handling](error-handling.md)
+- [OData URL Patterns](odata-urls.md)

@@ -1,168 +1,111 @@
 # Error Handling
 
-Complete reference for exception handling.
+OData Codegen maps non-2xx responses to typed runtime exceptions. All HTTP exceptions inherit the structured error accessor from `ODataException`.
 
 ## Exception Hierarchy
 
+```text
+ODataException
+├── BadRequestException             400
+├── UnauthorizedException           401
+├── ForbiddenException              403
+├── NotFoundException               404
+├── RequestTimeoutException         408
+├── ConflictException               409
+├── ResourceGoneException           410
+├── PreconditionFailedException     412
+├── PreconditionRequiredException   428
+├── RateLimitException              429
+└── ServerException                 5xx
 ```
-ODataException (base)
-├── BadRequestException (400)
-├── UnauthorizedException (401)
-├── ForbiddenException (403)
-├── NotFoundException (404)
-├── ConflictException (409)
-├── PreconditionFailedException (412)
-├── RateLimitException (429)
-└── ServerException (5xx)
-```
 
-## Exception Details
+Unmapped status codes still produce an `ODataException` with the HTTP status and parsed error when one can be read.
 
-### ODataException
-
-Base exception for all OData errors.
+## `ODataException`
 
 ```java
 public class ODataException extends RuntimeException {
-    private final int statusCode;
-    private final String odataError;
-    private final String message;
-
-    public int getStatusCode() { ... }
-    public String getODataError() { ... }
+    public int getStatusCode();
+    public ODataError getError();
+    public static ODataException fromResponse(HttpResponse response);
 }
 ```
 
-### BadRequestException (400)
-
-Invalid request syntax or semantics.
+`getError()` returns `null` for an empty body, invalid JSON, or a response without an `error` property. A syntactically valid but structurally malformed error shape, such as `{"error":"not an object"}`, produces a non-null `ODataError` with null code/message/target and empty details. Always null-check before dereferencing. When present, `ODataError` exposes:
 
 ```java
-import io.github.akbarhusain.odata.runtime.query.FilterExpression;
-
-try {
-    client.people().filter(FilterExpression.of("invalid filter")).get();
-} catch (BadRequestException e) {
-    System.out.println("Bad request: " + e.getMessage());
-}
+String getCode();
+String getMessage();
+String getTarget();
+Map<String, Object> getDetails();
 ```
 
-### UnauthorizedException (401)
+`details` contains parsed `details[]` entries and any supported inner-error fields.
 
-Missing or invalid authentication.
-
-```java
-try {
-    client.people().get();
-} catch (UnauthorizedException e) {
-    // Redirect to login
-    redirectToLogin();
-}
-```
-
-### ForbiddenException (403)
-
-Valid authentication but insufficient permissions.
+## Basic Handling
 
 ```java
+import io.github.akbarhusain.odata.runtime.exception.NotFoundException;
+import io.github.akbarhusain.odata.runtime.exception.ODataException;
+import io.github.akbarhusain.odata.runtime.exception.ODataError;
+
 try {
-    client.admin().get();
-} catch (ForbiddenException e) {
-    showAccessDenied();
-}
-```
-
-### NotFoundException (404)
-
-Entity or resource not found.
-
-```java
-try {
-    client.people("nonexistent").get();
+    client.people("missing").get();
 } catch (NotFoundException e) {
-    System.out.println("Person not found");
+    ODataError error = e.getError();
+    System.out.println(error == null ? e.getMessage() : error.getMessage());
+} catch (ODataException e) {
+    System.out.println(e.getStatusCode());
 }
 ```
 
-### ConflictException (409)
+## Rate Limiting
 
-Entity state conflict (e.g., duplicate key).
+`RateLimitException.getRetryAfter()` returns an `Instant`. The runtime does not retry automatically. `hasServerRetryAfter()` distinguishes a parsed server `Retry-After` value from the runtime's client-side default of approximately one minute.
 
 ```java
 try {
-    client.people().create(existingPerson);
-} catch (ConflictException e) {
-    System.out.println("Person already exists");
+    return client.people().get();
+} catch (RateLimitException e) {
+    Instant retryAt = e.getRetryAfter();
+    if (retryAt.isAfter(Instant.now())) {
+        Thread.sleep(Duration.between(Instant.now(), retryAt).toMillis());
+    }
+    return client.people().get();
 }
 ```
 
-### PreconditionFailedException (412)
-
-ETag mismatch during update.
+## ETag Conflicts
 
 ```java
 try {
     request.patchWithETag(updated, etag);
 } catch (PreconditionFailedException e) {
     Person current = request.get();
-    System.out.println("Conflict! Current ETag: " + current.getETag().orElse(null));
+    System.out.println(current.getETag().orElse(null));
 }
 ```
 
-### RateLimitException (429)
+A service that requires `If-Match` can return 428 instead of 412. Catch `PreconditionRequiredException` separately when the service makes that distinction.
 
-Too many requests.
-
-```java
-try {
-    return client.people().get();
-} catch (RateLimitException e) {
-    java.time.Instant retryAt = e.getRetryAfter();
-    Thread.sleep(retryAfter * 1000);
-    return client.people().get();
-}
-```
-
-### ServerException (5xx)
-
-Internal server error.
+## Server Errors
 
 ```java
 try {
     return client.people().get();
 } catch (ServerException e) {
     if (e.getStatusCode() == 503) {
-        // Service unavailable, retry later
-        Thread.sleep(5000);
-        return client.people().get();
+        throw new IllegalStateException("retry later", e);
     }
     throw e;
 }
 ```
 
-## Catching All Exceptions
+## Batch Errors
 
-```java
-try {
-    // OData operations
-} catch (ODataException e) {
-    // Base exception - check status code
-    int status = e.getStatusCode();
-    String message = e.getMessage();
-}
-```
-
-## Best Practices
-
-1. **Catch specific exceptions first** — `NotFoundException` before `ODataException`
-2. **Handle rate limiting** — Retry at `getRetryAfter()` (an `Instant`; check
-   `hasServerRetryAfter()` to distinguish server-specified values from the client-side
-   default)
-3. **Handle ETag conflicts** — Re-fetch entity and retry
-4. **Log errors** — Include status code and message
-5. **Don't swallow exceptions** — At minimum, log them
+A successful outer batch response can contain failed individual results. Inspect each `BatchResult.isSuccessful()` and `statusCode()`; `BatchRequest` throws a typed exception when the outer HTTP response itself is non-2xx or malformed.
 
 ## What's Next
 
-- [OData URL Patterns](odata-urls.md) — URL building rules
-- [Package Structure](packages.md) — Module organization
+- [OData URL Patterns](odata-urls.md)
+- [Package Structure](packages.md)

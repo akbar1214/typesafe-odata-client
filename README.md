@@ -1,37 +1,37 @@
 # OData Codegen
 
-A type-safe OData v4 client generator for Java. Parses CSDL XML metadata and generates immutable Java classes with compile-time validated query builders.
+A type-safe OData v4 client generator for Java. OData Codegen parses CSDL XML metadata and generates Java model classes, request classes, operation requests, and a schema registry with compile-time checked query expressions.
 
 ## Features
 
-- **Type-safe query API** — Expression builders for `$filter`, `$select`, `$orderby`, `$expand`, `$apply` with compile-time validation
-- **Immutable-by-contract entities** — Copy-on-write `with*()` methods; getters return unmodifiable collections and `Optional`; `patch()` sends **only the tracked changes** (partial updates)
-- **Entity & complex-type inheritance** — Subtypes emit real Java `extends` clauses; base-type query predicates type-check against subtypes (e.g. `Flight` is a `PlanItem`, `EventLocation` is a `Location`); `@odata.type` payloads deserialize to the actual subtype
-- **Nested `$expand`** — Type-safe `$expand=Trips($select=...;$filter=...;$orderby=...;$top=...;$skip=...;$count=...)` via `NavQuery`
-- **Batch with changesets** — Atomic groups with batch-wide `Content-ID`s, `getByContentId()` result correlation, and the `continue-on-error` preference
-- **Media streams** — `HasStream` entities (`.../$value`) and `Edm.Stream` named properties
-- **Open types** — Dynamic properties captured into `unmappedFields` with typed coercion
-- **Type-driven key literals** — `Edm.String` always quoted, `Edm.Guid` bare, durations `duration'...'`, enums `NS.Enum'Member'` — no value-shape guessing
-- **Pluggable HTTP** — `HttpTransport` interface; built-in JDK `HttpClient` implementation (zero extra dependencies)
-- **Pluggable serialization** — `Serializer` interface; Jackson by default
-- **Typed exceptions** — `NotFoundException`, `UnauthorizedException`, `RateLimitException` (with parsed `Retry-After`), etc. — every exception carries the structured `ODataError` when the service sends one
-- **ETag concurrency** — `If-Match` header support for optimistic locking
-- **`$count` support** — Inline count (`$count=true`) and the plain `/$count` endpoint (`countValue()`)
-- **`$ref` support** — Add/remove navigation property links
-- **Async HTTP layer** — `HttpTransport` is `CompletableFuture`-based; generated request methods are synchronous on top of it
+- **Type-safe query API** — `FilterExpression`, `PropertyExpression`, `OrderExpression`, `Expandable`, and `ApplyExpression` cover `$filter`, `$select`, `$orderby`, `$expand`, and `$apply`.
+- **Immutable-by-contract models** — generated model classes expose protected fields, typed Jackson setters, immutable collection views, and copy-on-write `with*()` methods when `generateWithMethods` is enabled.
+- **Entity and complex-type inheritance** — CSDL base types become Java `extends` relationships, and base-type properties remain usable in subtype queries.
+- **Nested `$expand`** — `NavQuery` and generated `NavCollectionProperty` constants provide type-safe nested options.
+- **Batch requests** — `multipart/mixed` requests support standalone operations, atomic changesets, batch-wide Content-ID assignment across changesets, and response correlation.
+- **Media streams** — `HasStream` entities expose `streamMedia()` / `setMedia(...)`; `Edm.Stream` properties expose named-stream methods.
+- **Open types** — undeclared JSON properties are captured in `unmappedFields` and can be read with typed conversion helpers.
+- **Pluggable HTTP and serialization** — `HttpTransport` is asynchronous; `JdkHttpTransport` is the built-in implementation, and Jackson is the default serializer.
+- **Typed exceptions** — HTTP failures are mapped to specific runtime exceptions, with the parsed `ODataError` available through `ODataException.getError()`.
+- **ETag support** — conditional `patchWithETag`, `putWithETag`, and `deleteWithETag` methods send `If-Match` when a non-empty ETag is supplied.
+- **Pagination and aggregation** — inline `count()`, count-only `countValue()`, server-driven `nextPage(...)`, `$search`, and `ApplyExpression` pipelines are available on collection requests.
 
 ## Quick Start
 
-### 1. Add Maven Plugin
+### 1. Add the Maven plugin
+
+The project version is currently `0.1.0-SNAPSHOT`. Use the same version for the plugin and runtime when building against this checkout. Because the snapshot is not published, run `./mvnw -DskipTests install` in this repository before consuming it from another Maven project.
 
 ```xml
 <plugin>
-    <groupId>io.github.akbarhusain.odata</groupId>
+    <groupId>io.github.akbarhusain</groupId>
     <artifactId>odata-codegen-maven-plugin</artifactId>
     <version>0.1.0-SNAPSHOT</version>
     <executions>
         <execution>
-            <goals><goal>generate</goal></goals>
+            <goals>
+                <goal>generate</goal>
+            </goals>
             <configuration>
                 <metadataUrl>https://services.odata.org/V4/TripPinService/$metadata</metadataUrl>
                 <basePackage>com.example.trippin</basePackage>
@@ -41,242 +41,188 @@ A type-safe OData v4 client generator for Java. Parses CSDL XML metadata and gen
 </plugin>
 ```
 
-### 2. Use the Generated Client
+### 2. Add the runtime dependency
+
+```xml
+<dependency>
+    <groupId>io.github.akbarhusain</groupId>
+    <artifactId>odata-codegen-runtime</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+</dependency>
+```
+
+### 3. Create a client
 
 ```java
-import io.github.akbarhusain.odata.runtime.entity.Context;
 import com.example.trippin.container.DefaultContainer;
 import com.example.trippin.entity.Person;
 import com.example.trippin.entity.Trip;
+import com.example.trippin.entity.request.PersonEntityRequest;
+import com.example.trippin.entity.request.TripEntityRequest;
+import io.github.akbarhusain.odata.runtime.entity.Context;
 import io.github.akbarhusain.odata.runtime.paging.CollectionPage;
 
-// Create context with base URL
 Context ctx = Context.builder()
     .baseUrl("https://services.odata.org/V4/TripPinService")
     .build();
 
-// Create client
 DefaultContainer client = new DefaultContainer(ctx);
+CollectionPage<Person> people = client.people().get();
+PersonEntityRequest personRequest = client.people("scottketchum");
+Person person = personRequest.get();
 ```
 
 ## Usage Examples
 
-### Collection Queries
+### Collection queries
 
 ```java
-// Get all people
-CollectionPage<Person> people = client.people().get();
-
-// Filter with type-safe expressions
-CollectionPage<Person> scott = client.people()
-    .filter(Person.FIRST_NAME.equalTo("Scott"))
-    .get();
-
-// Complex filters
-CollectionPage<Person> results = client.people()
+CollectionPage<Person> page = client.people()
     .filter(Person.FIRST_NAME.equalTo("Scott")
         .and(Person.LAST_NAME.startsWith("K")))
     .select(Person.FIRST_NAME, Person.LAST_NAME)
     .orderBy(Person.LAST_NAME.asc())
     .top(10)
-    .skip(5)
-    .get();
-
-// Get total count
-CollectionPage<Person> page = client.people()
     .count()
-    .top(10)
     .get();
-long totalPeople = page.count().orElse(0L);
+
+long total = page.count().orElse(0L);
 ```
 
-### Entity Navigation
+`CollectionPage<T>` is iterable and also exposes `currentPage()`, `toList()`, `stream()`, `hasNextPage()`, `getNextLink()`, and `count()`.
+
+### Entity requests and navigation
 
 ```java
-// Get entity by key
-PersonEntityRequest personReq = client.people("scottketchum");
-Person person = personReq.get();
+PersonEntityRequest request = client.people("scottketchum");
+Person person = request.get();
 
-// Navigate to collection
-CollectionPage<Trip> trips = personReq.trips()
-    .filter(Trip.BUDGET.greaterThan(500.0f))
-    .orderBy(Trip.BUDGET.desc())
+var trips = request.trips()
+    .filter(com.example.trippin.entity.Trip.BUDGET.greaterThan(500.0f))
     .get();
 
-// Get first trip
-Trip trip = personReq.trips().top(1).get().currentPage().get(0);
+TripEntityRequest tripRequest = request.trips(1);
+Trip trip = tripRequest.get();
 ```
 
-### Expand with Navigation
+Entities contain data only. HTTP execution is performed by generated collection and entity request objects.
+
+### Nested `$expand`
 
 ```java
-// Simple expand
-CollectionPage<Person> peopleWithTrips = client.people()
-    .expand(Person.TRIPS)
-    .top(5)
-    .get();
-
-// Nested $expand options (select / filter / top / orderBy on the expanded nav)
-CollectionPage<Person> peopleNested = client.people()
-    .expand(Person.TRIPS.select(Trip.NAME).top(5)
-        .filter(Trip.BUDGET.greaterThan(500.0f)))
+var people = client.people()
+    .expand(Person.TRIPS.select(com.example.trippin.entity.Trip.NAME).top(5))
     .get();
 ```
 
-### CRUD Operations
+Expanded collection navigation values are available from typed model getters such as `person.getTrips()`.
+
+### CRUD
 
 ```java
-// Create (POST) — returns the created entity
 Person newPerson = Person.builder()
     .userName("newuser")
     .firstName("New")
     .lastName("User")
     .build();
-Person created = client.people().create(newPerson);
 
-// PATCH with ETag — copy-on-write tracks changes, so only FirstName is sent
-PersonEntityRequest req = client.people("newuser");
-Person existing = req.get();
-String etag = existing.getETag().orElse(null);
+client.people().create(newPerson);
+Person replacement = Person.builder()
+    .userName("newuser")
+    .firstName("Updated")
+    .build();
 
-Person updated = req.patchWithETag(
-    existing.withFirstName("Updated"),
-    etag
-);
+// A create response does not reliably carry an ETag, so read the entity back to obtain
+// the current one before a conditional PATCH/DELETE (strict services return 428 without If-Match).
+Person current = client.people("newuser").get();
+client.people("newuser").patchWithETag(replacement, current.getETag().orElseThrow());
 
-// DELETE (use deleteWithETag(etag) for concurrency-checked deletes)
-req.delete();
+Person updated = client.people("newuser").get();
+client.people("newuser").deleteWithETag(updated.getETag().orElseThrow());
 ```
 
-### `$ref` — Manage Navigation Links
+The collection `create(...)` method performs POST. Entity requests perform GET, PATCH, PUT, DELETE, and `$ref`; media methods are added when the metadata declares `HasStream="true"` or an `Edm.Stream` property. `with*()` methods are generated when the plugin parameter `<generateWithMethods>true</generateWithMethods>` is enabled; the test module enables it.
+
+### Navigation links (`$ref`)
 
 ```java
-// Add friend (target entity path is resolved to an absolute @odata.id URL)
 client.people("scottketchum")
     .addFriendsRef("People('ronaldmundy')");
-
-// Remove friend
 client.people("scottketchum")
     .removeFriendsRef("People('ronaldmundy')");
 ```
 
-### Error Handling
+Relative target paths are resolved against the service root before the request is sent; absolute HTTP(S) targets are accepted unchanged.
+
+### Errors
 
 ```java
-import io.github.akbarhusain.odata.runtime.exception.*;
+import io.github.akbarhusain.odata.runtime.exception.NotFoundException;
+import io.github.akbarhusain.odata.runtime.exception.ODataError;
+import io.github.akbarhusain.odata.runtime.exception.ODataException;
 
 try {
-    Person person = client.people("nonexistent").get();
+    client.people("missing").get();
 } catch (NotFoundException e) {
-    System.out.println("Person not found: " + e.getMessage());
-} catch (UnauthorizedException e) {
-    System.out.println("Authentication required");
-} catch (RateLimitException e) {
-    // getRetryAfter() is an Instant; hasServerRetryAfter() distinguishes
-    // server-specified values from the client-side default
-    System.out.println("Rate limited, retry at: " + e.getRetryAfter());
+    ODataError error = e.getError();
+    System.out.println(error == null ? e.getMessage() : error.getMessage());
 } catch (ODataException e) {
-    System.out.println("OData error: " + e.getMessage());
+    System.out.println(e.getStatusCode() + ": " + e.getMessage());
 }
 ```
 
-### Custom HTTP Transport
+### Authentication and transport
 
 ```java
-// Use the JDK HttpClient transport (zero extra dependencies)
+import io.github.akbarhusain.odata.runtime.auth.BearerAuthProvider;
 import io.github.akbarhusain.odata.runtime.http.JdkHttpTransport;
 
 Context ctx = Context.builder()
     .baseUrl("https://services.odata.org/V4/TripPinService")
     .transport(new JdkHttpTransport())
-    .authProvider(new BearerAuthProvider("your-token"))
+    .authProvider(new BearerAuthProvider(() -> "token"))
+    .connectTimeout(java.time.Duration.ofSeconds(15))
+    .readTimeout(java.time.Duration.ofSeconds(45))
     .build();
 ```
 
-## Architecture
+`BearerAuthProvider` and `ApiKeyAuthProvider` accept `Supplier<String>` values. The runtime includes the JDK transport; third-party HTTP clients are supplied by the application through `HttpTransport`.
 
+## Generated Code Layout
+
+For `basePackage` `com.example.trippin` and a TripPin schema, the output is organized as follows:
+
+```text
+com/example/trippin/
+├── entity/                  # Person.java, Trip.java, ...
+├── complex/                 # Location.java, City.java, ...
+├── enums/                   # PersonGender.java, ...
+├── entity/request/          # PersonEntityRequest.java, ...
+├── collection/request/      # PersonCollectionRequest.java, ...
+├── operation/               # GetNearestAirportFunctionRequest.java, ...
+├── container/               # DefaultContainer.java
+└── schema/                  # SchemaInfo.java
 ```
-odata-codegen/
-├── odata-codegen-core/        # Parser + Generator (no runtime deps)
-│   ├── model/                # CsdlModel records
-│   ├── parser/               # StaxCsdlParser
-│   └── generator/            # Names, Generator, EntityGenerator, etc.
-├── odata-codegen-runtime/     # Runtime types (generated code depends on this)
-│   ├── entity/               # ODataEntityType, ContextPath, Context
-│   ├── query/                # Expression hierarchy (StringProperty, etc.)
-│   ├── http/                 # HttpTransport, HttpRequest, HttpResponse
-│   ├── auth/                 # AuthProvider
-│   ├── serialization/        # Serializer interface
-│   └── paging/               # CollectionPage
-├── odata-codegen-maven-plugin/ # Maven plugin wrapper
-└── odata-codegen-test/        # Integration tests
-```
 
-## Generated Code Structure
-
-```java
-// Entity — immutable by contract: protected fields populated via @JsonProperty setters
-// (Jackson) or the Builder; copy-on-write with*() methods; unmodifiable getters
-public final class Person implements ODataEntityType {
-    public static final StringProperty<Person> FIRST_NAME = ...;
-    public static final NumberProperty<Person, Integer> AGE = ...;
-    public static final BooleanProperty<Person> IS_ACTIVE = ...;
-    public static final DateTimeProperty<Person> BIRTHDAY = ...;
-    public static final GuidProperty<Person> SHARE_ID = ...;
-    public static final EnumProperty<Person, PersonGender> GENDER = ...;
-    public static final CollectionProperty<Person, Trip, Trip.Filterable> TRIPS = ...;
-    protected String userName;
-    protected String firstName;
-    // Builder, with*() methods, getters, typed Filterable for any()/all()
-}
-
-// Collection request (type-safe query building)
-public final class PersonCollectionRequest {
-    public PersonCollectionRequest filter(FilterExpression<Person> predicate);
-    public PersonCollectionRequest select(PropertyExpression<? super Person, ?>... properties);
-    public PersonCollectionRequest orderBy(OrderExpression<? super Person, ?>... expressions);
-    public PersonCollectionRequest expand(NavProperty<? super Person, ?>... navs);
-    public PersonCollectionRequest expand(NavProperty.NavQuery<? super Person, ?>... queries);
-    public PersonCollectionRequest top(int count);
-    public PersonCollectionRequest skip(int count);
-    public CollectionPage<Person> get();
-    public Person create(Person entity);
-    public long countValue();               // GET /People/$count
-    public PersonCollectionRequest nextPage(String nextLink);
-    public PersonEntityRequest people(String userName);   // keyed overload
-}
-
-// Entity request (CRUD operations)
-public final class PersonEntityRequest {
-    public Person get();
-    public Person patch(Person entity);           // partial when changes are tracked
-    public Person patchWithETag(Person entity, String etag);
-    public Person put(Person entity);             // full replace
-    public void delete();
-    public void deleteWithETag(String etag);
-    public TripCollectionRequest trips();
-}
-```
+The generated `SchemaInfo` class is named `SchemaInfo` and exposes `SchemaInfo.INSTANCE`. A schema registry is emitted once per output package, even when several schemas share that package.
 
 ## Documentation
 
-Full documentation lives in [`docs/content/`](docs/content/) — tutorials, how-to guides,
-concepts, and API reference:
-
 - [Getting Started](docs/content/getting-started.md)
-- [How-to Guides](docs/content/how-to/index.md) — filtering, CRUD, expand, batch, media, ETags, errors, auth, custom transports
-- [Reference](docs/content/reference/maven-plugin.md) — Maven plugin configuration, generated-code structure, query/HTTP/serialization APIs
+- [How-to Guides](docs/content/how-to/index.md)
+- [Generated Code Structure](docs/content/reference/generated-code.md)
+- [Maven Plugin Configuration](docs/content/reference/maven-plugin.md)
 - [Release Notes](docs/content/release-notes.md)
 
 ## Development
 
 ```bash
-./mvnw test                  # hermetic: offline unit/integration tests only
-./mvnw test -Plive-tests     # everything, including the live services.odata.org suites
+./mvnw test
+./mvnw test -Plive-tests
 ```
 
-The build requires Java 17+ (`./mvnw` is the wrapped Maven — no local install needed).
+The default test run is hermetic and excludes the `live-service` tag. The project targets Java 17 or later.
 
 ## License
 
-Apache License 2.0 — see [LICENSE](LICENSE).
+Apache License 2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).

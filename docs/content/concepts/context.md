@@ -1,10 +1,8 @@
 # The Context Pattern
 
-`Context` is the central configuration object that holds HTTP transport, serialization, authentication, and interceptors.
+`Context` is the immutable runtime configuration shared by generated containers and request objects. It owns the service root, serializer, transport, authentication provider, interceptors, and request timeouts.
 
-## What is Context?
-
-`Context` is a Java record that encapsulates everything needed to execute OData requests:
+## Context Shape
 
 ```java
 public record Context(
@@ -12,79 +10,76 @@ public record Context(
     Serializer serializer,
     HttpTransport transport,
     AuthProvider authProvider,
-    List<HttpInterceptor> interceptors
-) { ... }
+    List<HttpInterceptor> interceptors,
+    Duration connectTimeout,
+    Duration readTimeout
+) {
+}
 ```
+
+The record also exposes `Context.builder()`, `basePath()`, and `batch()`.
+
+The canonical constructor rejects null values, a blank or non-HTTP(S) base URL, and non-positive timeouts. The builder defaults are:
+
+| Component | Default |
+|-----------|---------|
+| `serializer` | `Serializer.createDefault()` (`JacksonSerializer`) |
+| `transport` | `HttpTransport.createDefault()` (`JdkHttpTransport`) |
+| `authProvider` | `AuthProvider.none()` |
+| `interceptors` | `List.of()` |
+| `connectTimeout` | 30 seconds |
+| `readTimeout` | 60 seconds |
 
 ## Building a Context
 
 ```java
-Context ctx = Context.builder()
-    .baseUrl("https://services.odata.org/V4/TripPinService")
-    .build(); // Uses defaults
-```
+import io.github.akbarhusain.odata.runtime.auth.BearerAuthProvider;
+import io.github.akbarhusain.odata.runtime.entity.Context;
+import io.github.akbarhusain.odata.runtime.http.JdkHttpTransport;
+import io.github.akbarhusain.odata.runtime.serialization.JacksonSerializer;
 
-### Defaults
-
-| Component | Default |
-|-----------|---------|
-| `serializer` | `JacksonSerializer` |
-| `transport` | `JdkHttpTransport` |
-| `authProvider` | `AuthProvider.none()` (no auth) |
-| `interceptors` | Empty list |
-
-### Custom Configuration
-
-```java
 Context ctx = Context.builder()
     .baseUrl("https://services.odata.org/V4/TripPinService")
     .serializer(new JacksonSerializer())
     .transport(new JdkHttpTransport())
-    .authProvider(new BearerAuthProvider("token"))
-    .interceptors(List.of(new LoggingInterceptor()))
+    .authProvider(new BearerAuthProvider(() -> "token"))
+    .interceptors(List.of(new DelegatingInterceptor()))
+    .connectTimeout(Duration.ofSeconds(15))
+    .readTimeout(Duration.ofSeconds(45))
     .build();
 ```
 
-## Context Flow
+`BearerAuthProvider` takes a `Supplier<String>` so a token supplier can refresh credentials between requests.
 
-```
+## Request Flow
+
+```text
 Context
-    ↓
-DefaultContainer (holds Context)
-    ↓
-PeopleCollectionRequest (holds Context)
-    ↓
-EntityOperations.submit(context, request)
-    ↓
-HttpTransport.submit(httpRequest)
-    ↓
-HttpResponse
+  -> generated container accessor
+  -> generated collection/entity request
+  -> EntityOperations
+  -> HttpInterceptor chain
+  -> HttpTransport
+  -> HttpResponse
 ```
 
-## Path Construction
+Model classes do not hold a `Context`. Expanded navigation data is materialized into model fields by Jackson, while subsequent navigation requests start from an entity request object.
 
-`ContextPath` builds URLs from segments and keys:
+## ContextPath
+
+`ContextPath` stores path segments and keys independently. Queries are rendered once after the complete path.
 
 ```java
 ContextPath path = ctx.basePath()
     .addSegment("People")
-    .addKey("UserName", "scottketchum")
+    .addKey("UserName", "scottketchum", "Edm.String")
     .addSegment("Trips");
 
-// Produces: People('scottketchum')/Trips
+String relative = path.toRelativeUrl();
 ```
 
-### Key Rules
-
-- **Single-key:** Omit the key name — `People('scottketchum')`
-- **Composite keys:** Include names — `OrderDetails(OrderId=1,ProductId=5)`
-- **URL encoding:** Spaces → `%20`, preserve OData characters (`$`, `'`, `()`)
+The typed `addKey(name, value, edmType)` form formats the key from its CSDL type. The two-argument overload remains available for direct callers, but generated keyed accessors use the typed form.
 
 ## Thread Safety
 
-`Context` is immutable (a record). All fields are final. It's safe to share across threads.
-
-## What's Next
-
-- [Type-Safe Query Building](query-builder.md) — Expression hierarchy
-- [Entity Immutability](immutability.md) — Why records matter
+`Context` is a record with immutable list and object references. A context can be shared by generated requests and multiple threads when its configured `AuthProvider`, serializer, and transport are themselves safe for that use.

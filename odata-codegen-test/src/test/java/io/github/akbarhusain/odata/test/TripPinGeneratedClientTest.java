@@ -7,6 +7,7 @@ import com.example.trippin.entity.PlanItem;
 import com.example.trippin.entity.Photo;
 import com.example.trippin.enums.PersonGender;
 import io.github.akbarhusain.odata.runtime.entity.Context;
+import io.github.akbarhusain.odata.runtime.exception.NotFoundException;
 import io.github.akbarhusain.odata.runtime.http.JdkHttpTransport;
 import io.github.akbarhusain.odata.runtime.paging.CollectionPage;
 import org.junit.jupiter.api.BeforeAll;
@@ -15,6 +16,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -186,7 +188,7 @@ class TripPinGeneratedClientTest {
 
     @Test
     void createAndDeletePerson() {
-        String testUserName = "testgenerated_" + System.currentTimeMillis();
+        String testUserName = "testgenerated_" + UUID.randomUUID().toString().substring(0, 8);
 
         Person newPerson = Person.builder()
                 .userName(testUserName)
@@ -198,21 +200,27 @@ class TripPinGeneratedClientTest {
                 .addressInfo(List.of())
                 .build();
 
-        Person createdResponse = client.people().create(newPerson);
-        assertNotNull(createdResponse, "create() should return the created entity");
-        assertEquals(testUserName, createdResponse.getUserName());
-
-        // Best-effort cleanup in finally: a failed assertion must not leak the created
-        // entity on the shared public service. deleteWithETag accepts a null etag.
         String etag = null;
         try {
+            Person createdResponse = client.people().create(newPerson);
+            assertNotNull(createdResponse, "create() should return the created entity");
+            assertEquals(testUserName, createdResponse.getUserName());
+            etag = createdResponse.getETag().orElse(null);
+
             Person created = client.people(testUserName).get();
             assertNotNull(created);
             assertEquals(testUserName, created.getUserName());
             assertEquals("Test", created.getFirstName());
-            etag = created.getETag().orElse(null);
+            etag = created.getETag().orElse(etag);
         } finally {
-            client.people(testUserName).deleteWithETag(etag);
+            deletePerson(testUserName, etag);
+        }
+    }
+
+    private static void deletePerson(String userName, String etag) {
+        try {
+            client.people(userName).deleteWithETag(etag);
+        } catch (NotFoundException ignored) {
         }
     }
 
