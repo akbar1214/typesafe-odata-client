@@ -28,7 +28,7 @@ public class StaxCsdlParser {
     private static final String EDMX_NS = "http://docs.oasis-open.org/odata/ns/edmx";
     private static final String EDM_NS = "http://docs.oasis-open.org/odata/ns/edm";
 
-    // Set while parsing a schema; the parser instance is one-shot per parse() call
+    // Set while parsing a schema
     private String currentNamespace;
     private String currentAlias;
     private static final String EDMX_NS_V3 = "http://schemas.microsoft.com/ado/2007/06/edmx";
@@ -38,6 +38,11 @@ public class StaxCsdlParser {
     private final List<String> warnings = new ArrayList<>();
 
     public CsdlModel parse(InputStream xml) throws XMLStreamException {
+        currentNamespace = null;
+        currentAlias = null;
+        globalAliasMap.clear();
+        warnings.clear();
+
         XMLInputFactory factory = XMLInputFactory.newInstance();
         factory.setProperty(XMLInputFactory.IS_SUPPORTING_EXTERNAL_ENTITIES, false);
         factory.setProperty(XMLInputFactory.SUPPORT_DTD, false);
@@ -45,17 +50,30 @@ public class StaxCsdlParser {
         XMLEventReader reader = factory.createXMLEventReader(xml);
         validateRootElement(reader);
         List<SchemaModel> schemas = new ArrayList<>();
+        int dataServicesCount = 0;
 
         while (reader.hasNext()) {
             XMLEvent event = reader.nextEvent();
             if (event.isStartElement()) {
                 StartElement el = event.asStartElement();
                 if (isEdmxElement(el, "DataServices")) {
+                    dataServicesCount++;
+                    if (dataServicesCount > 1) {
+                        throw new IllegalArgumentException(
+                                "Edmx must contain exactly one DataServices element; found multiple");
+                    }
                     parseDataServices(reader, schemas);
+                } else {
+                    warnIgnored("Edmx", el);
+                    skipElement(reader);
                 }
             }
         }
 
+        if (dataServicesCount != 1) {
+            throw new IllegalArgumentException(
+                    "Edmx must contain exactly one DataServices element; found " + dataServicesCount);
+        }
         if (schemas.isEmpty()) {
             // A document with no parsable Schema previously produced an empty model
             // with no signal — wrong-namespace feeds and empty documents all looked
@@ -82,6 +100,16 @@ public class StaxCsdlParser {
             return;
         }
         warnings.add(parent + ": ignored unknown element <" + localName + ">");
+    }
+
+    private void warnIgnored(String parent, StartElement element) {
+        String localName = element.getName().getLocalPart();
+        String namespace = element.getName().getNamespaceURI();
+        if (EDM_NS.equals(namespace) && "Annotation".equals(localName)) {
+            return;
+        }
+        warnings.add(parent + ": ignored unknown element <" + localName + ">"
+                + (EDM_NS.equals(namespace) ? "" : " in namespace '" + namespace + "'"));
     }
 
     private List<SchemaModel> fixupCrossSchemaAliases(List<SchemaModel> schemas) {
@@ -185,6 +213,7 @@ public class StaxCsdlParser {
                     if (!EDMX_NS.equals(ns)) {
                         throw new IllegalArgumentException("Unsupported EDMX namespace: " + ns);
                     }
+                    requireAttr(root, "Version", "Edmx");
                     return;
                 }
                 throw new IllegalArgumentException("Not an OData CSDL document (root element: " + local + ")");
@@ -251,6 +280,11 @@ public class StaxCsdlParser {
             XMLEvent event = reader.nextEvent();
             if (event.isStartElement()) {
                 StartElement el = event.asStartElement();
+                if (!EDM_NS.equals(el.getName().getNamespaceURI())) {
+                    warnIgnored("Schema '" + namespace + "'", el);
+                    skipElement(reader);
+                    continue;
+                }
                 String localName = el.getName().getLocalPart();
                 switch (localName) {
                     case "EntityType" -> entityTypes.add(parseEntityType(reader, el));
@@ -261,8 +295,7 @@ public class StaxCsdlParser {
                     case "Action" -> actions.add(parseAction(reader, el));
                     case "EntityContainer" -> containers.add(parseEntityContainer(reader, el));
                     default -> {
-                        warnings.add("Schema '" + namespace + "': ignored unknown element <"
-                                + localName + ">");
+                        warnIgnored("Schema '" + namespace + "'", el);
                         skipElement(reader);
                     }
                 }
@@ -279,10 +312,11 @@ public class StaxCsdlParser {
     private EntityTypeModel parseEntityType(XMLEventReader reader, StartElement el)
             throws XMLStreamException {
         String name = requireAttr(el, "Name", "EntityType");
-        String baseType = resolveTypeRef(getAttr(el, "BaseType"));
-        boolean openType = "true".equals(getAttr(el, "OpenType"));
-        boolean abstractType = "true".equals(getAttr(el, "Abstract"));
-        boolean hasStream = "true".equals(getAttr(el, "HasStream"));
+        String baseType = resolveTypeRef(getAttr(el, "BaseType"),
+                "BaseType of EntityType '" + name + "'");
+        boolean openType = booleanAttr(el, "OpenType", false, "EntityType '" + name + "'");
+        boolean abstractType = booleanAttr(el, "Abstract", false, "EntityType '" + name + "'");
+        boolean hasStream = booleanAttr(el, "HasStream", false, "EntityType '" + name + "'");
 
         List<KeyModel> keys = new ArrayList<>();
         List<PropertyModel> properties = new ArrayList<>();
@@ -292,6 +326,11 @@ public class StaxCsdlParser {
             XMLEvent event = reader.nextEvent();
             if (event.isStartElement()) {
                 StartElement child = event.asStartElement();
+                if (!EDM_NS.equals(child.getName().getNamespaceURI())) {
+                    warnIgnored("EntityType '" + name + "'", child);
+                    skipElement(reader);
+                    continue;
+                }
                 String localName = child.getName().getLocalPart();
                 switch (localName) {
                     case "Key" -> {
@@ -306,7 +345,7 @@ public class StaxCsdlParser {
                     case "Property" -> properties.add(parseProperty(reader, child));
                     case "NavigationProperty" -> navProps.add(parseNavigationProperty(reader, child));
                     default -> {
-                        warnIgnored("EntityType '" + name + "'", localName);
+                        warnIgnored("EntityType '" + name + "'", child);
                         skipElement(reader);
                     }
                 }
@@ -323,9 +362,10 @@ public class StaxCsdlParser {
     private ComplexTypeModel parseComplexType(XMLEventReader reader, StartElement el)
             throws XMLStreamException {
         String name = requireAttr(el, "Name", "ComplexType");
-        String baseType = resolveTypeRef(getAttr(el, "BaseType"));
-        boolean openType = "true".equals(getAttr(el, "OpenType"));
-        boolean abstractType = "true".equals(getAttr(el, "Abstract"));
+        String baseType = resolveTypeRef(getAttr(el, "BaseType"),
+                "BaseType of ComplexType '" + name + "'");
+        boolean openType = booleanAttr(el, "OpenType", false, "ComplexType '" + name + "'");
+        boolean abstractType = booleanAttr(el, "Abstract", false, "ComplexType '" + name + "'");
 
         List<PropertyModel> properties = new ArrayList<>();
         List<NavigationPropertyModel> navProps = new ArrayList<>();
@@ -334,12 +374,17 @@ public class StaxCsdlParser {
             XMLEvent event = reader.nextEvent();
             if (event.isStartElement()) {
                 StartElement child = event.asStartElement();
+                if (!EDM_NS.equals(child.getName().getNamespaceURI())) {
+                    warnIgnored("ComplexType '" + name + "'", child);
+                    skipElement(reader);
+                    continue;
+                }
                 String localName = child.getName().getLocalPart();
                 switch (localName) {
                     case "Property" -> properties.add(parseProperty(reader, child));
                     case "NavigationProperty" -> navProps.add(parseNavigationProperty(reader, child));
                     default -> {
-                        warnIgnored("ComplexType '" + name + "'", localName);
+                        warnIgnored("ComplexType '" + name + "'", child);
                         skipElement(reader);
                     }
                 }
@@ -356,18 +401,28 @@ public class StaxCsdlParser {
         List<String> aliases = new ArrayList<>();
         while (reader.hasNext()) {
             XMLEvent event = reader.nextEvent();
-            if (event.isStartElement() && "PropertyRef".equals(event.asStartElement().getName().getLocalPart())) {
-                propertyRefs.add(requireAttr(event.asStartElement(), "Name",
-                        "PropertyRef in <Key> of EntityType '" + entityName + "'"));
-                String alias = getAttr(event.asStartElement(), "Alias");
-                aliases.add(alias != null ? alias : "");
-            } else if (event.isStartElement()) {
-                warnIgnored("Key of EntityType '" + entityName + "'",
-                        event.asStartElement().getName().getLocalPart());
-                skipElement(reader);
+            if (event.isStartElement()) {
+                StartElement child = event.asStartElement();
+                if (isEdmElement(child, "PropertyRef")) {
+                    propertyRefs.add(requireAttr(child, "Name",
+                            "PropertyRef in <Key> of EntityType '" + entityName + "'"));
+                    String alias = getAttr(child, "Alias");
+                    aliases.add(alias != null ? alias : "");
+                } else {
+                    warnIgnored("Key of EntityType '" + entityName + "'", child);
+                    skipElement(reader);
+                }
             } else if (event.isEndElement() && isEdmElement(event.asEndElement(), "Key")) {
-                return new KeyModel(propertyRefs, aliases);
+                return keyModel(propertyRefs, aliases, entityName);
             }
+        }
+        return keyModel(propertyRefs, aliases, entityName);
+    }
+
+    private KeyModel keyModel(List<String> propertyRefs, List<String> aliases, String entityName) {
+        if (propertyRefs.isEmpty()) {
+            throw new IllegalArgumentException("Key of EntityType '" + entityName
+                    + "' must contain at least one PropertyRef");
         }
         return new KeyModel(propertyRefs, aliases);
     }
@@ -375,33 +430,48 @@ public class StaxCsdlParser {
     private PropertyModel parseProperty(XMLEventReader reader, StartElement el)
             throws XMLStreamException {
         String name = requireAttr(el, "Name", "Property");
-        String edmType = resolveTypeRef(requireAttr(el, "Type", "Property '" + name + "'"));
-        boolean nullable = !"false".equals(getAttr(el, "Nullable"));
+        String edmType = resolveTypeRef(requireAttr(el, "Type", "Property '" + name + "'"),
+                "Type of Property '" + name + "'");
+        boolean nullable = booleanAttr(el, "Nullable", true, "Property '" + name + "'");
         String defaultValue = getAttr(el, "DefaultValue");
-        // Consume everything until the closing </Property> tag (annotations, etc.)
-        skipElement(reader);
-        return new PropertyModel(name, edmType, nullable, defaultValue, List.of());
+        while (reader.hasNext()) {
+            XMLEvent event = reader.nextEvent();
+            if (event.isStartElement()) {
+                StartElement child = event.asStartElement();
+                if (!EDM_NS.equals(child.getName().getNamespaceURI())
+                        || !"Annotation".equals(child.getName().getLocalPart())) {
+                    warnIgnored("Property '" + name + "'", child);
+                }
+                skipElement(reader);
+            } else if (event.isEndElement() && isEdmElement(event.asEndElement(), "Property")) {
+                return new PropertyModel(name, edmType, nullable, defaultValue, List.of());
+            }
+        }
+        throw new IllegalArgumentException("Property '" + name + "' is missing its closing element");
     }
 
     private NavigationPropertyModel parseNavigationProperty(XMLEventReader reader, StartElement el)
             throws XMLStreamException {
         String name = requireAttr(el, "Name", "NavigationProperty");
-        String type = resolveTypeRef(requireAttr(el, "Type", "NavigationProperty '" + name + "'"));
+        String type = resolveTypeRef(requireAttr(el, "Type", "NavigationProperty '" + name + "'"),
+                "Type of NavigationProperty '" + name + "'");
         String partner = getAttr(el, "Partner");
-        boolean containsTarget = "true".equals(getAttr(el, "ContainsTarget"));
-        boolean nullable = !"false".equals(getAttr(el, "Nullable"));
+        boolean containsTarget = booleanAttr(el, "ContainsTarget", false,
+                "NavigationProperty '" + name + "'");
+        boolean nullable = booleanAttr(el, "Nullable", true, "NavigationProperty '" + name + "'");
 
         List<ReferentialConstraintModel> constraints = new ArrayList<>();
 
         while (reader.hasNext()) {
             XMLEvent event = reader.nextEvent();
-            if (event.isStartElement() && "ReferentialConstraint".equals(
-                    event.asStartElement().getName().getLocalPart())) {
-                constraints.addAll(parseReferentialConstraint(reader, event.asStartElement()));
-            } else if (event.isStartElement()) {
-                warnIgnored("NavigationProperty '" + name + "'",
-                        event.asStartElement().getName().getLocalPart());
-                skipElement(reader);
+            if (event.isStartElement()) {
+                StartElement child = event.asStartElement();
+                if (isEdmElement(child, "ReferentialConstraint")) {
+                    constraints.addAll(parseReferentialConstraint(reader, child));
+                } else {
+                    warnIgnored("NavigationProperty '" + name + "'", child);
+                    skipElement(reader);
+                }
             } else if (event.isEndElement() && isEdmElement(event.asEndElement(), "NavigationProperty")) {
                 return new NavigationPropertyModel(name, type, partner, containsTarget,
                         nullable, constraints, List.of());
@@ -422,90 +492,131 @@ public class StaxCsdlParser {
             throws XMLStreamException {
         List<String> principal = new ArrayList<>();
         List<String> dependent = new ArrayList<>();
+        boolean sawPrincipal = false;
+        boolean sawDependent = false;
         String section = null;
         while (reader.hasNext()) {
             XMLEvent event = reader.nextEvent();
             if (event.isStartElement()) {
                 StartElement el = event.asStartElement();
-                String localName = el.getName().getLocalPart();
-                switch (localName) {
-                    case "Principal" -> section = "P";
-                    case "Dependent" -> section = "D";
+                if (!EDM_NS.equals(el.getName().getNamespaceURI())) {
+                    warnIgnored("ReferentialConstraint", el);
+                    skipElement(reader);
+                    continue;
+                }
+                switch (el.getName().getLocalPart()) {
+                    case "Principal" -> {
+                        if (sawPrincipal) {
+                            throw new IllegalArgumentException(
+                                    "ReferentialConstraint must contain at most one Principal element");
+                        }
+                        sawPrincipal = true;
+                        section = "P";
+                    }
+                    case "Dependent" -> {
+                        if (sawDependent) {
+                            throw new IllegalArgumentException(
+                                    "ReferentialConstraint must contain at most one Dependent element");
+                        }
+                        sawDependent = true;
+                        section = "D";
+                    }
                     case "PropertyRef" -> {
+                        if (section == null) {
+                            throw new IllegalArgumentException(
+                                    "PropertyRef in ReferentialConstraint must be nested in Principal or Dependent");
+                        }
                         String name = requireAttr(el, "Name", "PropertyRef in ReferentialConstraint");
                         if ("P".equals(section)) principal.add(name);
-                        else if ("D".equals(section)) dependent.add(name);
+                        else dependent.add(name);
                     }
                     default -> {
-                        warnIgnored("ReferentialConstraint", localName);
+                        warnIgnored("ReferentialConstraint", el);
                         skipElement(reader);
                     }
                 }
             } else if (event.isEndElement()) {
-                String localName = event.asEndElement().getName().getLocalPart();
-                if ("Principal".equals(localName) || "Dependent".equals(localName)) {
+                javax.xml.stream.events.EndElement end = event.asEndElement();
+                if (isEdmElement(end, "Principal") || isEdmElement(end, "Dependent")) {
                     section = null;
-                } else if ("ReferentialConstraint".equals(localName)) {
-                    List<ReferentialConstraintModel> result = new ArrayList<>();
-                    if (!principal.isEmpty() || !dependent.isEmpty()) {
-                        if (principal.size() != dependent.size()) {
+                } else if (isEdmElement(end, "ReferentialConstraint")) {
+                    String property = getAttr(constraintEl, "Property");
+                    String referencedProperty = getAttr(constraintEl, "ReferencedProperty");
+                    if (property != null || referencedProperty != null) {
+                        property = requireAttr(constraintEl, "Property", "ReferentialConstraint");
+                        referencedProperty = requireAttr(constraintEl, "ReferencedProperty",
+                                "ReferentialConstraint");
+                        if (sawPrincipal || sawDependent) {
                             throw new IllegalArgumentException(
-                                    "ReferentialConstraint has " + principal.size()
-                                            + " principal PropertyRefs but " + dependent.size()
-                                            + " dependent PropertyRefs");
+                                    "ReferentialConstraint must use either Property/ReferencedProperty attributes "
+                                            + "or nested Principal/Dependent elements, not both");
                         }
-                        for (int i = 0; i < principal.size(); i++) {
-                            result.add(new ReferentialConstraintModel(dependent.get(i), principal.get(i)));
-                        }
-                    } else {
-                        // legacy attribute form
-                        String prop = getAttr(constraintEl, "Property");
-                        String ref = getAttr(constraintEl, "ReferencedProperty");
-                        if (prop != null && ref != null) {
-                            result.add(new ReferentialConstraintModel(prop, ref));
-                        }
+                        return List.of(new ReferentialConstraintModel(property, referencedProperty));
+                    }
+                    if (!sawPrincipal || !sawDependent) {
+                        throw new IllegalArgumentException(
+                                "ReferentialConstraint must contain both Principal and Dependent elements "
+                                        + "or both Property and ReferencedProperty attributes");
+                    }
+                    if (principal.isEmpty() || dependent.isEmpty()) {
+                        throw new IllegalArgumentException(
+                                "ReferentialConstraint Principal and Dependent must each contain at least one PropertyRef");
+                    }
+                    if (principal.size() != dependent.size()) {
+                        throw new IllegalArgumentException(
+                                "ReferentialConstraint has " + principal.size()
+                                        + " principal PropertyRefs but " + dependent.size()
+                                        + " dependent PropertyRefs");
+                    }
+                    List<ReferentialConstraintModel> result = new ArrayList<>();
+                    for (int i = 0; i < principal.size(); i++) {
+                        result.add(new ReferentialConstraintModel(dependent.get(i), principal.get(i)));
                     }
                     return result;
                 }
             }
         }
-        return List.of();
+        throw new IllegalArgumentException("ReferentialConstraint is missing its closing element");
     }
 
     private EnumTypeModel parseEnumType(XMLEventReader reader, StartElement el)
             throws XMLStreamException {
         String name = requireAttr(el, "Name", "EnumType");
-        String underlyingType = getOrDefault(getAttr(el, "UnderlyingType"), "Edm.Int32");
-        boolean isFlags = "true".equals(getAttr(el, "IsFlags"));
+        String rawUnderlyingType = getAttr(el, "UnderlyingType");
+        String underlyingType = rawUnderlyingType == null ? "Edm.Int32"
+                : resolveTypeRef(requireAttr(el, "UnderlyingType", "EnumType '" + name + "'"),
+                "UnderlyingType of EnumType '" + name + "'");
+        boolean isFlags = booleanAttr(el, "IsFlags", false, "EnumType '" + name + "'");
 
         List<EnumMemberModel> members = new ArrayList<>();
         // CSDL: a Member without Value defaults to the previous member's value + 1 (0 if first)
         long lastValue = -1;
         while (reader.hasNext()) {
             XMLEvent event = reader.nextEvent();
-            if (event.isStartElement() && "Member".equals(
-                    event.asStartElement().getName().getLocalPart())) {
-                StartElement memberEl = event.asStartElement();
-                String memberName = requireAttr(memberEl, "Name",
-                        "Member of EnumType '" + name + "'");
-                String valueStr = getAttr(memberEl, "Value");
-                long value;
-                if (valueStr != null) {
-                    try {
-                        value = Long.parseLong(valueStr);
-                    } catch (NumberFormatException e) {
-                        throw new IllegalArgumentException("EnumType '" + name + "' member '"
-                                + memberName + "' has invalid Value '" + valueStr + "'", e);
+            if (event.isStartElement()) {
+                StartElement child = event.asStartElement();
+                if (isEdmElement(child, "Member")) {
+                    StartElement memberEl = child;
+                    String memberName = requireAttr(memberEl, "Name",
+                            "Member of EnumType '" + name + "'");
+                    String valueStr = getAttr(memberEl, "Value");
+                    long value;
+                    if (valueStr != null) {
+                        try {
+                            value = Long.parseLong(valueStr);
+                        } catch (NumberFormatException e) {
+                            throw new IllegalArgumentException("EnumType '" + name + "' member '"
+                                    + memberName + "' has invalid Value '" + valueStr + "'", e);
+                        }
+                    } else {
+                        value = lastValue < 0 ? 0 : lastValue + 1;
                     }
+                    lastValue = value;
+                    members.add(new EnumMemberModel(memberName, value));
                 } else {
-                    value = lastValue < 0 ? 0 : lastValue + 1;
+                    warnIgnored("EnumType '" + name + "'", child);
+                    skipElement(reader);
                 }
-                lastValue = value;
-                members.add(new EnumMemberModel(memberName, value));
-            } else if (event.isStartElement()) {
-                warnIgnored("EnumType '" + name + "'",
-                        event.asStartElement().getName().getLocalPart());
-                skipElement(reader);
             } else if (event.isEndElement() && isEdmElement(event.asEndElement(), "EnumType")) {
                 return new EnumTypeModel(name, underlyingType, isFlags, members);
             }
@@ -518,16 +629,29 @@ public class StaxCsdlParser {
             throws XMLStreamException {
         String name = requireAttr(el, "Name", "TypeDefinition");
         String underlyingType = resolveTypeRef(
-                requireAttr(el, "UnderlyingType", "TypeDefinition '" + name + "'"));
-        skipElement(reader);
-        return new TypeDefinitionModel(name, underlyingType);
+                requireAttr(el, "UnderlyingType", "TypeDefinition '" + name + "'"),
+                "UnderlyingType of TypeDefinition '" + name + "'");
+        while (reader.hasNext()) {
+            XMLEvent event = reader.nextEvent();
+            if (event.isStartElement()) {
+                StartElement child = event.asStartElement();
+                if (!EDM_NS.equals(child.getName().getNamespaceURI())
+                        || !"Annotation".equals(child.getName().getLocalPart())) {
+                    warnIgnored("TypeDefinition '" + name + "'", child);
+                }
+                skipElement(reader);
+            } else if (event.isEndElement() && isEdmElement(event.asEndElement(), "TypeDefinition")) {
+                return new TypeDefinitionModel(name, underlyingType);
+            }
+        }
+        throw new IllegalArgumentException("TypeDefinition '" + name + "' is missing its closing element");
     }
 
     private FunctionModel parseFunction(XMLEventReader reader, StartElement el)
             throws XMLStreamException {
         String name = requireAttr(el, "Name", "Function");
-        boolean isBound = "true".equals(getAttr(el, "IsBound"));
-        boolean isComposable = "true".equals(getAttr(el, "IsComposable"));
+        boolean isBound = booleanAttr(el, "IsBound", false, "Function '" + name + "'");
+        boolean isComposable = booleanAttr(el, "IsComposable", false, "Function '" + name + "'");
         String entitySetPath = getAttr(el, "EntitySetPath");
 
         List<ParameterModel> parameters = new ArrayList<>();
@@ -537,31 +661,48 @@ public class StaxCsdlParser {
             XMLEvent event = reader.nextEvent();
             if (event.isStartElement()) {
                 StartElement child = event.asStartElement();
-                String localName = child.getName().getLocalPart();
-                switch (localName) {
-                    case "Parameter" -> parameters.add(parseParameter(child));
-                    case "ReturnType" -> returnType = new ReturnTypeModel(
-                            resolveTypeRef(getAttr(child, "Type")),
-                            !"false".equals(getAttr(child, "Nullable")));
+                if (!EDM_NS.equals(child.getName().getNamespaceURI())) {
+                    warnIgnored("Function '" + name + "'", child);
+                    skipElement(reader);
+                    continue;
+                }
+                switch (child.getName().getLocalPart()) {
+                    case "Parameter" -> parameters.add(parseParameter(child,
+                            "Parameter of Function '" + name + "'"));
+                    case "ReturnType" -> {
+                        if (returnType != null) {
+                            throw new IllegalArgumentException(
+                                    "Function '" + name + "' must contain exactly one ReturnType element");
+                        }
+                        returnType = parseReturnType(child, "ReturnType of Function '" + name + "'");
+                    }
                     default -> {
-                        warnIgnored("Function '" + name + "'", localName);
+                        warnIgnored("Function '" + name + "'", child);
                         skipElement(reader);
                     }
                 }
             } else if (event.isEndElement() && isEdmElement(event.asEndElement(), "Function")) {
-                return new FunctionModel(name, isBound, isComposable, entitySetPath,
-                        parameters, returnType);
+                return functionModel(name, isBound, isComposable, entitySetPath, parameters, returnType);
             }
         }
 
-        return new FunctionModel(name, isBound, isComposable, entitySetPath,
-                parameters, returnType);
+        return functionModel(name, isBound, isComposable, entitySetPath, parameters, returnType);
+    }
+
+    private FunctionModel functionModel(String name, boolean isBound, boolean isComposable,
+                                        String entitySetPath, List<ParameterModel> parameters,
+                                        ReturnTypeModel returnType) {
+        if (returnType == null) {
+            throw new IllegalArgumentException(
+                    "Function '" + name + "' must contain exactly one ReturnType element");
+        }
+        return new FunctionModel(name, isBound, isComposable, entitySetPath, parameters, returnType);
     }
 
     private ActionModel parseAction(XMLEventReader reader, StartElement el)
             throws XMLStreamException {
         String name = requireAttr(el, "Name", "Action");
-        boolean isBound = "true".equals(getAttr(el, "IsBound"));
+        boolean isBound = booleanAttr(el, "IsBound", false, "Action '" + name + "'");
         String entitySetPath = getAttr(el, "EntitySetPath");
 
         List<ParameterModel> parameters = new ArrayList<>();
@@ -571,14 +712,23 @@ public class StaxCsdlParser {
             XMLEvent event = reader.nextEvent();
             if (event.isStartElement()) {
                 StartElement child = event.asStartElement();
-                String localName = child.getName().getLocalPart();
-                switch (localName) {
-                    case "Parameter" -> parameters.add(parseParameter(child));
-                    case "ReturnType" -> returnType = new ReturnTypeModel(
-                            resolveTypeRef(getAttr(child, "Type")),
-                            !"false".equals(getAttr(child, "Nullable")));
+                if (!EDM_NS.equals(child.getName().getNamespaceURI())) {
+                    warnIgnored("Action '" + name + "'", child);
+                    skipElement(reader);
+                    continue;
+                }
+                switch (child.getName().getLocalPart()) {
+                    case "Parameter" -> parameters.add(parseParameter(child,
+                            "Parameter of Action '" + name + "'"));
+                    case "ReturnType" -> {
+                        if (returnType != null) {
+                            throw new IllegalArgumentException(
+                                    "Action '" + name + "' must contain at most one ReturnType element");
+                        }
+                        returnType = parseReturnType(child, "ReturnType of Action '" + name + "'");
+                    }
                     default -> {
-                        warnIgnored("Action '" + name + "'", localName);
+                        warnIgnored("Action '" + name + "'", child);
                         skipElement(reader);
                     }
                 }
@@ -590,17 +740,24 @@ public class StaxCsdlParser {
         return new ActionModel(name, isBound, entitySetPath, parameters, returnType);
     }
 
-    private ParameterModel parseParameter(StartElement el) {
+    private ParameterModel parseParameter(StartElement el, String description) {
         return new ParameterModel(
-                requireAttr(el, "Name", "Parameter"),
-                resolveTypeRef(requireAttr(el, "Type", "Parameter")),
-                !"false".equals(getAttr(el, "Nullable")));
+                requireAttr(el, "Name", description),
+                resolveTypeRef(requireAttr(el, "Type", description), "Type of " + description),
+                booleanAttr(el, "Nullable", true, description));
+    }
+
+    private ReturnTypeModel parseReturnType(StartElement el, String description) {
+        return new ReturnTypeModel(
+                resolveTypeRef(requireAttr(el, "Type", description), "Type of " + description),
+                booleanAttr(el, "Nullable", true, description));
     }
 
     private ContainerModel parseEntityContainer(XMLEventReader reader, StartElement el)
             throws XMLStreamException {
         String name = requireAttr(el, "Name", "EntityContainer");
-        String extendsContainer = resolveTypeRef(getAttr(el, "Extends"));
+        String extendsContainer = resolveTypeRef(getAttr(el, "Extends"),
+                "Extends of EntityContainer '" + name + "'");
 
         List<EntitySetModel> entitySets = new ArrayList<>();
         List<SingletonModel> singletons = new ArrayList<>();
@@ -611,14 +768,19 @@ public class StaxCsdlParser {
             XMLEvent event = reader.nextEvent();
             if (event.isStartElement()) {
                 StartElement child = event.asStartElement();
+                if (!EDM_NS.equals(child.getName().getNamespaceURI())) {
+                    warnIgnored("EntityContainer '" + name + "'", child);
+                    skipElement(reader);
+                    continue;
+                }
                 String localName = child.getName().getLocalPart();
                 switch (localName) {
                     case "EntitySet" -> entitySets.add(parseEntitySet(reader, child));
                     case "Singleton" -> singletons.add(parseSingleton(reader, child));
-                    case "FunctionImport" -> functionImports.add(parseFunctionImport(child));
-                    case "ActionImport" -> actionImports.add(parseActionImport(child));
+                    case "FunctionImport" -> functionImports.add(parseFunctionImport(reader, child));
+                    case "ActionImport" -> actionImports.add(parseActionImport(reader, child));
                     default -> {
-                        warnIgnored("EntityContainer '" + name + "'", localName);
+                        warnIgnored("EntityContainer '" + name + "'", child);
                         skipElement(reader);
                     }
                 }
@@ -633,22 +795,21 @@ public class StaxCsdlParser {
     private EntitySetModel parseEntitySet(XMLEventReader reader, StartElement el)
             throws XMLStreamException {
         String name = requireAttr(el, "Name", "EntitySet");
-        String entityType = resolveTypeRef(requireAttr(el, "EntityType", "EntitySet '" + name + "'"));
+        String entityType = resolveTypeRef(requireAttr(el, "EntityType", "EntitySet '" + name + "'"),
+                "EntityType of EntitySet '" + name + "'");
 
         List<NavigationPropertyBindingModel> bindings = new ArrayList<>();
 
         while (reader.hasNext()) {
             XMLEvent event = reader.nextEvent();
-            if (event.isStartElement() && "NavigationPropertyBinding".equals(
-                    event.asStartElement().getName().getLocalPart())) {
-                StartElement bindingEl = event.asStartElement();
-                bindings.add(new NavigationPropertyBindingModel(
-                        getAttr(bindingEl, "Path"),
-                        getAttr(bindingEl, "Target")));
-            } else if (event.isStartElement()) {
-                warnIgnored("EntitySet '" + name + "'",
-                        event.asStartElement().getName().getLocalPart());
-                skipElement(reader);
+            if (event.isStartElement()) {
+                StartElement child = event.asStartElement();
+                if (isEdmElement(child, "NavigationPropertyBinding")) {
+                    bindings.add(parseNavigationPropertyBinding(child, "EntitySet '" + name + "'"));
+                } else {
+                    warnIgnored("EntitySet '" + name + "'", child);
+                    skipElement(reader);
+                }
             } else if (event.isEndElement() && isEdmElement(event.asEndElement(), "EntitySet")) {
                 return new EntitySetModel(name, entityType, bindings, List.of());
             }
@@ -660,22 +821,21 @@ public class StaxCsdlParser {
     private SingletonModel parseSingleton(XMLEventReader reader, StartElement el)
             throws XMLStreamException {
         String name = requireAttr(el, "Name", "Singleton");
-        String type = resolveTypeRef(requireAttr(el, "Type", "Singleton '" + name + "'"));
+        String type = resolveTypeRef(requireAttr(el, "Type", "Singleton '" + name + "'"),
+                "Type of Singleton '" + name + "'");
 
         List<NavigationPropertyBindingModel> bindings = new ArrayList<>();
 
         while (reader.hasNext()) {
             XMLEvent event = reader.nextEvent();
-            if (event.isStartElement() && "NavigationPropertyBinding".equals(
-                    event.asStartElement().getName().getLocalPart())) {
-                StartElement bindingEl = event.asStartElement();
-                bindings.add(new NavigationPropertyBindingModel(
-                        getAttr(bindingEl, "Path"),
-                        getAttr(bindingEl, "Target")));
-            } else if (event.isStartElement()) {
-                warnIgnored("Singleton '" + name + "'",
-                        event.asStartElement().getName().getLocalPart());
-                skipElement(reader);
+            if (event.isStartElement()) {
+                StartElement child = event.asStartElement();
+                if (isEdmElement(child, "NavigationPropertyBinding")) {
+                    bindings.add(parseNavigationPropertyBinding(child, "Singleton '" + name + "'"));
+                } else {
+                    warnIgnored("Singleton '" + name + "'", child);
+                    skipElement(reader);
+                }
             } else if (event.isEndElement() && isEdmElement(event.asEndElement(), "Singleton")) {
                 return new SingletonModel(name, type, bindings);
             }
@@ -684,19 +844,49 @@ public class StaxCsdlParser {
         return new SingletonModel(name, type, bindings);
     }
 
-    private FunctionImportModel parseFunctionImport(StartElement el) {
-        return new FunctionImportModel(
-                requireAttr(el, "Name", "FunctionImport"),
-                resolveTypeRef(getAttr(el, "Function")),
-                getAttr(el, "EntitySet"),
-                "true".equals(getAttr(el, "IncludeInServiceDocument")));
+    private NavigationPropertyBindingModel parseNavigationPropertyBinding(StartElement el,
+                                                                          String parent) {
+        return new NavigationPropertyBindingModel(
+                requireAttr(el, "Path", "NavigationPropertyBinding in " + parent),
+                requireAttr(el, "Target", "NavigationPropertyBinding in " + parent));
     }
 
-    private ActionImportModel parseActionImport(StartElement el) {
-        return new ActionImportModel(
-                requireAttr(el, "Name", "ActionImport"),
-                resolveTypeRef(getAttr(el, "Action")),
-                getAttr(el, "EntitySet"));
+    private FunctionImportModel parseFunctionImport(XMLEventReader reader, StartElement el)
+            throws XMLStreamException {
+        String name = requireAttr(el, "Name", "FunctionImport");
+        String function = resolveTypeRef(requireAttr(el, "Function", "FunctionImport '" + name + "'"),
+                "Function of FunctionImport '" + name + "'");
+        String entitySet = getAttr(el, "EntitySet");
+        boolean includeInServiceDocument = booleanAttr(el, "IncludeInServiceDocument", false,
+                "FunctionImport '" + name + "'");
+        while (reader.hasNext()) {
+            XMLEvent event = reader.nextEvent();
+            if (event.isStartElement()) {
+                warnIgnored("FunctionImport '" + name + "'", event.asStartElement());
+                skipElement(reader);
+            } else if (event.isEndElement() && isEdmElement(event.asEndElement(), "FunctionImport")) {
+                return new FunctionImportModel(name, function, entitySet, includeInServiceDocument);
+            }
+        }
+        throw new IllegalArgumentException("FunctionImport '" + name + "' is missing its closing element");
+    }
+
+    private ActionImportModel parseActionImport(XMLEventReader reader, StartElement el)
+            throws XMLStreamException {
+        String name = requireAttr(el, "Name", "ActionImport");
+        String action = resolveTypeRef(requireAttr(el, "Action", "ActionImport '" + name + "'"),
+                "Action of ActionImport '" + name + "'");
+        String entitySet = getAttr(el, "EntitySet");
+        while (reader.hasNext()) {
+            XMLEvent event = reader.nextEvent();
+            if (event.isStartElement()) {
+                warnIgnored("ActionImport '" + name + "'", event.asStartElement());
+                skipElement(reader);
+            } else if (event.isEndElement() && isEdmElement(event.asEndElement(), "ActionImport")) {
+                return new ActionImportModel(name, action, entitySet);
+            }
+        }
+        throw new IllegalArgumentException("ActionImport '" + name + "' is missing its closing element");
     }
 
     private void skipElement(XMLEventReader reader) throws XMLStreamException {
@@ -743,35 +933,64 @@ public class StaxCsdlParser {
         return value;
     }
 
+    private boolean booleanAttr(StartElement el, String name, boolean defaultValue,
+                                String elementDescription) {
+        String value = getAttr(el, name);
+        if (value == null) {
+            return defaultValue;
+        }
+        return switch (value.trim()) {
+            case "true", "1" -> true;
+            case "false", "0" -> false;
+            default -> throw new IllegalArgumentException(elementDescription
+                    + " has invalid xs:boolean attribute '" + name + "' value '" + value
+                    + "'; expected true, false, 1, or 0");
+        };
+    }
+
     /**
      * Resolves alias-qualified type references ({@code self.Address}) to the schema's real
      * namespace, preserving {@code Collection(...)} wrappers. Without this, alias refs
      * resolve as unknown types and the generators emit wrong packages/imports.
      * Checks global alias map (cross-schema) first, then current schema alias.
      */
-    private String resolveTypeRef(String raw) {
+    private String resolveTypeRef(String raw, String description) {
         if (raw == null) {
             return null;
         }
-        raw = raw.trim();
-        boolean isCollection = raw.startsWith("Collection(") && raw.endsWith(")");
-        String inner = isCollection ? raw.substring("Collection(".length(), raw.length() - 1).trim() : raw;
-        int dot = inner.indexOf('.');
+        String value = raw.trim();
+        boolean isCollection = value.startsWith("Collection(");
+        if (value.contains("Collection(") && !isCollection) {
+            throw invalidTypeReference(value, description);
+        }
+        if (isCollection) {
+            if (!value.endsWith(")")) {
+                throw invalidTypeReference(value, description);
+            }
+            value = value.substring("Collection(".length(), value.length() - 1).trim();
+            if (value.isEmpty() || value.indexOf('(') >= 0 || value.indexOf(')') >= 0) {
+                throw invalidTypeReference(raw.trim(), description);
+            }
+        } else if (value.indexOf('(') >= 0 || value.indexOf(')') >= 0) {
+            throw invalidTypeReference(value, description);
+        }
+        int dot = value.indexOf('.');
         if (dot > 0) {
-            String rewritten = applyAliasMap(inner, dot);
+            String rewritten = applyAliasMap(value, dot);
             if (rewritten == null && currentAlias != null && currentNamespace != null
-                    && inner.startsWith(currentAlias + ".")) {
-                rewritten = currentNamespace + inner.substring(currentAlias.length());
+                    && value.startsWith(currentAlias + ".")) {
+                rewritten = currentNamespace + value.substring(currentAlias.length());
             }
             if (rewritten != null) {
-                inner = rewritten;
+                value = rewritten;
             }
         }
-        return isCollection ? "Collection(" + inner + ")" : inner;
+        return isCollection ? "Collection(" + value + ")" : value;
     }
 
-    private String getOrDefault(String value, String defaultValue) {
-        return value != null ? value : defaultValue;
+    private IllegalArgumentException invalidTypeReference(String value, String description) {
+        return new IllegalArgumentException(description + " has invalid Collection type '" + value
+                + "'; expected a non-nested Collection(type) or a single type name");
     }
 
     /**
@@ -830,8 +1049,7 @@ public class StaxCsdlParser {
         if (base == null) {
             base = byQualifiedName.get(namespaceOf.get(container) + "." + extendsName);
         }
-        if (base == null) {
-            // unqualified ref to a container in another schema — accept only a unique simple-name match
+        if (base == null && extendsName.indexOf('.') < 0) {
             ContainerModel found = null;
             int matches = 0;
             String simple = Names.simpleNameFromFullName(extendsName);

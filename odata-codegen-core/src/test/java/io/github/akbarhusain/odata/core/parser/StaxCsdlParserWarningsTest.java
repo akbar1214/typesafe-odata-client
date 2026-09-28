@@ -75,7 +75,7 @@ class StaxCsdlParserWarningsTest {
         CsdlModel model = parse(HEADER + """
                 <Schema Namespace="NS.Test" xmlns="http://docs.oasis-open.org/odata/ns/edm">
                   <EntityType Name="Foo">
-                    <Key><PropertyReff Name="Id"/></Key>
+                    <Key><PropertyReff Name="Id"/><PropertyRef Name="Id"/></Key>
                     <Property Name="Id" Type="Edm.Int32" Nullable="false"/>
                   </EntityType>
                 </Schema>
