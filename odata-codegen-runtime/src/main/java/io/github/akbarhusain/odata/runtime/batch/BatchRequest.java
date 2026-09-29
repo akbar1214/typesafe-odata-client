@@ -79,6 +79,20 @@ public class BatchRequest {
                 Thread.currentThread().interrupt();
                 throw new ODataException("Batch request failed: interrupted", cause);
             }
+            // JdkHttpTransport rewraps InterruptedException as
+            // ODataException("HTTP request interrupted", e), so the cause reaching here
+            // in production is an ODataException, NOT an InterruptedException. Without
+            // this branch the handler above never fired on the real path, `throw runtime`
+            // won, and the calling thread's interrupt flag was lost -- the transport only
+            // sets the flag on its own worker thread. Decision 160 requires every
+            // sync-over-async wrapper to restore it; EntityOperations.rethrowCause
+            // already carries both branches, this is the one call site that missed the
+            // second. Rethrowing the original ODataException keeps the cause typed.
+            if (cause instanceof ODataException odataException
+                    && odataException.getCause() instanceof InterruptedException) {
+                Thread.currentThread().interrupt();
+                throw odataException;
+            }
             if (cause instanceof RuntimeException runtime) {
                 throw runtime;
             }
