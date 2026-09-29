@@ -122,6 +122,85 @@ class EntityOperationsCountTest {
     }
 
     @Test
+    void executeCountDropsOptionsTheCountPathDoesNotAllow() {
+        // OData 4.01 Part 2 §5.1.6: "Resource paths ending in /$count allow $filter and
+        // $search." A nextLink-derived path carries the paging options the server put
+        // there ($top/$skip/$skiptoken), so countValue() on a continued request would
+        // otherwise emit /People/$count?$skiptoken=...&$top=... — a request a
+        // conformant service rejects.
+        CapturingTransport transport = new CapturingTransport("7");
+        Context ctx = Context.builder()
+                .baseUrl("https://example.com")
+                .transport(transport)
+                .build();
+
+        ContextPath path = ctx.basePath().addSegment("People")
+                .fromNextLink("https://example.com/People?$skiptoken=abc&$top=5&$filter=Age%20gt%2025");
+        EntityOperations.executeCount(ctx, path);
+
+        String url = transport.lastRequest.url();
+        assertTrue(url.contains("/People/$count"), "URL should contain /$count: " + url);
+        assertFalse(url.contains("$top"), "/$count must not carry $top: " + url);
+        assertFalse(url.contains("$skiptoken"), "/$count must not carry a page token: " + url);
+        assertTrue(url.contains("$filter=Age%20gt%2025"), "/$count must keep $filter: " + url);
+    }
+
+    @Test
+    void executeCountKeepsSearch() {
+        CapturingTransport transport = new CapturingTransport("7");
+        Context ctx = Context.builder()
+                .baseUrl("https://example.com")
+                .transport(transport)
+                .build();
+
+        EntityOperations.executeCount(ctx, ctx.basePath().addSegment("People")
+                .addQuery("$search", "blue OR green")
+                .addQuery("$select", "Name"));
+        String url = transport.lastRequest.url();
+        assertTrue(url.contains("$search=blue%20OR%20green"), "/$count must keep $search: " + url);
+        assertFalse(url.contains("$select"), "/$count must not carry $select: " + url);
+    }
+
+    @Test
+    void executeCountKeepsCustomOptionsAndParameterAliases() {
+        // The drop is deliberately narrow: only system options the count path disallows
+        // plus continuation tokens. A custom option is the caller's explicit instruction,
+        // and a retained $filter may reference a parameter alias -- dropping the alias
+        // would leave a dangling reference, a worse URL than the one being fixed.
+        CapturingTransport transport = new CapturingTransport("7");
+        Context ctx = Context.builder()
+                .baseUrl("https://example.com")
+                .transport(transport)
+                .build();
+
+        EntityOperations.executeCount(ctx, ctx.basePath().addSegment("People")
+                .addQuery("$filter", "contains(@w,Title)")
+                .addQuery("@w", "'x'")
+                .addQuery("tenant", "acme"));
+        String url = transport.lastRequest.url();
+        assertTrue(url.contains("%40w=") || url.contains("@w="),
+                "a parameter alias must survive so the retained $filter still resolves: " + url);
+        assertTrue(url.contains("tenant=acme"),
+                "a custom option is the caller's instruction and must survive: " + url);
+    }
+
+    @Test
+    void executeCountDropsContinuationToken() {
+        CapturingTransport transport = new CapturingTransport("7");
+        Context ctx = Context.builder()
+                .baseUrl("https://example.com")
+                .transport(transport)
+                .build();
+
+        EntityOperations.executeCount(ctx, ctx.basePath().addSegment("People")
+                .addQuery("$skiptoken", "abc")
+                .addQuery("$deltatoken", "d"));
+        String url = transport.lastRequest.url();
+        assertFalse(url.contains("skiptoken"), "a continuation token is meaningless off a page link: " + url);
+        assertFalse(url.contains("deltatoken"), "a continuation token is meaningless off a page link: " + url);
+    }
+
+    @Test
     void executeCountThrowsOnNonNumericBody() {
         Context ctx = Context.builder()
                 .baseUrl("https://example.com")

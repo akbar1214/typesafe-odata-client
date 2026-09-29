@@ -692,7 +692,16 @@ public class EntityOperations {
 
 
     public static long executeCount(Context context, ContextPath path) {
-        ContextPath countPath = path.addCountSegment();
+        // OData v4.01 Part 2: "Resource paths ending in /$count allow $filter and
+        // $search" (SS5.1); "The count MUST NOT be affected by $top, $skip, $orderby,
+        // or $expand" (SS4.8). The caller may hand us a path that came from an
+        // @odata.nextLink, which carries exactly the paging options the server chose
+        // ($top/$skip/$skiptoken) - none of which belong on /$count. Drop them rather
+        // than letting the generated countValue() (or a direct caller) emit a URL that
+        // either 400s or silently returns the wrong number. Custom options and
+        // parameter aliases survive: they are the caller's own instruction, and a
+        // retained $filter may reference an alias, so dropping it would dangle the filter.
+        ContextPath countPath = path.retainSystemQueryOptions("$filter", "$search").addCountSegment();
         // /$count returns plain text per the OData spec — never accept application/json
         HttpResponse response = executeSync(context, HttpMethod.GET, countPath, null,
                 Map.of("Accept", "text/plain"));
