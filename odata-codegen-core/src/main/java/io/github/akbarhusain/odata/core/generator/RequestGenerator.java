@@ -726,12 +726,16 @@ public class RequestGenerator extends AbstractTypeGenerator {
     }
 
     public String requireKnownTypeForGeneration(String type, SchemaModel schema, String owner, String member) {
-        initEffectiveSchemas(schema);
+        // Resolution helper — called mid-render with a nav's DECLARING schema, which for a
+        // cross-schema inherited navigation is not the schema being written. See
+        // AbstractTypeGenerator.ensureEffectiveSchemas.
+        ensureEffectiveSchemas(schema);
         return requireKnownType(type, schema, owner, member);
     }
 
     public String resolvedTypeForGeneration(String type, SchemaModel schema) {
-        initEffectiveSchemas(schema);
+        // Resolution helper: ensureEffectiveSchemas, never initEffectiveSchemas.
+        ensureEffectiveSchemas(schema);
         return resolveTypeDefinition(type, schema);
     }
 
@@ -752,7 +756,8 @@ public class RequestGenerator extends AbstractTypeGenerator {
 
     /** Resolves an entity-set/singleton type reference to its model (qualified, then same-schema simple name). */
     public EntityTypeModel resolveEntityType(String typeRef, SchemaModel schema) {
-        initEffectiveSchemas(schema);
+        // Resolution helper: ensureEffectiveSchemas, never initEffectiveSchemas.
+        ensureEffectiveSchemas(schema);
         ensureSchemaCache(schema);
         EntityTypeModel hit = entityTypeByQualifiedName.get(typeRef);
         if (hit != null) return hit;
@@ -768,7 +773,8 @@ public class RequestGenerator extends AbstractTypeGenerator {
      * container overloads, keyed nav overloads, and (previously) the byID accessors.
      */
     public java.util.List<KeyParamSpec> keyParamSpecs(EntityTypeModel entityType, SchemaModel schema) {
-        initEffectiveSchemas(schema);
+        // Resolution helper: ensureEffectiveSchemas, never initEffectiveSchemas.
+        ensureEffectiveSchemas(schema);
         validateKeyProperties("entity '" + entityType.name() + "'", resolvedKeys(entityType, schema),
                 resolvedProperties(entityType), schema);
         java.util.List<KeyParamSpec> out = new java.util.ArrayList<>();

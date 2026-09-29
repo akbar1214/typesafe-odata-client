@@ -85,6 +85,33 @@ public abstract class AbstractTypeGenerator {
         if (schema != null) {
             generatingNamespace = schema.namespace();
         }
+        ensureEffectiveSchemas(schema);
+    }
+
+    /**
+     * Initializes {@code effectiveSchemas} WITHOUT touching {@link #generatingNamespace}.
+     *
+     * <p>For RESOLUTION helpers, which are routinely called mid-render with a foreign schema —
+     * the declaring schema of a cross-schema inherited navigation, say. Those calls must not
+     * change which namespace the current file is being written for: {@code basePackageForType}
+     * compares against {@link #generatingNamespace}, so clobbering it makes every later lookup
+     * for the foreign namespace resolve to the LOCAL package and emit imports that do not
+     * exist. Only the file-rendering entry points may move {@code generatingNamespace}.
+     *
+     * <p>Known cost of the split: on a path whose FIRST call is a helper — the
+     * {@code ContainerGenerator} keyed-overload path never calls the renderers —
+     * {@code generatingNamespace} stays null. That is currently unobservable, because
+     * {@code Generator} derives each schema's {@code basePackage} with the identical
+     * {@code schemaPackages.getOrDefault(ns, defaultBasePackage ?? toPackageName(ns))} formula,
+     * so a null namespace resolves to the same package the renderers would have returned.
+     *
+     * <p>Tech debt: two near-identical methods is a footgun, because correctness depends on a
+     * future author picking the right one. Threading the rendering namespace through
+     * {@code basePackageForType} instead of holding it in an ambient field would remove the
+     * hazard; that touches every call site plus {@code ContainerGenerator}'s mirror. Recorded,
+     * not done.
+     */
+    protected void ensureEffectiveSchemas(SchemaModel schema) {
         if (!effectiveSchemasInitialized) {
             effectiveSchemasInitialized = true;
             effectiveSchemas = allSchemas.isEmpty() ? List.of(schema) : allSchemas;
@@ -749,6 +776,13 @@ public abstract class AbstractTypeGenerator {
      * The namespace of the schema whose files this generator is currently writing.
      * {@code basePackage} is that schema's package, so a type belonging to this namespace
      * always resolves to {@code basePackage} — the two must be compared together.
+     *
+     * <p>Invariant: it is set ONLY by the entry points that render a file for a schema
+     * ({@link #initEffectiveSchemas}). Resolution helpers use
+     * {@link #ensureEffectiveSchemas} instead, because they are called mid-render with a
+     * nav's DECLARING schema, which for a cross-schema inherited navigation is not the schema
+     * being written — clobbering this field there makes every later lookup for that foreign
+     * namespace resolve to the local package, emitting imports that do not exist.
      */
     protected String generatingNamespace;
 
