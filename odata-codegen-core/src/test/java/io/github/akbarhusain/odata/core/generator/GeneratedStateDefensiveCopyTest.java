@@ -27,9 +27,9 @@ class GeneratedStateDefensiveCopyTest {
                 .generate(model(entity, target));
         String code = Files.readString(out.resolve("com/example/entity/Holder.java"));
         assertTrue(code.contains("this.tags = value == null ? null : java.util.Collections.unmodifiableList(new java.util.ArrayList<>(value));"), code);
-        assertTrue(code.contains("e.tags = tags == null ? null : java.util.Collections.unmodifiableList(new java.util.ArrayList<>(tags));"), code);
+        assertTrue(code.contains("e.tags = this.tags == null ? null : java.util.Collections.unmodifiableList(new java.util.ArrayList<>(this.tags));"), code);
         assertTrue(code.contains("this.links = value == null ? null : java.util.Collections.unmodifiableList(new java.util.ArrayList<>(value));"), code);
-        assertTrue(code.contains("e.links = links == null ? null : java.util.Collections.unmodifiableList(new java.util.ArrayList<>(links));"), code);
+        assertTrue(code.contains("e.links = this.links == null ? null : java.util.Collections.unmodifiableList(new java.util.ArrayList<>(this.links));"), code);
         assertTrue(code.contains("return Set.copyOf(changedFields);"), code);
         assertNull(CompilationHarness.compileAll(out));
     }
@@ -72,7 +72,7 @@ class GeneratedStateDefensiveCopyTest {
                 .generate(new CsdlModel(List.of(schema), List.of()));
         String code = Files.readString(out.resolve("com/example/complex/Holder.java"));
         assertTrue(code.contains("this.tags = value == null ? null : java.util.Collections.unmodifiableList(new java.util.ArrayList<>(value));"), code);
-        assertTrue(code.contains("e.tags = tags == null ? null : java.util.Collections.unmodifiableList(new java.util.ArrayList<>(tags));"), code);
+        assertTrue(code.contains("e.tags = this.tags == null ? null : java.util.Collections.unmodifiableList(new java.util.ArrayList<>(this.tags));"), code);
         assertTrue(code.contains("e.tags = value == null ? null : java.util.Collections.unmodifiableList(new java.util.ArrayList<>(value));"), code);
         assertNull(CompilationHarness.compileAll(out));
     }

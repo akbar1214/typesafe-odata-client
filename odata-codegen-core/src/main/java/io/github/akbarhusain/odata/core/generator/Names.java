@@ -365,6 +365,12 @@ public final class Names {
             "Duration", "Instant", "ZoneOffset", "Charset", "StandardCharsets", "UUID", "Base64",
             "Context", "ContextPath", "EntityUtil", "ODataEntityType", "ODataType", "SchemaInfo",
             "ODataEnumValue", "EntityOperations", "BatchOperation", "CollectionPage", "OperationPath",
+            // ODataException is imported by simple name into every generated entity-request
+            // file. It was the one runtime type missing here, so an entity literally named
+            // ODataException made that file import BOTH <pkg>.entity.ODataException and
+            // io.github...runtime.exception.ODataException -> "reference to ODataException
+            // is ambiguous".
+            "ODataException",
             "HttpMethod", "DynamicPropertyConverter", "StringProperty", "NumberProperty",
             "BooleanProperty", "DateTimeProperty", "GuidProperty", "EnumProperty", "CollectionProperty",
             "NavCollectionProperty", "NavQuery", "Expandable", "NumberExpression", "FilterExpression", "RawFilterExpression",
