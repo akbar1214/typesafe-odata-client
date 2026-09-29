@@ -598,7 +598,36 @@ public class EntityOperations {
         return name != null && LIFECYCLE_JSON_NAMES.contains(name.toLowerCase(Locale.ROOT));
     }
 
+    /**
+     * JSON-name -&gt; reflective accessor for a generated type, derived once per class.
+     *
+     * <p>Walking the hierarchy with {@code getDeclaredFields}/{@code getDeclaredMethods}
+     * (plus {@link #ignoredPropertyNames} per class) is by far the most expensive step in
+     * polymorphic deserialization: it runs about three times per JSON node -- once in
+     * {@link #sanitizeCollectionPayload} for the DECLARED element type (so even the
+     * non-polymorphic fast path paid it), once in {@code deserializeNode} for the
+     * resolved subtype, and once more in {@link #repairExpandedValues}. On a 500-element
+     * collection that is ~1500 full reflective walks.
+     *
+     * <p>{@link ClassValue} rather than a static {@code ConcurrentHashMap<Class<?>, ...>}:
+     * the latter strongly references the {@code Class} and therefore its
+     * {@code ClassLoader}, so in a container or a plugin host it pins every loader the
+     * JVM has ever seen for the process lifetime. {@code ClassValue} is associated with
+     * the class itself and its value is dropped when the class is unloaded.
+     */
+    private static final ClassValue<Map<String, PropertyAccess>> PROPERTY_ACCESS =
+            new ClassValue<>() {
+                @Override
+                protected Map<String, PropertyAccess> computeValue(Class<?> type) {
+                    return buildPropertyAccess(type);
+                }
+            };
+
     private static Map<String, PropertyAccess> propertyAccess(Class<?> type) {
+        return PROPERTY_ACCESS.get(type);
+    }
+
+    private static Map<String, PropertyAccess> buildPropertyAccess(Class<?> type) {
         Map<String, PropertyAccess> result = new LinkedHashMap<>();
         for (Class<?> current = type; current != null && current != Object.class;
                 current = current.getSuperclass()) {
