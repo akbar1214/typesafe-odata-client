@@ -56,7 +56,7 @@ class RequestGeneratorLambdaTest {
     void collectionRequestEmitsSelectLambdaOverload() throws Exception {
         String code = generateCollectionRequest("Person");
         assertTrue(code.contains(
-                "public final PersonCollectionRequest select(java.util.function.Function<Person.Selector, ? extends PropertyExpression<? super Person, ?>>... selectors)"),
+                "public final PersonCollectionRequest select(java.util.function.Function<Person.Selector, ? extends SelectableExpression<? super Person>>... selectors)"),
                 "collection request should emit the select lambda overload");
         assertTrue(code.contains("return select(resolved);"),
                 "select lambda overload delegates to the constant form "
@@ -103,7 +103,7 @@ class RequestGeneratorLambdaTest {
     void entityRequestEmitsSelectAndExpandLambdasOnly() throws Exception {
         String code = generateEntityRequest("Person");
         assertTrue(code.contains(
-                "public final PersonEntityRequest select(java.util.function.Function<Person.Selector, ? extends PropertyExpression<? super Person, ?>>... selectors)"),
+                "public final PersonEntityRequest select(java.util.function.Function<Person.Selector, ? extends SelectableExpression<? super Person>>... selectors)"),
                 "entity request should emit the select lambda overload");
         assertTrue(code.contains(
                 "public final PersonEntityRequest expand(java.util.function.Function<Person.Selector, ? extends Expandable<? super Person>> query)"),
@@ -123,7 +123,7 @@ class RequestGeneratorLambdaTest {
         String collection = generateCollectionRequest("Person");
         assertTrue(collection.contains("public final PersonCollectionRequest select() {"),
                 "zero-arg select() on collection requests: " + collection);
-        assertTrue(collection.contains("return select(new PropertyExpression[0]);"));
+        assertTrue(collection.contains("return select(new SelectableExpression[0]);"));
         assertTrue(collection.contains("public final PersonCollectionRequest orderBy() {"),
                 "zero-arg orderBy() on collection requests");
         assertTrue(collection.contains("return orderBy(new OrderExpression[0]);"));
@@ -131,6 +131,6 @@ class RequestGeneratorLambdaTest {
         String entity = generateEntityRequest("Person");
         assertTrue(entity.contains("public final PersonEntityRequest select() {"),
                 "zero-arg select() on entity requests: " + entity);
-        assertTrue(entity.contains("return select(new PropertyExpression[0]);"));
+        assertTrue(entity.contains("return select(new SelectableExpression[0]);"));
     }
 }

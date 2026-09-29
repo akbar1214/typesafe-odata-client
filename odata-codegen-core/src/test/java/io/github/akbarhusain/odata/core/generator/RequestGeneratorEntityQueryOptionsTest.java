@@ -46,7 +46,7 @@ class RequestGeneratorEntityQueryOptionsTest {
     void entityRequestEmitsTypedSelect() throws Exception {
         String code = generatePersonRequest();
         assertTrue(code.contains(
-                "@SafeVarargs\n    public final PersonEntityRequest select(PropertyExpression<? super Person, ?>... properties)"));
+                "@SafeVarargs\n    public final PersonEntityRequest select(SelectableExpression<? super Person>... properties)"));
         assertTrue(code.contains("is not a selectable property "),
                 "select() validates property paths exactly like the collection request");
     }

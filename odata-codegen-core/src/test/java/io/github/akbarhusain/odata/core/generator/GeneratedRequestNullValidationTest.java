@@ -7,6 +7,7 @@ import io.github.akbarhusain.odata.runtime.query.Expandable;
 import io.github.akbarhusain.odata.runtime.query.FilterExpression;
 import io.github.akbarhusain.odata.runtime.query.OrderExpression;
 import io.github.akbarhusain.odata.runtime.query.PropertyExpression;
+import io.github.akbarhusain.odata.runtime.query.SelectableExpression;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -37,10 +38,10 @@ class GeneratedRequestNullValidationTest {
                     new Function<Object, Object>() { public Object apply(Object selector) { return null; } },
                     "filter function must not return null");
 
-            namedFailure(request, "select", new Class<?>[]{PropertyExpression[].class},
+            namedFailure(request, "select", new Class<?>[]{SelectableExpression[].class},
                     "select properties must not be null");
-            namedFailure(request, "select", new Class<?>[]{PropertyExpression[].class},
-                    (Object) new PropertyExpression<?, ?>[]{null}, "select properties[0] must not be null");
+            namedFailure(request, "select", new Class<?>[]{SelectableExpression[].class},
+                    (Object) new SelectableExpression<?>[]{null}, "select properties[0] must not be null");
             namedFailure(request, "select", new Class<?>[]{Function[].class},
                     "select selectors must not be null");
             namedFailure(request, "select", new Class<?>[]{Function[].class},
@@ -83,10 +84,10 @@ class GeneratedRequestNullValidationTest {
     void entityRequestRejectsNullSelectAndExpandArgumentsAndElementsWithNamedMessages(@TempDir Path tempDir) throws Exception {
         try (RequestFixture fixture = request("com.example.entity.request.ItemEntityRequest", tempDir)) {
             Object request = fixture.request();
-            namedFailure(request, "select", new Class<?>[]{PropertyExpression[].class},
+            namedFailure(request, "select", new Class<?>[]{SelectableExpression[].class},
                     "select properties must not be null");
-            namedFailure(request, "select", new Class<?>[]{PropertyExpression[].class},
-                    (Object) new PropertyExpression<?, ?>[]{null}, "select properties[0] must not be null");
+            namedFailure(request, "select", new Class<?>[]{SelectableExpression[].class},
+                    (Object) new SelectableExpression<?>[]{null}, "select properties[0] must not be null");
             namedFailure(request, "select", new Class<?>[]{Function[].class},
                     "select selectors must not be null");
             namedFailure(request, "select", new Class<?>[]{Function[].class},

@@ -246,8 +246,10 @@ class RequestOperationContainerAuditTest {
             Object client = containerClass.getConstructor(
                     io.github.akbarhusain.odata.runtime.entity.Context.class).newInstance(context);
             Object request = client.getClass().getMethod("things").invoke(client);
+            // select() takes the select-only capability: a complex/binary/geo property is
+            // selectable but not orderable, so the parameter is SelectableExpression.
             Class<?> propertyArray = java.lang.reflect.Array.newInstance(
-                    Class.forName("io.github.akbarhusain.odata.runtime.query.PropertyExpression"), 0).getClass();
+                    Class.forName("io.github.akbarhusain.odata.runtime.query.SelectableExpression"), 0).getClass();
             Class<?> expandableArray = java.lang.reflect.Array.newInstance(
                     Class.forName("io.github.akbarhusain.odata.runtime.query.Expandable"), 0).getClass();
             Object property = Class.forName("com.example.entity.Thing", true, loader)
