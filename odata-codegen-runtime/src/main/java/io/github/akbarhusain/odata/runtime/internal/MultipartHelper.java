@@ -444,15 +444,19 @@ public final class MultipartHelper {
 
     private static void decodePartOrNested(byte[] part, String groupId, List<DecodedPart> results,
                                            int[] wireIndex, int[] groupIndex) {
-        int separator = indexOf(part, CRLFCRLF, 0, part.length);
-        int separatorLength = 4;
-        if (separator < 0) {
-            separator = indexOf(part, DOUBLE_LF, 0, part.length);
-            separatorLength = 2;
-        }
+        // Same helper as decodeSinglePart, and deliberately so. Searching for CRLFCRLF
+        // first and only then DOUBLE_LF is a "first-CRLFCRLF-else-LF" search, not a
+        // "first-of-either" one, so a part whose OWN headers are bare-LF but whose
+        // embedded HTTP block uses CRLF picked the separator from inside the embedded
+        // block: the split landed after the status line, the mis-split "header" block
+        // contained a blank line, and parseHeaders threw "blank header line" for a
+        // perfectly decodable response. findHeaderSeparator takes the earlier of the two
+        // and is the single definition of "where do the headers end" in this file.
+        int separator = findHeaderSeparator(part, 0);
         if (separator < 0) {
             throw new ODataException("Malformed multipart response: part has no header/body separator");
         }
+        int separatorLength = separatorLength(part, separator);
         Map<String, List<String>> partHeaders = parseHeaders(
                 new String(part, 0, separator, StandardCharsets.UTF_8), false);
         String contentId = singleHeader(partHeaders, "Content-ID");
@@ -556,10 +560,24 @@ public final class MultipartHelper {
         }
         int headerEnd;
         int bodyStart;
+        int bodyEnd;
         if (separator >= 0) {
             headerEnd = separator;
             bodyStart = separator + separatorLength(httpBlock, separator);
+            bodyEnd = httpBlock.length;
         } else {
+            // No blank line: the block is a bare status line and nothing else. The
+            // delimiter's trailing CRLF/LF has already been consumed one layer up by
+            // decodeParts, but a 204 is routinely sent with no header block at all
+            // ("HTTP/1.1 204 No Content\r\n"), so trim whatever line terminator is left
+            // and treat everything past it as framing, not content.
+            //
+            // The end bound MUST be the trimmed length. Slicing to httpBlock.length here
+            // re-included the two framing bytes as a body of [13, 10], so the
+            // "body.length == 0 -> null" guard below never fired and every body-less
+            // 204 -- the shape EVERY delete in a change set returns -- decoded to a
+            // two-byte body that getEntity() then failed to deserialize ("No content to
+            // map due to end-of-input") instead of yielding null.
             int trimmed = httpBlock.length;
             if (trimmed > 0 && httpBlock[trimmed - 1] == '\n') {
                 trimmed--;
@@ -572,6 +590,7 @@ public final class MultipartHelper {
             }
             headerEnd = trimmed;
             bodyStart = trimmed;
+            bodyEnd = trimmed;
         }
         String headerBlock = new String(httpBlock, start, headerEnd - start, StandardCharsets.UTF_8);
         String[] lines = headerBlock.split("\\r?\\n", -1);
@@ -599,7 +618,7 @@ public final class MultipartHelper {
             headers.put("Content-ID", List.of(contentId));
         }
         byte[] body = bodyStart < httpBlock.length
-                ? Arrays.copyOfRange(httpBlock, bodyStart, httpBlock.length) : null;
+                ? Arrays.copyOfRange(httpBlock, bodyStart, bodyEnd) : null;
         if (body != null && body.length == 0) {
             body = null;
         }

@@ -2,6 +2,7 @@ package io.github.akbarhusain.odata.runtime.exception;
 
 import io.github.akbarhusain.odata.runtime.http.HttpResponse;
 
+import java.time.DateTimeException;
 import java.time.Instant;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
@@ -82,8 +83,17 @@ public class RateLimitException extends ODataException {
         }
         try {
             return Instant.now().plusSeconds(Long.parseLong(value));
-        } catch (NumberFormatException ignore) {
-            return null; // unparseable header value — treat as absent
+        } catch (NumberFormatException | DateTimeException | ArithmeticException ignore) {
+            // Unparseable OR out-of-range header value: treat as absent. The overflow
+            // cases matter as much as the non-numeric one -- Instant.plusSeconds adds
+            // with Math.addExact, so a delay near Long.MAX_VALUE raises
+            // ArithmeticException and a negative one can land outside the Instant range
+            // as DateTimeException. Neither is a NumberFormatException, so catching only
+            // that let them escape parseServerRetryAfter, out of the 429 constructor and
+            // past ODataException.fromResponse entirely: a caller catching
+            // RateLimitException never fired, the parsed OData error was lost, and an
+            // untyped ArithmeticException surfaced instead.
+            return null;
         }
     }
 }
