@@ -137,6 +137,18 @@ public class EntityGenerator extends AbstractTypeGenerator {
         String baseQualifiedName = base == null ? null
                 : baseQualifiedNameOf(base, entityType.baseType(), schema);
         List<String> refCandidates = new ArrayList<>();
+        // The file's OWN class is a claimant of its simple name, even though nothing in
+        // it references itself. Without this, split-merge metadata that puts a same-named
+        // type in another package (A.Person referencing B.Person) resolves the foreign
+        // name to a single claimant, so it is emitted unqualified AND imported -- and
+        // javac rejects an import whose simple name equals the compilation unit's own
+        // class: "Person is already defined in this compilation unit". The existing
+        // imports.remove(pkg + "." + className) guard does not help: it removes the SELF
+        // FQN, while the offending import is a different FQN. Registering the self FQN
+        // makes TypeRefs see two claimants and route the foreign reference fully-qualified
+        // with no import, which is exactly the contested-name policy the other candidates
+        // already get.
+        refCandidates.add(pkg + "." + className);
         for (NavigationPropertyModel nav : allNavs) {
             String fqn = navTargetFqn(nav, schema);
             if (fqn != null) {
@@ -1120,7 +1132,14 @@ public class EntityGenerator extends AbstractTypeGenerator {
         sb.append("    public static Builder builder() {\n        return new Builder();\n    }\n\n");
 
         sb.append("    public static final class Builder {\n");
-        sb.append("        private final java.util.Set<String> changed = new java.util.HashSet<>();\n");
+        // Named changedFields, not changed: it is already in RESERVED_MEMBER_NAMES, so no
+        // CSDL property can ever fold onto it. A property named Changed/Changed_ mapped to
+        // field `changed` and produced a DUPLICATE field in Builder --
+        // "variable changed is already defined in class Builder" -- for an ordinary audit
+        // column. Renaming the property instead would be worse: RESERVED_MEMBER_NAMES is
+        // also consulted by isReservedMemberField, so it would rename the getters of
+        // complex types, whose Builder has no such set and which therefore compile today.
+        sb.append("        private final java.util.Set<String> changedFields = new java.util.HashSet<>();\n");
         sb.append("        private ContextPath contextPath;\n");
         sb.append("        private String etag;\n");
         for (PropertyModel prop : props) {
@@ -1153,7 +1172,7 @@ public class EntityGenerator extends AbstractTypeGenerator {
             } else {
                 sb.append("            this.").append(fn).append(" = value;\n");
             }
-            sb.append("            changed.add(\"").append(Names.escapeJavaString(prop.name())).append("\");\n");
+            sb.append("            changedFields.add(\"").append(Names.escapeJavaString(prop.name())).append("\");\n");
             sb.append("            return this;\n");
             sb.append("        }\n\n");
         }
@@ -1168,7 +1187,7 @@ public class EntityGenerator extends AbstractTypeGenerator {
                 sb.append("            this.").append(fn).append(" = value;\n");
             }
             // nav changes must be tracked like property changes, or partial PATCH drops them
-            sb.append("            changed.add(\"").append(Names.escapeJavaString(nav.name())).append("\");\n");
+            sb.append("            changedFields.add(\"").append(Names.escapeJavaString(nav.name())).append("\");\n");
             sb.append("            return this;\n");
             sb.append("        }\n\n");
         }
@@ -1185,22 +1204,30 @@ public class EntityGenerator extends AbstractTypeGenerator {
         sb.append("            e.etag = etag;\n");
         for (PropertyModel prop : props) {
             String fn = Names.toJavaFieldName(prop.name());
-            sb.append("            e.").append(fn).append(" = ").append(fn);
+            // `this.` on the right: without it a CSDL property whose field is named `e`
+            // resolves to the LOCAL `T e = new T()`, emitting `e.e = e;` -- a compile
+            // error when the types differ, and a SILENT self-assignment when they do not
+            // (a self-typed nav named `e` overwrites the staged value with the new object).
+            sb.append("            e.").append(fn).append(" = this.").append(fn);
             if (Names.isCollectionType(prop.edmType())) {
-                sb.append(" == null ? null : java.util.Collections.unmodifiableList(new java.util.ArrayList<>(").append(fn).append("))");
+                sb.append(" == null ? null : java.util.Collections.unmodifiableList(new java.util.ArrayList<>(this.").append(fn).append("))");
             }
             sb.append(";\n");
         }
         for (NavigationPropertyModel nav : navs) {
             String fn = Names.toJavaFieldName(nav.name());
-            sb.append("            e.").append(fn).append(" = ").append(fn);
+            // `this.` on the right: without it a CSDL property whose field is named `e`
+            // resolves to the LOCAL `T e = new T()`, emitting `e.e = e;` -- a compile
+            // error when the types differ, and a SILENT self-assignment when they do not
+            // (a self-typed nav named `e` overwrites the staged value with the new object).
+            sb.append("            e.").append(fn).append(" = this.").append(fn);
             if (Names.isCollectionType(nav.type())) {
-                sb.append(" == null ? null : java.util.Collections.unmodifiableList(new java.util.ArrayList<>(").append(fn).append("))");
+                sb.append(" == null ? null : java.util.Collections.unmodifiableList(new java.util.ArrayList<>(this.").append(fn).append("))");
             }
             sb.append(";\n");
         }
         sb.append("            e.unmappedFields = unmappedFields;\n");
-        sb.append("            e.changedFields = new java.util.HashSet<>(changed);\n");
+        sb.append("            e.changedFields = new java.util.HashSet<>(changedFields);\n");
         sb.append("            return e;\n");
         sb.append("        }\n");
         sb.append("    }\n\n");

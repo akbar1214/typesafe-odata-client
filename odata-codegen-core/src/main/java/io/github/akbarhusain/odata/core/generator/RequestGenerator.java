@@ -84,6 +84,13 @@ public class RequestGenerator extends AbstractTypeGenerator {
         // Two schemas may declare same-named entities in different output packages;
         // contested request-class simple names are referenced fully-qualified, never imported
         List<String> refCandidates = new ArrayList<>();
+        // The request class being generated is itself a claimant of its simple name.
+        // Without it, split-merge metadata whose nav target is a same-named entity in
+        // another package makes the FOREIGN request class look uncontested, so it is
+        // emitted unqualified and imported -- and javac rejects that with
+        // "PersonEntityRequest is already defined in this compilation unit".
+        refCandidates.add(basePackage + Names.packageNameSuffixEntityRequest() + "."
+                + Names.entityRequestClassName(entityType.name()));
         List<String[]> navFqns = new ArrayList<>();
         for (NavigationPropertyModel nav : resolvedNavs(entityType)) {
             if (isNonEntityNav(nav, schema)) continue;
@@ -396,7 +403,6 @@ public class RequestGenerator extends AbstractTypeGenerator {
         imports.add("io.github.akbarhusain.odata.runtime.paging.CollectionPage");
         imports.add("io.github.akbarhusain.odata.runtime.batch.BatchOperation");
         imports.add(basePackage + Names.packageNameSuffixEntity() + "." + entityClassName);
-        imports.add(basePackage + Names.packageNameSuffixEntityRequest() + "." + Names.entityRequestClassName(entityType.name()));
 
         for (String imp : imports) {
             sb.append("import ").append(imp).append(";\n");

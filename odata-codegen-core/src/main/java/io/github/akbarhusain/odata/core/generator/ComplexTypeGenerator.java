@@ -107,6 +107,11 @@ public class ComplexTypeGenerator extends AbstractTypeGenerator {
         String baseQualifiedName = base == null ? null
                 : baseQualifiedNameOf(base, complexType.baseType(), schema);
         List<String> refCandidates = new ArrayList<>();
+        // The file's OWN class claims its simple name even when nothing references it, so
+        // a same-named type in another package (split-merge metadata) becomes a SECOND
+        // claimant and is referenced fully-qualified instead of imported -- which javac
+        // would otherwise reject with "<Name> is already defined in this compilation unit".
+        refCandidates.add(pkg + "." + className);
         for (PropertyModel prop : allProps) {
             collectPropertyTypeFqns(prop, schema, refCandidates);
         }
@@ -428,17 +433,25 @@ public class ComplexTypeGenerator extends AbstractTypeGenerator {
         sb.append("            ").append(className).append(" e = new ").append(className).append("();\n");
         for (PropertyModel prop : allProps) {
             String fn = Names.toJavaFieldName(prop.name());
-            sb.append("            e.").append(fn).append(" = ").append(fn);
+            // `this.` on the right: without it a CSDL property whose field is named
+            // `e` resolves to the LOCAL `C e = new C()`, emitting `e.e = e;` -- a
+            // compile error when the types differ, and a silent self-assignment
+            // when they do not.
+            sb.append("            e.").append(fn).append(" = this.").append(fn);
             if (Names.isCollectionType(prop.edmType())) {
-                sb.append(" == null ? null : java.util.Collections.unmodifiableList(new java.util.ArrayList<>(").append(fn).append("))");
+                sb.append(" == null ? null : java.util.Collections.unmodifiableList(new java.util.ArrayList<>(this.").append(fn).append("))");
             }
             sb.append(";\n");
         }
         for (NavigationPropertyModel nav : navs) {
             String fn = Names.toJavaFieldName(nav.name());
-            sb.append("            e.").append(fn).append(" = ").append(fn);
+            // `this.` on the right: without it a CSDL property whose field is named
+            // `e` resolves to the LOCAL `C e = new C()`, emitting `e.e = e;` -- a
+            // compile error when the types differ, and a silent self-assignment
+            // when they do not.
+            sb.append("            e.").append(fn).append(" = this.").append(fn);
             if (Names.isCollectionType(nav.type())) {
-                sb.append(" == null ? null : java.util.Collections.unmodifiableList(new java.util.ArrayList<>(").append(fn).append("))");
+                sb.append(" == null ? null : java.util.Collections.unmodifiableList(new java.util.ArrayList<>(this.").append(fn).append("))");
             }
             sb.append(";\n");
         }

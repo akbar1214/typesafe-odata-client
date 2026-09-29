@@ -227,7 +227,7 @@ class GeneratorPolishTest {
                         .filter(e -> e.name().equals("T")).findFirst().orElseThrow(),
                 model.schemas().get(0));
         String builder = code.substring(code.indexOf("class Builder"));
-        assertTrue(builder.contains("changed.add(\"Other\")"),
+        assertTrue(builder.contains("changedFields.add(\"Other\")"),
                 "builder nav setters must record changes for partial PATCH. Builder:\n" + builder);
     }
 }

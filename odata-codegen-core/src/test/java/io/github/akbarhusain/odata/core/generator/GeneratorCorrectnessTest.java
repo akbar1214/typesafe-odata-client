@@ -146,7 +146,7 @@ class GeneratorCorrectnessTest {
         // The wire name must survive with Java escaping: A\"B\\C
         assertTrue(code.contains("@com.fasterxml.jackson.annotation.JsonProperty(\"A\\\"B\\\\C\")"),
                 "JsonProperty wire name must be Java-escaped:\n" + code);
-        assertTrue(code.contains("changed.add(\"A\\\"B\\\\C\")")
+        assertTrue(code.contains("changedFields.add(\"A\\\"B\\\\C\")")
                         || code.contains("mergeChanged(changedFields, \"A\\\"B\\\\C\")"),
                 "changed-fields wire name must be Java-escaped:\n" + code);
     }
