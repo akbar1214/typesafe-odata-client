@@ -110,7 +110,7 @@ public class CollectionProperty<E, T, F, Sel> {
      * would be ambiguous between the constant and lambda forms (both accept zero args).
      */
     public NavQuery<E, T, Sel> select() {
-        return select(new PropertyExpression[0]);
+        return select(new SelectableExpression[0]);
     }
 
     /** Same zero-arg bridge as {@link #select()}. */
@@ -118,7 +118,8 @@ public class CollectionProperty<E, T, F, Sel> {
         return orderBy(new OrderExpression[0]);
     }
 
-    public NavQuery<E, T, Sel> select(PropertyExpression<? super T, ?>... properties) {
+    /** Select-only capability, for the same reason as {@link NavQuery#select}. */
+    public NavQuery<E, T, Sel> select(SelectableExpression<? super T>... properties) {
         if (properties == null) throw new IllegalArgumentException("properties must not be null");
         List<String> selects = new ArrayList<>();
         for (var prop : properties) {
@@ -187,10 +188,10 @@ public class CollectionProperty<E, T, F, Sel> {
 
     @SafeVarargs
     public final NavQuery<E, T, Sel> select(
-            Function<? super Sel, ? extends PropertyExpression<? super T, ?>>... selectors) {
+            Function<? super Sel, ? extends SelectableExpression<? super T>>... selectors) {
         if (selectors == null) throw new IllegalArgumentException("select selectors must not be null");
         Sel selector = selector("select");
-        PropertyExpression<? super T, ?>[] resolved = new PropertyExpression[selectors.length];
+        SelectableExpression<? super T>[] resolved = new SelectableExpression[selectors.length];
         for (int i = 0; i < selectors.length; i++) {
             if (selectors[i] == null) throw new IllegalArgumentException("select selector must not be null");
             resolved[i] = selectors[i].apply(selector);

@@ -170,7 +170,7 @@ public class RequestGenerator extends AbstractTypeGenerator {
         // Chaining mirrors the collection request: copy() snapshots state, methods
         // mutate the copy — the source request is untouched
         sb.append("    @SafeVarargs\n");
-        sb.append("    public final ").append(className).append(" select(PropertyExpression<? super ").append(entityClassName).append(", ?>... properties) {\n");
+        sb.append("    public final ").append(className).append(" select(SelectableExpression<? super ").append(entityClassName).append(">... properties) {\n");
         sb.append("        java.util.Objects.requireNonNull(properties, \"select properties must not be null\");\n");
         sb.append("        ").append(className).append(" next = copy();\n");
         sb.append("        for (int i = 0; i < properties.length; i++) {\n");
@@ -187,10 +187,10 @@ public class RequestGenerator extends AbstractTypeGenerator {
 
         sb.append("    @SuppressWarnings(\"unchecked\")\n");
         sb.append("    @SafeVarargs\n");
-        sb.append("    public final ").append(className).append(" select(java.util.function.Function<").append(entityClassName).append(".Selector, ? extends PropertyExpression<? super ").append(entityClassName).append(", ?>>... selectors) {\n");
+        sb.append("    public final ").append(className).append(" select(java.util.function.Function<").append(entityClassName).append(".Selector, ? extends SelectableExpression<? super ").append(entityClassName).append(">>... selectors) {\n");
         sb.append("        java.util.Objects.requireNonNull(selectors, \"select selectors must not be null\");\n");
         sb.append("        ").append(entityClassName).append(".Selector s = new ").append(entityClassName).append(".Selector();\n");
-        sb.append("        PropertyExpression<? super ").append(entityClassName).append(", ?>[] resolved = new PropertyExpression[selectors.length];\n");
+        sb.append("        SelectableExpression<? super ").append(entityClassName).append(">[] resolved = new SelectableExpression[selectors.length];\n");
         sb.append("        for (int i = 0; i < selectors.length; i++) {\n");
         sb.append("            java.util.Objects.requireNonNull(selectors[i], \"select selectors[\" + i + \"] must not be null\");\n");
         sb.append("            resolved[i] = java.util.Objects.requireNonNull(selectors[i].apply(s), \"select selectors[\" + i + \"] must not return null\");\n");
@@ -202,7 +202,7 @@ public class RequestGenerator extends AbstractTypeGenerator {
         // existed; with both present it would be ambiguous
         sb.append("    @SuppressWarnings(\"unchecked\")\n");
         sb.append("    public final ").append(className).append(" select() {\n");
-        sb.append("        return select(new PropertyExpression[0]);\n");
+        sb.append("        return select(new SelectableExpression[0]);\n");
         sb.append("    }\n\n");
 
         sb.append("    @SafeVarargs\n");
@@ -443,7 +443,7 @@ public class RequestGenerator extends AbstractTypeGenerator {
 
         // Type-safe select
         sb.append("    @SafeVarargs\n");
-        sb.append("    public final ").append(className).append(" select(PropertyExpression<? super ").append(entityClassName).append(", ?>... properties) {\n");
+        sb.append("    public final ").append(className).append(" select(SelectableExpression<? super ").append(entityClassName).append(">... properties) {\n");
         sb.append("        java.util.Objects.requireNonNull(properties, \"select properties must not be null\");\n");
         sb.append("        ").append(className).append(" next = copy();\n");
         sb.append("        for (int i = 0; i < properties.length; i++) {\n");
@@ -460,10 +460,10 @@ public class RequestGenerator extends AbstractTypeGenerator {
 
         sb.append("    @SuppressWarnings(\"unchecked\")\n");
         sb.append("    @SafeVarargs\n");
-        sb.append("    public final ").append(className).append(" select(java.util.function.Function<").append(entityClassName).append(".Selector, ? extends PropertyExpression<? super ").append(entityClassName).append(", ?>>... selectors) {\n");
+        sb.append("    public final ").append(className).append(" select(java.util.function.Function<").append(entityClassName).append(".Selector, ? extends SelectableExpression<? super ").append(entityClassName).append(">>... selectors) {\n");
         sb.append("        java.util.Objects.requireNonNull(selectors, \"select selectors must not be null\");\n");
         sb.append("        ").append(entityClassName).append(".Selector s = new ").append(entityClassName).append(".Selector();\n");
-        sb.append("        PropertyExpression<? super ").append(entityClassName).append(", ?>[] resolved = new PropertyExpression[selectors.length];\n");
+        sb.append("        SelectableExpression<? super ").append(entityClassName).append(">[] resolved = new SelectableExpression[selectors.length];\n");
         sb.append("        for (int i = 0; i < selectors.length; i++) {\n");
         sb.append("            java.util.Objects.requireNonNull(selectors[i], \"select selectors[\" + i + \"] must not be null\");\n");
         sb.append("            resolved[i] = java.util.Objects.requireNonNull(selectors[i].apply(s), \"select selectors[\" + i + \"] must not return null\");\n");
@@ -475,7 +475,7 @@ public class RequestGenerator extends AbstractTypeGenerator {
         // existed; with both present it would be ambiguous
         sb.append("    @SuppressWarnings(\"unchecked\")\n");
         sb.append("    public final ").append(className).append(" select() {\n");
-        sb.append("        return select(new PropertyExpression[0]);\n");
+        sb.append("        return select(new SelectableExpression[0]);\n");
         sb.append("    }\n\n");
 
         // Type-safe expand: one constant form over the sealed Expandable set

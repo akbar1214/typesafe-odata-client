@@ -37,7 +37,7 @@ class RequestGeneratorNarrowQueryTest {
     @Test
     void selectIsScopedToEntity() throws Exception {
         String code = generateCollectionRequest("Person");
-        assertTrue(code.contains("select(PropertyExpression<? super Person, ?>"),
+        assertTrue(code.contains("select(SelectableExpression<? super Person>"),
                 "select() should accept only properties scoped to Person or its base types");
     }
 
@@ -60,7 +60,7 @@ class RequestGeneratorNarrowQueryTest {
     @Test
     void inheritedEntityUsesSuperBoundedSignatures() throws Exception {
         String code = generateCollectionRequest("Flight");
-        assertTrue(code.contains("select(PropertyExpression<? super Flight, ?>"),
+        assertTrue(code.contains("select(SelectableExpression<? super Flight>"),
                 "Subtype collection request should still use ? super bound for select");
         assertTrue(code.contains("orderBy(OrderExpression<? super Flight, ?>"),
                 "Subtype collection request should still use ? super bound for orderBy");
