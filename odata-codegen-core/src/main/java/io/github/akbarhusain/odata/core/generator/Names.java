@@ -369,7 +369,11 @@ public final class Names {
             "BooleanProperty", "DateTimeProperty", "GuidProperty", "EnumProperty", "CollectionProperty",
             "NavCollectionProperty", "NavQuery", "Expandable", "NumberExpression", "FilterExpression", "RawFilterExpression",
             "PropertyExpression", "OrderExpression", "OrderedProperty", "ApplyBuilder", "ApplyExpression",
-            "RawApplyExpression", "Expression", "FilterableElement"
+            "RawApplyExpression", "Expression", "FilterableElement",
+            // Select-only descriptor for complex/Binary/Geo properties. Generated code
+            // reaches these through the wildcard query import, so an entity of the same
+            // simple name would hijack the reference in every same-package file.
+            "SelectableProperty", "SelectableExpression"
     );
 
     private static boolean isJdkClassName(String name) {

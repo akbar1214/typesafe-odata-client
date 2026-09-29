@@ -769,7 +769,15 @@ public class EntityGenerator extends AbstractTypeGenerator {
 
         String constantType = getPropertyConstantType(edmType, owner);
         if (constantType == null) {
-            return ""; // Binary, Stream, Geography, Geometry — not filterable
+            // Selectable but not comparable/sortable (complex, Binary, Geo): still expose a
+            // descriptor so $select can name it, instead of leaving the property reachable
+            // only through its getter.
+            if ("SelectableProperty".equals(getSelectOnlyConstantType(edmType, owner))) {
+                return "    public static final SelectableProperty<" + className + "> " + constantName
+                        + " = new SelectableProperty<>(\"" + Names.escapeJavaString(prop.name()) + "\", "
+                        + className + ".class);\n";
+            }
+            return ""; // Edm.Stream and anything unresolvable — not selectable either
         }
         String typeParams = switch (constantType) {
             case "EnumProperty" -> "<" + className + ", " + resolveClassNameForConstant(edmType, owner) + ">";
@@ -903,7 +911,15 @@ public class EntityGenerator extends AbstractTypeGenerator {
 
         String constantType = getPropertyConstantType(edmType, owner);
         if (constantType == null) {
-            return ""; // Binary, Stream, Geography, Geometry — not filterable, no constant
+            // Mirrors generatePropertyConstant: an inherited property has no constant on this
+            // class to alias, so construct it inline against the same wire name.
+            if ("SelectableProperty".equals(getSelectOnlyConstantType(edmType, owner))) {
+                return "    public final SelectableProperty<" + className + "> " + constantName
+                        + " = " + (own ? shared
+                        : "new SelectableProperty<>(\"" + Names.escapeJavaString(prop.name()) + "\", "
+                        + className + ".class)") + ";\n";
+            }
+            return ""; // Edm.Stream and anything unresolvable
         }
         String typeParams = switch (constantType) {
             case "EnumProperty" -> "<" + className + ", " + resolveClassNameForConstant(edmType, owner) + ">";

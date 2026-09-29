@@ -165,7 +165,7 @@ public record NavQuery<S, T, Sel>(
      * would be ambiguous between the constant and lambda forms (both accept zero args).
      */
     public NavQuery<S, T, Sel> select() {
-        return select(new PropertyExpression[0]);
+        return select(new SelectableExpression[0]);
     }
 
     /** Same zero-arg bridge as {@link #select()}. */
@@ -173,10 +173,16 @@ public record NavQuery<S, T, Sel>(
         return orderBy(new OrderExpression[0]);
     }
 
-    public NavQuery<S, T, Sel> select(PropertyExpression<? super T, ?>... properties) {
+    /**
+     * {@code SelectableExpression}, not {@code PropertyExpression}: a complex, binary or
+     * geography property is selectable but NOT orderable, so widening this to the ordering
+     * capability would have let {@code orderBy(...)} reach it via a widened overload.
+     */
+    public NavQuery<S, T, Sel> select(SelectableExpression<? super T>... properties) {
         if (properties == null) throw new IllegalArgumentException("properties must not be null");
         List<String> newSelects = new ArrayList<>(this.selects);
         for (var prop : properties) {
+            if (prop == null) throw new IllegalArgumentException("select property must not be null");
             newSelects.add(selectableName(prop));
         }
         return new NavQuery<>(edmName, newSelects, filters, orderings, topOption, skipOption,
@@ -243,10 +249,10 @@ public record NavQuery<S, T, Sel>(
 
     @SafeVarargs
     public final NavQuery<S, T, Sel> select(
-            Function<? super Sel, ? extends PropertyExpression<? super T, ?>>... selectors) {
+            Function<? super Sel, ? extends SelectableExpression<? super T>>... selectors) {
         if (selectors == null) throw new IllegalArgumentException("select selectors must not be null");
         Sel selector = selector(selectorFactory, "select");
-        PropertyExpression<? super T, ?>[] resolved = new PropertyExpression[selectors.length];
+        SelectableExpression<? super T>[] resolved = new SelectableExpression[selectors.length];
         for (int i = 0; i < selectors.length; i++) {
             if (selectors[i] == null) throw new IllegalArgumentException("select selector must not be null");
             resolved[i] = selectors[i].apply(selector);
@@ -284,7 +290,7 @@ public record NavQuery<S, T, Sel>(
      * ({@code toLower()}, {@code substring()}, {@code date()}, ...) return property-like
      * expressions whose names contain function calls, which are invalid in $select.
      */
-    static String selectableName(PropertyExpression<?, ?> prop) {
+    static String selectableName(SelectableExpression<?> prop) {
         if (prop == null) throw new IllegalArgumentException("select property must not be null");
         String name = prop.getEdmName();
         if (name.indexOf('(') >= 0) {

@@ -334,8 +334,16 @@ public abstract class AbstractTypeGenerator {
                             + ref + "' does not match any property (own or inherited)");
                 }
                 if (property.nullable()) {
+                    // The rejection is correct (CSDL XML 4.01: "Key properties MUST NOT be
+                    // nullable", and Nullable "defaults to true" when unspecified), but the
+                    // message is part of the contract: the remedy is a one-attribute edit to
+                    // the user's metadata, and the reader cannot infer it from "must be
+                    // non-null" -- that phrasing describes the consequence, not the edit.
                     throw new IllegalStateException("Cannot generate " + owner + ": key property '"
-                            + ref + "' must be non-null");
+                            + ref + "' is nullable. OData requires key properties to be "
+                            + "non-nullable, and the Nullable attribute DEFAULTS TO true when "
+                            + "it is not specified, so add Nullable=\"false\" to the '" + ref
+                            + "' property in the metadata (or fix the service's CSDL).");
                 }
                 String type = resolveTypeDefinition(property.edmType(), schemaForProperty(property, schema));
                 boolean enumType = resolveTypeKind(type, schemaForProperty(property, schema)) == Names.TypeKind.ENUM;
@@ -940,7 +948,33 @@ public abstract class AbstractTypeGenerator {
         if (Names.isDateTimeType(resolved)) return "DateTimeProperty";
         if (isEnumType(resolved, schema)) return "EnumProperty";
         if (Names.isNumericType(resolved)) return "NumberProperty";
-        return null; // Binary, Stream, Geography, Geometry — not filterable, no constant
+        return null; // complex, Binary, Geography, Geometry — not filterable
+    }
+
+    /**
+     * The descriptor for a property that is SELECTABLE but neither comparable nor
+     * sortable — complex, {@code Edm.Binary}, geography/geometry. OData v4.01 Part 1
+     * §11.2.6.2 requires a "primitive result value" to sort on and excludes Geo types
+     * outright, so a select-only {@code SelectableProperty} is the correct shape.
+     *
+     * <p>Separate from {@link #getPropertyConstantType} on purpose: that method is also
+     * consulted by the {@code Filterable} inner class, which exists for {@code any()}/{@code
+     * all()} lambdas where only a COMPARABLE descriptor is meaningful. Folding the fallback
+     * in there would have emitted unusable select-only fields into {@code Filterable}.
+     *
+     * @return the constant type to emit, or {@code null} when the property is not
+     *         selectable, or already has a richer descriptor
+     */
+    protected String getSelectOnlyConstantType(String edmType, SchemaModel schema) {
+        String resolved = resolveTypeDefinition(edmType, schema);
+        // Edm.Stream is a NAMED MEDIA STREAM, not a structural property. The ABNF has a
+        // distinct streamProperty production used in propertyPath/expandPath, but not in
+        // selectProperty/selectPath — a stream accompanies $select, it is not selected by
+        // name. Excluded on those grounds rather than guessed.
+        if ("Edm.Stream".equals(resolved)) return null;
+        // Anything with a comparable descriptor keeps it.
+        if (getPropertyConstantType(edmType, schema) != null) return null;
+        return "SelectableProperty";
     }
 
     protected boolean isEnumType(String edmType, SchemaModel schema) {
