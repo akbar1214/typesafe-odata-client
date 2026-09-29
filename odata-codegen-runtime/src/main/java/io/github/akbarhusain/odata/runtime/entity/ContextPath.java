@@ -5,6 +5,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 
 public record ContextPath(
@@ -85,18 +86,92 @@ public record ContextPath(
         if ("$search".equals(name)) {
             validateSearchTerm(value);
         }
-        // Queries are stored in the last segment or as a special trailing segment
-        // For simplicity, store them as a Segment with name="" and keys as queries
-        if (!segments.isEmpty()) {
-            Segment last = segments.get(segments.size() - 1);
-            Segment updated = new Segment(last.name(), last.keys(),
-                    append(last.queries(), new KeyValuePair(name, value)));
-            List<Segment> newSegments = new ArrayList<>(segments);
-            newSegments.set(newSegments.size() - 1, updated);
-            return new ContextPath(basePath, List.copyOf(newSegments));
+        // OData v4.01 Part 2 §5.1: "The same system query option, irrespective of casing
+        // or whether or not it is prefixed with a $, MUST NOT be specified more than once
+        // for any resource." A URL with two copies is therefore non-conformant, and in
+        // practice services answer it inconsistently (400, or silently honouring one of
+        // the two). It is reachable without any mistake on the caller's part: chaining an
+        // option onto an @odata.nextLink that already carried it, or adding a query after
+        // appending another segment (which places it on a different segment than the
+        // earlier copy). Last-writer-wins is what re-applying an option means, and it
+        // keeps CUSTOM options repeatable, which the spec does not forbid.
+        // The superseded copy may live on ANY segment — a nextLink's query segment and
+        // the segment a later addQuery landed on are different ones — so strip across
+        // all of them, not just the one the new query is about to join.
+        if (segments.isEmpty()) {
+            return new ContextPath(basePath, List.of(
+                    new Segment("", List.of(), List.of(new KeyValuePair(name, value)))));
         }
-        return new ContextPath(basePath, append(segments,
-                new Segment("", List.of(), List.of(new KeyValuePair(name, value)))));
+        String systemKey = systemOptionKey(name);
+        List<Segment> rewritten = new ArrayList<>(segments.size());
+        for (Segment segment : segments) {
+            rewritten.add(systemKey == null ? segment
+                    : new Segment(segment.name(), segment.keys(), withoutSystem(segment.queries(), systemKey)));
+        }
+        Segment last = rewritten.get(rewritten.size() - 1);
+        List<KeyValuePair> merged = new ArrayList<>(last.queries());
+        merged.add(new KeyValuePair(name, value));
+        rewritten.set(rewritten.size() - 1, new Segment(last.name(), last.keys(), List.copyOf(merged)));
+        return new ContextPath(basePath, rewritten);
+    }
+
+    private static List<KeyValuePair> withoutSystem(List<KeyValuePair> queries, String systemKey) {
+        if (queries.isEmpty()) {
+            return queries;
+        }
+        List<KeyValuePair> result = new ArrayList<>(queries.size());
+        for (KeyValuePair pair : queries) {
+            if (systemKey.equals(systemOptionKey(pair.name()))) {
+                continue;
+            }
+            result.add(pair);
+        }
+        return List.copyOf(result);
+    }
+
+    /**
+     * Drops every SYSTEM query option that is not in {@code allowed}, plus any service
+     * continuation token. Names are matched case-insensitively and with the {@code $}
+     * prefix optional (OData 4.01 services accept both spellings).
+     *
+     * <p>Used where a resource path accepts a strict subset of the system options —
+     * {@code /$count} permits only {@code $filter} and {@code $search} (§5.1) and its count
+     * "MUST NOT be affected by {@code $top}, {@code $skip}, {@code $orderby}, or
+     * {@code $expand}" (§4.8). A nextLink-derived path carries exactly the disallowed
+     * paging options plus a {@code $skiptoken}, so this is what makes
+     * {@code nextPage(link).countValue()} emit a legal URL.
+     *
+     * <p>CUSTOM options and PARAMETER ALIASES are preserved deliberately. They are the
+     * caller's explicit instruction, and a retained {@code $filter} may well reference an
+     * alias ({@code $filter=contains(@w,Title)&@w='x'}) — dropping the alias would leave a
+     * dangling reference, which is a worse URL than the one being fixed.
+     */
+    public ContextPath retainSystemQueryOptions(String... allowed) {
+        java.util.Set<String> permitted = new java.util.HashSet<>();
+        for (String name : allowed) {
+            String key = systemOptionKey(name);
+            if (key != null) {
+                permitted.add(key);
+            }
+        }
+        List<Segment> rewritten = new ArrayList<>(segments.size());
+        boolean changed = false;
+        for (Segment segment : segments) {
+            List<KeyValuePair> kept = new ArrayList<>(segment.queries().size());
+            for (KeyValuePair pair : segment.queries()) {
+                String key = systemOptionKey(pair.name());
+                boolean droppable = key != null
+                        ? !permitted.contains(key)
+                        : isContinuationToken(pair.name());
+                if (droppable) {
+                    changed = true;
+                } else {
+                    kept.add(pair);
+                }
+            }
+            rewritten.add(new Segment(segment.name(), segment.keys(), List.copyOf(kept)));
+        }
+        return changed ? new ContextPath(basePath, rewritten) : this;
     }
 
     /**
@@ -116,6 +191,54 @@ public record ContextPath(
                                 + " — use the OData $search grammar (terms, \"quoted phrases\", AND/OR/NOT)");
             }
         }
+    }
+
+    /**
+     * Canonical identity of a system query option, or {@code null} when {@code name} is a
+     * custom option or a parameter alias. The canonical form keeps the leading {@code $} so
+     * an alias ({@code @p0}) or custom name never collides with an option sharing its text.
+     */
+    private static String systemOptionKey(String name) {
+        if (name.isEmpty()) {
+            return null;
+        }
+        String bare = name.charAt(0) == '$' ? name.substring(1) : name;
+        return isSystemQueryOption(bare) ? "$" + bare.toLowerCase(Locale.ROOT) : null;
+    }
+
+    /**
+     * True for a SYSTEM query option. Deliberately narrow: an over-broad list silently
+     * collapses CUSTOM options, which the spec permits to be named anything not starting
+     * with {@code $} or {@code @} — including {@code value}, which is a PATH SEGMENT
+     * ({@code /$value}, §4.7) and a symbol usable inside {@code $select}/{@code $expand},
+     * never a query option. {@code $id} IS one (§4.3.4: "The entity-id MUST be specified
+     * using the system query option $id").
+     */
+    private static boolean isSystemQueryOption(String name) {
+        return switch (name.toLowerCase(Locale.ROOT)) {
+            case "filter", "select", "expand", "orderby", "top", "skip", "count",
+                 "search", "apply", "format", "schemaversion", "index", "compute",
+                 "id" -> true;
+            default -> false;
+        };
+    }
+
+    /**
+     * Continuation tokens services put on a page link. They are not standard system
+     * options, but they are equally meaningless outside server-driven paging, so a
+     * resource path that does not page drops them too.
+     */
+    private static boolean isContinuationToken(String name) {
+        // Only the '$'-prefixed spelling counts: that is the convention services use
+        // ($skiptoken, $deltatoken), and requiring it keeps a custom option that happens
+        // to be called 'page' or 'cursor' out of scope.
+        if (name.isEmpty() || name.charAt(0) != '$') {
+            return false;
+        }
+        return switch (name.substring(1).toLowerCase(Locale.ROOT)) {
+            case "skiptoken", "deltatoken", "opaque" -> true;
+            default -> false;
+        };
     }
 
     public ContextPath clearQueries() {
