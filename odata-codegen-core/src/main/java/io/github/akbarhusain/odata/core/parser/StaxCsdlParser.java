@@ -29,9 +29,6 @@ public class StaxCsdlParser {
     private static final String EDMX_NS = "http://docs.oasis-open.org/odata/ns/edmx";
     private static final String EDM_NS = "http://docs.oasis-open.org/odata/ns/edm";
 
-    // Set while parsing a schema
-    private String currentNamespace;
-    private String currentAlias;
     private static final String EDMX_NS_V3 = "http://schemas.microsoft.com/ado/2007/06/edmx";
 
     private final Map<String, String> globalAliasMap = new HashMap<>();
@@ -47,8 +44,6 @@ public class StaxCsdlParser {
     private final List<String> warnings = new ArrayList<>();
 
     public CsdlModel parse(InputStream xml) throws XMLStreamException {
-        currentNamespace = null;
-        currentAlias = null;
         globalAliasMap.clear();
         declaredNamespaces.clear();
         warnings.clear();
@@ -157,59 +152,70 @@ public class StaxCsdlParser {
 
     private List<SchemaModel> fixupCrossSchemaAliases(List<SchemaModel> schemas) {
         if (globalAliasMap.isEmpty()) return schemas;
+        byNamespace.clear();
+        for (SchemaModel s : schemas) {
+            byNamespace.put(s.namespace(), s);
+        }
         List<SchemaModel> fixed = new ArrayList<>(schemas.size());
         for (SchemaModel s : schemas) {
             List<EntityTypeModel> ets = new ArrayList<>();
             for (EntityTypeModel e : s.entityTypes()) {
                 List<PropertyModel> props = new ArrayList<>();
-                for (PropertyModel p : e.properties()) props.add(new PropertyModel(p.name(), fixAlias(p.edmType()), p.nullable(), p.defaultValue(), p.annotations()));
+                for (PropertyModel p : e.properties()) props.add(new PropertyModel(p.name(), fixAlias(p.edmType(), s.namespace()), p.nullable(), p.defaultValue(), p.annotations()));
                 List<NavigationPropertyModel> navs = new ArrayList<>();
-                for (NavigationPropertyModel n : e.navigationProperties()) navs.add(new NavigationPropertyModel(n.name(), fixAlias(n.type()), n.partner(), n.containsTarget(), n.nullable(), n.referentialConstraints(), n.annotations()));
-                ets.add(new EntityTypeModel(e.name(), fixAlias(e.baseType()), e.openType(), e.abstractType(), e.hasStream(), e.keys(), props, navs));
+                for (NavigationPropertyModel n : e.navigationProperties()) navs.add(new NavigationPropertyModel(n.name(), fixAlias(n.type(), s.namespace()), n.partner(), n.containsTarget(), n.nullable(), n.referentialConstraints(), n.annotations()));
+                ets.add(new EntityTypeModel(e.name(), fixAlias(e.baseType(), s.namespace()), e.openType(), e.abstractType(), e.hasStream(), e.keys(), props, navs));
             }
             List<ComplexTypeModel> cts = new ArrayList<>();
             for (ComplexTypeModel c : s.complexTypes()) {
                 List<PropertyModel> props = new ArrayList<>();
-                for (PropertyModel p : c.properties()) props.add(new PropertyModel(p.name(), fixAlias(p.edmType()), p.nullable(), p.defaultValue(), p.annotations()));
+                for (PropertyModel p : c.properties()) props.add(new PropertyModel(p.name(), fixAlias(p.edmType(), s.namespace()), p.nullable(), p.defaultValue(), p.annotations()));
                 List<NavigationPropertyModel> navs = new ArrayList<>();
-                for (NavigationPropertyModel n : c.navigationProperties()) navs.add(new NavigationPropertyModel(n.name(), fixAlias(n.type()), n.partner(), n.containsTarget(), n.nullable(), n.referentialConstraints(), n.annotations()));
-                cts.add(new ComplexTypeModel(c.name(), fixAlias(c.baseType()), c.openType(), c.abstractType(), props, navs));
+                for (NavigationPropertyModel n : c.navigationProperties()) navs.add(new NavigationPropertyModel(n.name(), fixAlias(n.type(), s.namespace()), n.partner(), n.containsTarget(), n.nullable(), n.referentialConstraints(), n.annotations()));
+                cts.add(new ComplexTypeModel(c.name(), fixAlias(c.baseType(), s.namespace()), c.openType(), c.abstractType(), props, navs));
             }
             List<EnumTypeModel> enums = s.enumTypes();
             List<TypeDefinitionModel> tds = new ArrayList<>();
-            for (TypeDefinitionModel td : s.typeDefinitions()) tds.add(new TypeDefinitionModel(td.name(), fixAlias(td.underlyingType())));
+            for (TypeDefinitionModel td : s.typeDefinitions()) tds.add(new TypeDefinitionModel(td.name(), fixAlias(td.underlyingType(), s.namespace())));
             List<FunctionModel> fns = new ArrayList<>();
             for (FunctionModel fn : s.functions()) {
                 List<ParameterModel> params = new ArrayList<>();
-                for (ParameterModel pm : fn.parameters()) params.add(new ParameterModel(pm.name(), fixAlias(pm.type()), pm.nullable()));
-                ReturnTypeModel rt = fn.returnType() == null ? null : new ReturnTypeModel(fixAlias(fn.returnType().type()), fn.returnType().nullable());
+                for (ParameterModel pm : fn.parameters()) params.add(new ParameterModel(pm.name(), fixAlias(pm.type(), s.namespace()), pm.nullable()));
+                ReturnTypeModel rt = fn.returnType() == null ? null : new ReturnTypeModel(fixAlias(fn.returnType().type(), s.namespace()), fn.returnType().nullable());
                 fns.add(new FunctionModel(fn.name(), fn.isBound(), fn.isComposable(), fn.entitySetPath(), params, rt));
             }
             List<ActionModel> acts = new ArrayList<>();
             for (ActionModel a : s.actions()) {
                 List<ParameterModel> params = new ArrayList<>();
-                for (ParameterModel pm : a.parameters()) params.add(new ParameterModel(pm.name(), fixAlias(pm.type()), pm.nullable()));
-                ReturnTypeModel rt = a.returnType() == null ? null : new ReturnTypeModel(fixAlias(a.returnType().type()), a.returnType().nullable());
+                for (ParameterModel pm : a.parameters()) params.add(new ParameterModel(pm.name(), fixAlias(pm.type(), s.namespace()), pm.nullable()));
+                ReturnTypeModel rt = a.returnType() == null ? null : new ReturnTypeModel(fixAlias(a.returnType().type(), s.namespace()), a.returnType().nullable());
                 acts.add(new ActionModel(a.name(), a.isBound(), a.entitySetPath(), params, rt));
             }
             List<ContainerModel> containers = new ArrayList<>();
             for (ContainerModel c : s.containers()) {
                 List<EntitySetModel> ess = new ArrayList<>();
-                for (EntitySetModel es : c.entitySets()) ess.add(new EntitySetModel(es.name(), fixAlias(es.entityType()), es.navigationPropertyBindings(), es.annotations()));
+                for (EntitySetModel es : c.entitySets()) ess.add(new EntitySetModel(es.name(), fixAlias(es.entityType(), s.namespace()), es.navigationPropertyBindings(), es.annotations()));
                 List<SingletonModel> sing = new ArrayList<>();
-                for (SingletonModel sm : c.singletons()) sing.add(new SingletonModel(sm.name(), fixAlias(sm.type()), sm.navigationPropertyBindings()));
+                for (SingletonModel sm : c.singletons()) sing.add(new SingletonModel(sm.name(), fixAlias(sm.type(), s.namespace()), sm.navigationPropertyBindings()));
                 List<FunctionImportModel> fim = new ArrayList<>();
-                for (FunctionImportModel fi : c.functionImports()) fim.add(new FunctionImportModel(fi.name(), fixAlias(fi.function()), fi.entitySet(), fi.includeInServiceDocument()));
+                for (FunctionImportModel fi : c.functionImports()) fim.add(new FunctionImportModel(fi.name(), fixAlias(fi.function(), s.namespace()), fi.entitySet(), fi.includeInServiceDocument()));
                 List<ActionImportModel> aim = new ArrayList<>();
-                for (ActionImportModel ai : c.actionImports()) aim.add(new ActionImportModel(ai.name(), fixAlias(ai.action()), ai.entitySet()));
-                containers.add(new ContainerModel(c.name(), fixAlias(c.extendsContainer()), ess, sing, fim, aim));
+                for (ActionImportModel ai : c.actionImports()) aim.add(new ActionImportModel(ai.name(), fixAlias(ai.action(), s.namespace()), ai.entitySet()));
+                containers.add(new ContainerModel(c.name(), fixAlias(c.extendsContainer(), s.namespace()), ess, sing, fim, aim));
             }
             fixed.add(new SchemaModel(s.namespace(), s.alias(), ets, cts, enums, tds, fns, acts, containers));
         }
         return fixed;
     }
 
-    private String fixAlias(String raw) {
+    /**
+     * The single alias-rewrite pass, run once {@link #fixupCrossSchemaAliases} knows every
+     * declared namespace. {@code declaringSchema} is the schema whose members are being
+     * rewritten, so an alias is only ever a shorthand for the schema that DECLARES it; a
+     * reference from anywhere else using that alias is a qualified name, and the qualified
+     * reading wins.
+     */
+    private String fixAlias(String raw, String declaringSchema) {
         if (raw == null) return null;
         String trimmed = raw.trim();
         if (trimmed.isEmpty()) return trimmed;
@@ -220,12 +226,30 @@ public class StaxCsdlParser {
         int dot = inner.indexOf('.');
         if (dot > 0) {
             String rewritten = applyAliasMap(inner, dot);
+            if (rewritten == null && declaringSchema != null) {
+                SchemaModel owner = byNamespace.get(declaringSchema);
+                if (owner != null && owner.alias() != null
+                        && inner.startsWith(owner.alias() + ".")) {
+                    // A schema's own alias gets the SAME qualified reading test as the
+                    // global map. Without it, Namespace="Contoso.Model" Alias="Model"
+                    // would rewrite its own legal reference "Model.Sub.Foo" (a fully
+                    // qualified name against a sibling schema) into
+                    // "Contoso.Model.Sub.Foo" -- the very corruption the global guard
+                    // prevents, re-entering through the schema-local path.
+                    if (!readsAsQualifiedName(inner)) {
+                        rewritten = owner.namespace() + inner.substring(owner.alias().length());
+                    }
+                }
+            }
             if (rewritten != null) {
                 inner = rewritten;
             }
         }
         return isCollection ? "Collection(" + inner + ")" : inner;
     }
+
+    /** Namespace -> schema, so the post-pass can look up a schema's own alias. */
+    private final Map<String, SchemaModel> byNamespace = new HashMap<>();
 
     /**
      * Rejects self/cyclic {@code TypeDefinition} {@code UnderlyingType} chains (A→A, A→B→A).
@@ -341,16 +365,58 @@ public class StaxCsdlParser {
         if (inner.startsWith(ns)) {
             return null;
         }
-        // The alias prefix is ITSELF a declared namespace of some other schema, so `alias`
-        // is being used as a real namespace qualifier here and the reference is already
-        // fully qualified. Rewriting it would redirect a legitimate cross-schema reference
-        // into a namespace it was never written against. When both readings are possible
-        // the qualified one wins: an alias is only ever a shorthand, and a reference that
-        // resolves without it is not using it.
-        if (isDeclaredNamespace(alias)) {
+        // An alias is a prefix substitution for the schema that DECLARES it, and it never
+        // shadows a real namespace. So the only question that decides this is: does the
+        // reference ALREADY read as a qualified name against some declared namespace? If
+        // it does, it is not using the alias and must be left alone -- otherwise a legal
+        // qualified reference is redirected into a namespace it was never written against.
+        if (readsAsQualifiedName(inner)) {
             return null;
         }
         return rewritten;
+    }
+
+    /**
+     * True when {@code typeName} is a qualified name against some schema declared in this
+     * document, i.e. it begins with a declared namespace followed by a dot.
+     *
+     * <p>Segment equality is deliberately NOT the test, and neither is "is the alias a
+     * prefix of a declared namespace". Both are wrong, and each is wrong in a different
+     * direction, so the distinction is worth spelling out against
+     * {@code Namespace="Contoso.Model" Alias="Contoso"}:
+     * <ul>
+     *   <li>{@code Contoso.Model.Address} -- equality against {@code Contoso.Model}
+     *       matches, so the old guard kept it. A prefix test would also keep it.</li>
+     *   <li>{@code Contoso.Address} -- equality against {@code Contoso} matches nothing
+     *       (no schema has that namespace), so it is rewritten to
+     *       {@code Contoso.Model.Address}. Correct: the alias reading is the only one
+     *       available. A PREFIX test would wrongly refuse to rewrite it and leave a
+     *       dangling reference.</li>
+     *   <li>{@code Contoso.Account} with a separate {@code Namespace="Contoso"} --
+     *       must not be rewritten. Both tests keep it.</li>
+     * </ul>
+     * The case that defeated the original equality test is a qualified reference whose
+     * namespace is only reachable through a longer prefix:
+     * {@code Namespace="Model.Sub"} alongside {@code Namespace="Contoso.Model"
+     * Alias="Model"} makes {@code Model.Sub.Foo} fully qualified, yet equality against
+     * {@code Model.Sub} never matches on the {@code Model} prefix, so it was rewritten
+     * to {@code Contoso.Model.Sub.Foo} -- irreversible corruption of a conformant
+     * reference (CSDL §5.1 requires only that the alias differ from the namespaces
+     * themselves, and {@code Model} != {@code Model.Sub}).
+     *
+     * <p>This must run in the post-pass: at parse time only the schemas seen SO FAR are
+     * known, so the qualified reading is not yet available and the decision could not be
+     * order-independent.
+     */
+    private boolean readsAsQualifiedName(String typeName) {
+        for (String declared : declaredNamespaces) {
+            if (typeName.length() > declared.length() + 1
+                    && typeName.startsWith(declared)
+                    && typeName.charAt(declared.length()) == '.') {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -427,10 +493,10 @@ public class StaxCsdlParser {
             throws XMLStreamException {
         String namespace = requireAttr(schemaEl, "Namespace", "Schema");
         String alias = getAttr(schemaEl, "Alias");
-        // Aliases are usable within the schema that declares them; type references read
-        // while parsing this schema are normalized to the real namespace immediately
-        this.currentNamespace = namespace;
-        this.currentAlias = alias;
+        requireNotReservedName(namespace, "Namespace", "Schema");
+        if (alias != null && !alias.isBlank()) {
+            requireNotReservedName(alias, "Alias", "Schema");
+        }
         declaredNamespaces.add(namespace);
         if (alias != null && !alias.isBlank()) {
             String existingNs = globalAliasMap.putIfAbsent(alias, namespace);
@@ -484,6 +550,33 @@ public class StaxCsdlParser {
         return new SchemaModel(namespace, alias, entityTypes, complexTypes,
                 enumTypes, typeDefinitions, functions, actions, containers);
     }
+
+    /**
+     * CSDL v4.01 §5.1: a schema's {@code Namespace} and {@code Alias} "MUST NOT be one of
+     * the reserved values {@code Edm}, {@code odata}, {@code System}, or
+     * {@code Transient}".
+     *
+     * <p>{@code Alias="Edm"} is the damaging case and is worth rejecting loudly. The
+     * alias map is consulted for the first dot-segment of every type reference, so the
+     * alias rewrites the EDITIONS themselves: {@code Edm.String} resolves to
+     * {@code My.Ns.String} and every property in the document is silently mistyped. The
+     * failure then surfaces much later, from the generator, with a message naming a
+     * property rather than the alias -- which sends the user hunting in the wrong file.
+     * Rejecting at the metadata boundary turns a baffling cascade into an actionable
+     * error, and it is the same loud-failure policy the root-element check, the
+     * type-definition cycle check and container-Extends resolution already follow.
+     */
+    private static void requireNotReservedName(String value, String attribute, String element) {
+        if (RESERVED_SCHEMA_NAMES.contains(value)) {
+            throw new IllegalArgumentException(
+                    "Reserved " + attribute + " value '" + value + "' on <" + element
+                            + ">: CSDL reserves " + RESERVED_SCHEMA_NAMES
+                            + " (Alias=\"Edm\" would rewrite every Edm.* primitive type reference)");
+        }
+    }
+
+    private static final java.util.Set<String> RESERVED_SCHEMA_NAMES =
+            java.util.Set.of("Edm", "odata", "System", "Transient");
 
     private EntityTypeModel parseEntityType(XMLEventReader reader, StartElement el)
             throws XMLStreamException {
@@ -1136,17 +1229,17 @@ public class StaxCsdlParser {
         }
         boolean isCollection = raw.trim().startsWith("Collection(");
         String value = unwrapCollectionType(raw, description);
-        int dot = value.indexOf('.');
-        if (dot > 0) {
-            String rewritten = applyAliasMap(value, dot);
-            if (rewritten == null && currentAlias != null && currentNamespace != null
-                    && value.startsWith(currentAlias + ".")) {
-                rewritten = currentNamespace + value.substring(currentAlias.length());
-            }
-            if (rewritten != null) {
-                value = rewritten;
-            }
-        }
+        // Alias rewriting is deliberately NOT done here. At parse time only the schemas
+        // seen SO FAR are known, so a reference that is a qualified name against a
+        // not-yet-declared namespace is indistinguishable from an alias-qualified one:
+        // with Namespace="Model.Sub" declared after Namespace="Contoso.Model" Alias="Model",
+        // the reference "Model.Sub.Foo" was rewritten to "Contoso.Model.Sub.Foo" -- a
+        // corruption the post-pass cannot undo, because by then the alias prefix is gone.
+        // That rewrite is therefore performed exactly once, by fixAlias() in
+        // fixupCrossSchemaAliases(), where declaredNamespaces is complete and the
+        // qualified reading always wins. Structural validation (Collection(...) shape,
+        // stray parentheses) still happens here so malformed input fails at the
+        // metadata boundary with the offending element named.
         return isCollection ? "Collection(" + value + ")" : value;
     }
 
