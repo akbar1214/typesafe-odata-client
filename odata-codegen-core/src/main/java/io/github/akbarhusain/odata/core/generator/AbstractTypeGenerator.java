@@ -952,6 +952,20 @@ public abstract class AbstractTypeGenerator {
     }
 
     /**
+     * True when the resolved Edm type is {@code Edm.Stream}.
+     *
+     * <p>The single definition for both the single-valued and the collection-valued
+     * exclusion. A stream is not {@code $select}-able: the ABNF's {@code selectProperty}
+     * has a distinct {@code streamProperty} production that it deliberately omits, and
+     * there is no {@code streamColProperty} at all — a stream accompanies {@code $select},
+     * it is not named by it. Kept in one place so the two call sites cannot drift
+     * (a collection of streams is the shape that gets forgotten).
+     */
+    protected boolean isStreamType(String edmType, SchemaModel schema) {
+        return "Edm.Stream".equals(resolveTypeDefinition(edmType, schema));
+    }
+
+    /**
      * The descriptor for a property that is SELECTABLE but neither comparable nor
      * sortable — complex, {@code Edm.Binary}, geography/geometry. OData v4.01 Part 1
      * §11.2.6.2 requires a "primitive result value" to sort on and excludes Geo types
@@ -966,12 +980,7 @@ public abstract class AbstractTypeGenerator {
      *         selectable, or already has a richer descriptor
      */
     protected String getSelectOnlyConstantType(String edmType, SchemaModel schema) {
-        String resolved = resolveTypeDefinition(edmType, schema);
-        // Edm.Stream is a NAMED MEDIA STREAM, not a structural property. The ABNF has a
-        // distinct streamProperty production used in propertyPath/expandPath, but not in
-        // selectProperty/selectPath — a stream accompanies $select, it is not selected by
-        // name. Excluded on those grounds rather than guessed.
-        if ("Edm.Stream".equals(resolved)) return null;
+        if (isStreamType(edmType, schema)) return null;
         // Anything with a comparable descriptor keeps it.
         if (getPropertyConstantType(edmType, schema) != null) return null;
         return "SelectableProperty";

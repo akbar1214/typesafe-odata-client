@@ -92,7 +92,7 @@ class EntityGeneratorSelectorTest {
         // Person.AddressInfo is Collection(Location) — Location is a COMPLEX type,
         // which gets no Selector, so the constant must use a wildcard.
         String code = generateEntity("Person");
-        assertTrue(code.contains("public static final CollectionProperty<Person, Location, Location.Filterable, ?> ADDRESS_INFO"),
+        assertTrue(code.contains("public static final SelectableCollectionProperty<Person, Location, Location.Filterable, ?> ADDRESS_INFO"),
                 "Complex-element collection constants use a wildcard Sel");
     }
 }

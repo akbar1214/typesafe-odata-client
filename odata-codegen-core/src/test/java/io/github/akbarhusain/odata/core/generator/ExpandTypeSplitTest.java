@@ -20,9 +20,9 @@ class ExpandTypeSplitTest {
         new Generator(tempDir, Map.of(), "app").generate(model);
 
         String person = Files.readString(tempDir.resolve("app/entity/Person.java"));
-        assertTrue(person.contains("public static final CollectionProperty<Person, String"), person);
+        assertTrue(person.contains("public static final SelectableCollectionProperty<Person, String"), person);
         assertTrue(person.contains("public static final NavCollectionProperty<Person, Friend"), person);
-        assertTrue(person.contains("new CollectionProperty<>(\"Tags\", Person.class, String.class, "
+        assertTrue(person.contains("new SelectableCollectionProperty<>(\"Tags\", Person.class, String.class, "
                 + "CollectionProperty.FilterableElement::new, null, \"Edm.String\")"), person);
 
         Files.writeString(tempDir.resolve("StructuralExpand.java"), """
