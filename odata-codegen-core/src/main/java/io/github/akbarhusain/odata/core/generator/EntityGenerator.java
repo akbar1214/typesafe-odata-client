@@ -757,23 +757,35 @@ public class EntityGenerator extends AbstractTypeGenerator {
             String elementType = Names.unwrapCollectionType(edmType);
             String elementClassName = resolveClassNameForConstant(elementType, owner);
             Names.TypeKind kind = resolveTypeKind(elementType, schemaForProperty(prop, schema));
+            // A STRUCTURAL collection is a legal $select item (the OData ABNF lists
+            // primitiveColProperty / complexColProperty as selectProperty alternatives), so it
+            // gets the select-only descriptor. Navigation collections flow through
+            // generateNavConstant instead and must NOT be selectable: $select on a navigation
+            // is grammar-legal but returns 200 with the navigation ABSENT, so the mistake
+            // would be silent at runtime rather than a server error.
+            //
+            // Edm.Stream is the exception, via the same shared check as the single-valued
+            // path: there is no stream form in selectProperty, so a stream collection stays
+            // on the non-selectable base type.
+            String descriptor = isStreamType(elementType, owner)
+                    ? "CollectionProperty" : "SelectableCollectionProperty";
             if (kind == Names.TypeKind.ENTITY) {
-                return "    public static final CollectionProperty<" + className + ", " + elementClassName
+                return "    public static final " + descriptor + "<" + className + ", " + elementClassName
                         + ", " + elementClassName + ".Filterable, " + elementClassName + ".Selector> " + constantName
-                        + " = new CollectionProperty<>(\"" + Names.escapeJavaString(prop.name()) + "\", " + className + ".class, "
+                        + " = new " + descriptor + "<>(\"" + Names.escapeJavaString(prop.name()) + "\", " + className + ".class, "
                         + elementClassName + ".class, " + elementClassName + ".Filterable::new, " + elementClassName + ".Selector::new, "
                         + collectionElementEdmTypeLiteral(prop.edmType(), owner) + ");\n";
             } else if (kind == Names.TypeKind.COMPLEX) {
                 // complex elements have no Selector (no request class targets them) — wildcard
-                return "    public static final CollectionProperty<" + className + ", " + elementClassName
+                return "    public static final " + descriptor + "<" + className + ", " + elementClassName
                         + ", " + elementClassName + ".Filterable, ?> " + constantName
-                        + " = new CollectionProperty<>(\"" + Names.escapeJavaString(prop.name()) + "\", " + className + ".class, "
+                        + " = new " + descriptor + "<>(\"" + Names.escapeJavaString(prop.name()) + "\", " + className + ".class, "
                         + elementClassName + ".class, " + elementClassName + ".Filterable::new, null, "
                         + collectionElementEdmTypeLiteral(prop.edmType(), owner) + ");\n";
             } else {
-                return "    public static final CollectionProperty<" + className + ", " + elementClassName
+                return "    public static final " + descriptor + "<" + className + ", " + elementClassName
                         + ", CollectionProperty.FilterableElement<" + elementClassName + ">, ?> " + constantName
-                        + " = new CollectionProperty<>(\"" + Names.escapeJavaString(prop.name()) + "\", " + className + ".class, "
+                        + " = new " + descriptor + "<>(\"" + Names.escapeJavaString(prop.name()) + "\", " + className + ".class, "
                         + elementClassName + ".class, CollectionProperty.FilterableElement::new, null, "
                         + collectionElementEdmTypeLiteral(prop.edmType(), owner) + ");\n";
             }
@@ -897,25 +909,29 @@ public class EntityGenerator extends AbstractTypeGenerator {
             String elementType = Names.unwrapCollectionType(edmType);
             String elementClassName = resolveClassNameForConstant(elementType, owner);
             Names.TypeKind kind = resolveTypeKind(elementType, schemaForProperty(prop, schema));
+            // Mirrors generatePropertyConstant: structural collections are selectable, and
+            // stream collections are the shared exception.
+            String descriptor = isStreamType(elementType, owner)
+                    ? "CollectionProperty" : "SelectableCollectionProperty";
             if (kind == Names.TypeKind.ENTITY) {
-                return "    public final CollectionProperty<" + className + ", " + elementClassName
+                return "    public final " + descriptor + "<" + className + ", " + elementClassName
                         + ", " + elementClassName + ".Filterable, " + elementClassName + ".Selector> " + constantName
                         + " = " + (own ? shared
-                        : "new CollectionProperty<>(\"" + Names.escapeJavaString(prop.name()) + "\", " + className + ".class, "
+                        : "new " + descriptor + "<>(\"" + Names.escapeJavaString(prop.name()) + "\", " + className + ".class, "
                         + elementClassName + ".class, " + elementClassName + ".Filterable::new, " + elementClassName + ".Selector::new, "
                         + collectionElementEdmTypeLiteral(edmType, owner) + ")") + ";\n";
             } else if (kind == Names.TypeKind.COMPLEX) {
-                return "    public final CollectionProperty<" + className + ", " + elementClassName
+                return "    public final " + descriptor + "<" + className + ", " + elementClassName
                         + ", " + elementClassName + ".Filterable, ?> " + constantName
                         + " = " + (own ? shared
-                        : "new CollectionProperty<>(\"" + Names.escapeJavaString(prop.name()) + "\", " + className + ".class, "
+                        : "new " + descriptor + "<>(\"" + Names.escapeJavaString(prop.name()) + "\", " + className + ".class, "
                         + elementClassName + ".class, " + elementClassName + ".Filterable::new, null, "
                         + collectionElementEdmTypeLiteral(edmType, owner) + ")") + ";\n";
             } else {
-                return "    public final CollectionProperty<" + className + ", " + elementClassName
+                return "    public final " + descriptor + "<" + className + ", " + elementClassName
                         + ", CollectionProperty.FilterableElement<" + elementClassName + ">, ?> " + constantName
                         + " = " + (own ? shared
-                        : "new CollectionProperty<>(\"" + Names.escapeJavaString(prop.name()) + "\", " + className + ".class, "
+                        : "new " + descriptor + "<>(\"" + Names.escapeJavaString(prop.name()) + "\", " + className + ".class, "
                         + elementClassName + ".class, CollectionProperty.FilterableElement::new, null, "
                         + collectionElementEdmTypeLiteral(edmType, owner) + ")") + ";\n";
             }
