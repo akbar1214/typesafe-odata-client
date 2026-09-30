@@ -10,7 +10,6 @@ import io.github.akbarhusain.odata.runtime.http.HttpResponse;
 import io.github.akbarhusain.odata.runtime.http.HttpTransport;
 import io.github.akbarhusain.odata.runtime.internal.MultipartHelper;
 
-import java.net.URI;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -493,7 +492,7 @@ public class BatchRequest {
     }
 
     private static BatchOperation resolveOperationUrl(BatchOperation operation, String baseUrl) {
-        if (isAbsoluteHttpUrl(operation.url())) {
+        if (ContextPath.isAbsoluteHttpUrl(operation.url())) {
             return operation;
         }
         String value = operation.url();
@@ -524,18 +523,6 @@ public class BatchRequest {
             throw new IllegalArgumentException("batch URL must contain a request target");
         }
         return operation.withUrl(baseUrl + "/" + String.join("/", segments) + tail);
-    }
-
-    private static boolean isAbsoluteHttpUrl(String value) {
-        try {
-            URI uri = URI.create(value);
-            String scheme = uri.getScheme();
-            return uri.isAbsolute() && scheme != null
-                    && (scheme.equalsIgnoreCase("http") || scheme.equalsIgnoreCase("https"))
-                    && uri.getHost() != null;
-        } catch (IllegalArgumentException e) {
-            return false;
-        }
     }
 
     private static List<String> splitRequestPath(String path) {

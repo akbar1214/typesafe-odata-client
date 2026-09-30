@@ -81,4 +81,16 @@ class EntityOperationsMediumTest {
         EntityOperations.addRef(ctx, path, "HTTPS://other.com/People('2')");
         assertTrue(bc.bodyStr.contains("HTTPS://other.com"), "HTTPS uppercase should be absolute, body: " + bc.bodyStr);
     }
+
+    @Test
+    void relativeTargetStartingWithHttpIsResolvedAgainstBaseUrl() {
+        BodyCapture bc = new BodyCapture();
+        Context ctx = Context.builder().baseUrl("https://example.com/service").transport(bc).build();
+        var path = ctx.basePath().addSegment("People('1')").addSegment("Friends");
+        EntityOperations.addRef(ctx, path, "httpCustomers('2')");
+        assertTrue(bc.bodyStr.contains("https://example.com/service/httpCustomers('2')"),
+                "a relative target that merely starts with 'http' must be resolved, body: " + bc.bodyStr);
+        assertFalse(bc.bodyStr.contains("\"@odata.id\":\"httpCustomers"),
+                "must not be treated as an absolute URL, body: " + bc.bodyStr);
+    }
 }

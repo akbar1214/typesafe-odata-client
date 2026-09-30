@@ -347,7 +347,11 @@ public record BatchOperation(
             url = normalized.toString();
         } else if (looksLikeScheme(url)) {
             throw new IllegalArgumentException("batch URL has an unsupported or malformed absolute scheme");
-        } else if (url.regionMatches(true, 0, "http", 0, 4)) {
+        } else if (url.regionMatches(true, 0, "http//", 0, 6)) {
+            // "http//host" is a botched absolute URL (missing ':'), not a relative target
+            // worth resolving. A relative target that merely STARTS with "http" — an entity
+            // set named "httpCustomers" — is legal and falls through (ContextPath.isAbsoluteHttpUrl
+            // classifies by scheme).
             throw new IllegalArgumentException("batch URL has a malformed absolute HTTP scheme");
         } else if (hasEscapingTraversal(url)) {
             throw new IllegalArgumentException("batch URL traversal escapes the service root");
