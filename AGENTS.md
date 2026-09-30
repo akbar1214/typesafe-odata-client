@@ -357,7 +357,7 @@ BatchResponse response = context.batch()
 - `MultipartHelper.encodeChangeset()` / `encodeBatchRequest()` / `decodeParts()` / `decodePartOrNested()` support the nesting.
 - 7 new tests covering encode, decode, mixed entries, round-trip.
 
-**Known limitation:** Content-ID references (`$N` patterns in URLs within a changeset) are not yet resolved. Tracked as follow-up.
+**Resolved (decision 55, lesson 192):** Content-ID references (`$N` patterns in URLs within a changeset) are resolved from the request path; the query string is appended verbatim, so valid system options (`$skiptoken`, `$compute`, `$deltatoken`, `$index`) are not mistaken for references.
 
 ### 24. Simplified Entity/Complex-Type Deserialization via No-Args Constructor + `@JsonProperty` Setters
 
@@ -613,7 +613,7 @@ Making the operators null-safe is the least surprising choice and keeps users fr
 
 **Tests:** `MultipartHelperTest` 17 (2 binary round-trip cases + 1 case-insensitive header case), `EntityOperationsInterceptorChainTest` 5 (2 fast-path + 1 stream-hook + 2 existing).
 
-**Known limitation (M10, partially addressed):** the interceptor chain is still rebuilt on *every* request when interceptors are registered — `buildTransportChain()` allocates N anonymous `HttpTransport` wrappers per call in `executeAsync`/`streamMediaAsync`/`BatchRequest`. The zero-interceptor fast path allocates nothing (verified by tests), but caching the chain per `Context` would add mutable state to the `Context` record and is deferred.
+**Resolved (decision 53):** the interceptor chain is cached per `Context` (`EntityOperations.CHAIN_CACHE`), so it is not rebuilt per request, and the zero-interceptor fast path still returns the real transport untouched. (Superseded the original M10 deferral note.)
 
 ### 40. Parser Fails Loudly on v3/Unknown Namespaces
 
@@ -633,7 +633,7 @@ Making the operators null-safe is the least surprising choice and keeps users fr
 
 **Tests:** `EntityGeneratorMemberNameTest` 6, `EnumGeneratorTest` 3, `RequestGeneratorPaginationTest` +1, `EntityOperationsCollectionParseTest` +1, `EntityOperationsCountTest` +1, `BatchRequestTest` +1, `GenerateMojoIncrementalTest` 8.
 
-**Known limitation (H6, partially addressed):** constants still collide on case — properties `budget` and `Budget` both map to `toConstantName()` → `BUDGET`, producing duplicate static constants (and duplicate `Filterable` fields) and uncompilable output. Fixing requires per-class dedupe tracking of emitted constant names (`Set` passed through `generatePropertyConstant`/`generateFilterablePropertyField`) with a deterministic suffix policy; deferred.
+**Resolved (decision 54):** property-constant names auto-deduplicate with deterministic `_2`/`_3` suffixes (static constants, nav constants, and `Filterable` fields). The `budget`/`Budget` example trips the member-collision check first — both fold to the field name `budget`, so generation aborts loudly naming both CSDL members instead of emitting anything. Field-level folding never auto-renames (it would break `@JsonProperty` mapping); constants are internal handles and are renamed safely.
 
 ---
 
@@ -650,7 +650,7 @@ Making the operators null-safe is the least surprising choice and keeps users fr
 **Reason:** `Edm.Guid` mapped to `StringProperty` rendered `Id eq 'guid'` — a type error services reject — while keys were already handled correctly. One routing change covers static constants and `Filterable` fields via the shared method.
 
 ### 45. Live-Service Tests Are Hermetic-by-Exclusion
-**Decision:** The seven classes hitting `services.odata.org` are `@Tag("live-service")`; root-pom surefire excludes the tag by default (plain `mvn test` is fully offline) and a `live-tests` profile includes everything.
+**Decision:** The eight classes hitting `services.odata.org` are `@Tag("live-service")`; root-pom surefire excludes the tag by default (plain `mvn test` is fully offline) and a `live-tests` profile includes everything.
 **Reason:** Network-dependent tests fail offline/behind proxies/throttled; destructive tests on a shared public service also clean up in `finally` and skip via `assumeTrue` (never silent `return`), and eventual-consistency waits poll instead of fixed sleeps.
 
 ### 46. Polymorphic `@odata.type` Deserialization via the `SchemaInfo` Registry
@@ -1019,9 +1019,9 @@ odata-codegen/
 
 ## Testing Strategy
 
-Run `mvn test` from the repo root. All modules build in one reactor; the runtime must be installed before `odata-codegen-core`/`odata-codegen-test` compile against it.
+Run `mvn test` from the repo root. All modules build in one reactor; the runtime is compiled before its dependents, and the compile harnesses additionally fall back to the installed `.m2` snapshot when the sibling `target/classes` directory is absent.
 
-**Live-service tests are excluded by default.** The six classes that hit `services.odata.org` are tagged `@Tag("live-service")`; surefire excludes the tag, so plain `mvn test` runs only the ~1232 offline tests (hermetic — works offline/behind proxies). Run everything (including live TripPin/Northwind/OData Demo) with `mvn test -Plive-tests`.
+**Live-service tests are excluded by default.** The eight classes that hit `services.odata.org` are tagged `@Tag("live-service")`; surefire excludes the tag, so plain `mvn test` runs only the ~1324 offline tests (hermetic — works offline/behind proxies). Run everything (including live TripPin/Northwind/OData Demo) with `mvn test -Plive-tests`.
 
 - **Parser tests:** Parse TripPin + Northwind + OData Demo metadata XML, verify model correctness; v3/non-CSDL documents fail loudly (`StaxCsdlParserTest`, 49 tests)
 - **Generator integration tests:** Generate TripPin client, verify file structure and code content (`GeneratorIntegrationTest`, 1 test)
@@ -1048,8 +1048,8 @@ Run `mvn test` from the repo root. All modules build in one reactor; the runtime
 - **Runtime operability tests (Batch B):** `ContextTimeoutTest` 5 (defaults, custom flow-through to normal/stream/batch requests, invalid rejection) + `NullVocabularyTest` 9 (fail-fast named parameters everywhere) + `QueryNullRejectionTest` 4 (26 null-rejection assertions) + `HeaderCasingTest` 3 (case-insensitive merge/overwrite, `BatchResult` lookup) + `PartialPatchVocabularyTest` 2 (changed-fields/wire-name alignment pin)
 - **Runtime hygiene tests (Batch C):** `StaxCsdlParserWarningsTest` 8 (member-level typo warnings incl. Key/Nav/Enum loops, inline-`Annotation` silence, wrong-namespace Schema, zero-schema failure) + `ContainerNamespaceCollapseTest` 1 (identity-keyed container namespaces) + `RetryAfterPatternTest` 1 (documented 429-then-retry contract) + `TransportExecutorInjectionTest` 1 (cross-package executor visibility)
 - **Lambda query API tests (decision 97):** runtime — `NavQueryExpandTest` 31 (rewritten from `NavPropertyExpandTest`: all rendering pins on `NavQuery.of`/`CollectionProperty` fixtures, nested-`Expandable` expand, raw-group merges, factory propagation, zero-arg `orderBy()` bridge on both implementors) + `ExpandableTest` 3 (both implementors render the bare segment) + `CollectionPropertyTypedLambdaTest` 19 (any/all preserved; select/filter/orderBy/expand lambdas render identically to constants; full-depth hop-2 composition; factory-less fail-fast; `as()` 2-arg nulls / 3-arg swaps; rendering-not-instances convention pin) + `NavQueryValidationTest` 4 (migrated fixture); core — `EntityGeneratorSelectorTest` 7 (shared instances, `NavQuery.of` single-nav constants, inherited inline, complex-element wildcard) + `RequestGeneratorLambdaTest` 6 (lambda overload signatures + delegation on collection and entity requests; zero-arg `select()`/`orderBy()` bridge emission) + `LambdaQueryCompilationTest` 1 (full-depth chains, 3-arg `as()` casts, cast constants compile against the regenerated TripPin client) + `QueryTypeSafetyCompilationTest` +1 (cross-entity lambda negative compile) + pinned updates (`RequestGeneratorNarrowQueryTest` 4, `RequestGeneratorEntityQueryOptionsTest`, `EntityGeneratorFilterableTest`, `EntityGeneratorPolymorphicExpandTest`, `HostileNamesCompilationTest`, `NamesPolishTest`, `CrossSchemaSimpleNameCompilationTest`, `GeneratorIntegrationTest`); test module — `LambdaConstantUrlEquivalenceTest` 5 (offline URL equivalence lambda vs constant)
-- **Total: 1232 tests passing offline by default** (508 core + 654 runtime + 57 maven + 13 test module; the remaining generated-client/live classes run via `-Plive-tests`). Recompute with `mvn -o test` — lesson 188's rule about quoted numbers applies to this line too.
-- **Future:** Cancellable streaming, streaming media UPLOAD (needs an HttpRequest body-publisher abstraction — uploads currently buffer via readAllBytes), async variants on generated requests, auto-paging `pages()` stream, typed `$ref` overloads, collection-bound operations (`Collection(NS.Document)` binding → `client.documents().checkOut()`), composable-function continuation ($filter/$top over a function result chain), paging through function-import collection results, `$N` Content-ID *URL references* within changesets (correlation itself is done), JSON batch (`application/json` + `atomicity-group`), WireMock-based destructive tests, redirect/proxy/TLS transport options, `distributionManagement` once a registry is chosen
+- **Total: 1324 tests passing offline by default** (546 core + 708 runtime + 57 maven + 13 test module; the remaining generated-client/live classes run via `-Plive-tests`). Recompute with `mvn -o test` — lesson 188's rule about quoted numbers applies to this line too.
+- **Future:** Cancellable streaming, streaming media UPLOAD (needs an HttpRequest body-publisher abstraction — uploads currently buffer via readAllBytes), async variants on generated requests, auto-paging `pages()` stream, typed `$ref` overloads, collection-bound operations (`Collection(NS.Document)` binding → `client.documents().checkOut()`), composable-function continuation ($filter/$top over a function result chain), paging through function-import collection results, JSON batch (`application/json` + `atomicity-group`), WireMock-based destructive tests, redirect/proxy/TLS transport options, `distributionManagement` once a registry is chosen
 
 ---
 
@@ -1175,7 +1175,7 @@ Run `mvn test` from the repo root. All modules build in one reactor; the runtime
 
 55. **Edm.Guid keys must be unquoted in URLs.** `ContextPath.formatValue()` previously wrapped every `String` key in single quotes, producing `Advertisements('guid')` — OData Demo rejects this with HTTP 400 ("Error in query syntax") and also rejects the `guid'...'` literal. The service's own `@odata.mediaReadLink` uses the bare form `Advertisements(<guid>)/$value`. Fixed by detecting UUID-shaped `String` keys in `formatValue()` and emitting them unquoted. Verified end-to-end by `ODataDemoMediaTest` (the only Guid-key entity in the test metadata is `Advertisement`).
 
-56. **`GeneratorCompilationTest` only resolves the runtime from the installed `.m2` jar (the sibling `target/classes` fallback is dead).** The test builds its compile classpath from `findClasspathJars()` (walks `.m2`) and *also* prepends `../odata-codegen-runtime/target/classes` — but Maven runs tests with the repo root as cwd, so `../odata-codegen-runtime` points above the repo and never exists. Therefore the `.m2` runtime jar is the only source, and it must be current. If you add classes to the runtime, `mvn install` the runtime (or run a full `clean install` reactor) **before** `odata-codegen-core` tests, or `GeneratorCompilationTest` fails with `cannot find symbol` for the new types. This bit when `ApplyExpression`/`ApplyBuilder`/`RawApplyExpression` were added to the runtime but the `.m2` jar was stale.
+56. **`GeneratorCompilationTest` must compile against a CURRENT runtime — and the sibling `target/classes` fallback is LIVE (the original "dead fallback" claim was wrong).** Surefire's default working directory is the module basedir, so from `odata-codegen-core` the `../odata-codegen-runtime/target/classes` fallback resolves to the sibling reactor output and IS used (the harness prepends it; the `.m2` snapshot is only consulted for artifacts the sibling does not provide). In a full reactor build the runtime is compiled before core's tests, so this is current; in a standalone core test run the sibling can be stale, in which case rebuild it (`mvn -pl odata-codegen-runtime test-compile`) — reinstalling to `.m2` alone does not help because the sibling entry takes precedence while it exists. Compiling against a stale runtime fails `GeneratorCompilationTest` with `cannot find symbol` for new runtime types; this bit when `ApplyExpression`/`ApplyBuilder`/`RawApplyExpression` were added. Corrected 2026-10-01 (the original mechanism sentence — "Maven runs tests with the repo root as cwd" — was false; see lesson 175, which correctly relies on the sibling fallback).
 
 57. **Complex-type `with*` methods must not reference `unmappedFields` for non-open types.** `ComplexTypeGenerator.generateWithMethod` and `generateNavWithMethod` always appended `, this.unmappedFields)` in the copy-on-write constructor call. For non-open complex types (e.g. TripPin `City`), no `unmappedFields` field is declared, so the generated code doesn't compile. Fix: gate the `this.unmappedFields` append on `hierarchyHasOpen`. Verified by `OpenTypeGeneratorTest.nonOpenComplexTypeDoesNotReferenceUnmappedFieldsInWith` (TDD: compilation failure before fix, `assertFalse(code.contains("unmappedFields"))` after).
 
