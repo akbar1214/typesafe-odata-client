@@ -73,8 +73,8 @@ public final class CompilationHarness {
         return compileAll(root) == null;
     }
 
-    // Resolving an artifact walks the whole ~/.m2 tree — cache per JVM (surefire runs
-    // many referee tests in one fork; without the cache every test re-walks)
+    // Resolving a fallback artifact walks the whole ~/.m2 tree — cache per JVM (surefire
+    // runs many referee tests in one fork; without the cache every miss re-walks).
     private static final java.util.concurrent.ConcurrentHashMap<String, File> JAR_CACHE =
             new java.util.concurrent.ConcurrentHashMap<>();
 
@@ -84,35 +84,82 @@ public final class CompilationHarness {
      *  on a fresh checkout, where the sibling target/classes entry carries the load. */
     private static final File MISSING = new File("<absent-artifact>");
 
-    private static List<File> findClasspathJars() {
-        Path mavenRepo = Path.of(System.getProperty("user.home"), ".m2", "repository");
-        List<String> artifactIds = List.of(
-                "odata-codegen-runtime",
-                "jackson-databind",
-                "jackson-core",
-                "jackson-annotations",
-                "jackson-datatype-jdk8",
-                "jackson-datatype-jsr310",
-                "jackson-module-parameter-names",
-                "slf4j-api");
+    /**
+     * The dependency files every generated client is compiled against, resolved from this
+     * JVM's own classpath so the versions match the build's dependency management exactly.
+     *
+     * <p>A {@code ~/.m2} directory walk cannot promise that: it returns whichever matching
+     * file the filesystem reaches first — a different version of the same artifact, or a
+     * shaded copy from an unrelated dependency (e.g. the AWS SDK's
+     * {@code software/amazon/awssdk/third-party-jackson-core} matches
+     * {@code "jackson-core"}). The anchors below load from the exact files Surefire put on
+     * the test classpath; the {@code ~/.m2} walk remains only as a fallback for anchors
+     * whose code source is unavailable.
+     *
+     * <p>Public so that compile-AND-LOAD tests (which need the same files on the classpath
+     * to load what they compiled) reuse this instead of rebuilding their own classpath.
+     */
+    public static List<File> findClasspathJars() {
         List<File> classpath = new ArrayList<>();
-        for (String id : artifactIds) {
-            File cached = JAR_CACHE.get(id);
-            if (cached == null) {
-                Path jar = findJar(mavenRepo, id);
-                cached = jar != null ? jar.toFile() : MISSING;
-                JAR_CACHE.put(id, cached);
+        for (Anchor anchor : CLASSPATH_ANCHORS) {
+            File dependency = jarOf(anchor.type());
+            if (dependency == null) {
+                dependency = cachedM2Jar(anchor.artifactId());
             }
-            if (cached != MISSING) {
-                classpath.add(cached);
+            if (dependency != null && !classpath.contains(dependency)) {
+                classpath.add(dependency);
             }
         }
-        // current reactor runtime FIRST — the ~/.m2 snapshot may predate new runtime types
+        // Current reactor runtime FIRST — the resolved class source may be the installed
+        // snapshot, while the sibling reactor output is the freshest when present.
         Path siblingClasses = Path.of("..", "odata-codegen-runtime", "target", "classes");
-        if (Files.isReadable(siblingClasses)) {
-            classpath.add(0, siblingClasses.toFile());
+        File runtime = Files.isReadable(siblingClasses)
+                ? siblingClasses.toFile()
+                : jarOf(io.github.akbarhusain.odata.runtime.entity.ODataType.class);
+        if (runtime != null) {
+            classpath.remove(runtime);
+            classpath.add(0, runtime);
         }
         return classpath;
+    }
+
+    /** A class whose loaded jar is the deterministic source for an artifact. */
+    private record Anchor(Class<?> type, String artifactId) {
+    }
+
+    private static final List<Anchor> CLASSPATH_ANCHORS = List.of(
+            new Anchor(com.fasterxml.jackson.annotation.JsonProperty.class, "jackson-annotations"),
+            new Anchor(com.fasterxml.jackson.databind.ObjectMapper.class, "jackson-databind"),
+            new Anchor(com.fasterxml.jackson.core.JsonParser.class, "jackson-core"),
+            new Anchor(com.fasterxml.jackson.datatype.jdk8.Jdk8Module.class, "jackson-datatype-jdk8"),
+            new Anchor(com.fasterxml.jackson.datatype.jsr310.JavaTimeModule.class, "jackson-datatype-jsr310"),
+            new Anchor(com.fasterxml.jackson.module.paramnames.ParameterNamesModule.class,
+                    "jackson-module-parameter-names"),
+            new Anchor(org.slf4j.LoggerFactory.class, "slf4j-api"));
+
+    /** The jar (or class directory) this JVM loaded {@code type} from, or null. */
+    private static File jarOf(Class<?> type) {
+        try {
+            java.security.CodeSource codeSource = type.getProtectionDomain().getCodeSource();
+            if (codeSource == null || codeSource.getLocation() == null) {
+                return null;
+            }
+            File location = new File(codeSource.getLocation().toURI());
+            return location.exists() ? location : null;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static File cachedM2Jar(String artifactId) {
+        File cached = JAR_CACHE.get(artifactId);
+        if (cached == null) {
+            Path mavenRepo = Path.of(System.getProperty("user.home"), ".m2", "repository");
+            Path jar = findJar(mavenRepo, artifactId);
+            cached = jar != null ? jar.toFile() : MISSING;
+            JAR_CACHE.put(artifactId, cached);
+        }
+        return cached == MISSING ? null : cached;
     }
 
     private static Path findJar(Path mavenRepo, String artifactId) {

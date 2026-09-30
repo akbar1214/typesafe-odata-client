@@ -20,7 +20,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -161,20 +160,10 @@ class EnumJsonDeserializationTest {
 
         JavaCompiler compiler = ToolProvider.getSystemJavaCompiler();
         assertNotNull(compiler, "Java compiler not available - run with a JDK");
-        List<File> classpath = new ArrayList<>();
-        // current reactor runtime first — generated enums implement ODataEnumValue, which
-        // the ~/.m2 snapshot (from an older `mvn install`) may not contain yet
-        Path siblingRuntime = Path.of("..", "odata-codegen-runtime", "target", "classes");
-        if (Files.isReadable(siblingRuntime)) {
-            classpath.add(siblingRuntime.toFile());
-        }
-        Path m2 = Path.of(System.getProperty("user.home"), ".m2", "repository");
-        try (Stream<Path> jars = Files.walk(m2)) {
-            jars.filter(p -> p.toString().endsWith(".jar"))
-                    .filter(p -> !p.toString().contains("-sources") && !p.toString().contains("-javadoc"))
-                    .map(Path::toFile)
-                    .forEach(classpath::add);
-        }
+        // Deterministic dependency files from the build's own classpath. The sibling
+        // reactor runtime comes FIRST inside the harness, so a generated enum implementing
+        // the new ODataEnumValue interface compiles even when the ~/.m2 snapshot predates it.
+        List<File> classpath = new ArrayList<>(CompilationHarness.findClasspathJars());
         StringWriter out = new StringWriter();
         StandardJavaFileManager fm = compiler.getStandardFileManager(null, null, null);
         fm.setLocation(StandardLocation.CLASS_PATH, classpath);
