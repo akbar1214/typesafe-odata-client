@@ -361,6 +361,28 @@ public class OperationGenerator extends AbstractTypeGenerator {
         typeRefs = TypeRefs.resolve(candidates);
     }
 
+    /**
+     * Resolves the accessor's own request class against the container-wide reference map.
+     * The container always registers this FQN as a candidate ({@code functionImportClassFqns}
+     * / {@code actionImportClassFqn}), so a miss means the two resolutions diverged — a
+     * generator bug that must fail here rather than emit an unimported simple name one file
+     * over. Legacy callers without a container-wide map ({@code containerRefs == null}) keep
+     * the simple name, which is all they ever imported.
+     */
+    private static String requestClassReference(java.util.Map<String, String> containerRefs,
+                                                String requestFqn, String requestClassName,
+                                                String importName) {
+        if (containerRefs == null) {
+            return requestClassName;
+        }
+        String reference = containerRefs.get(requestFqn);
+        if (reference == null) {
+            throw new IllegalStateException("Internal error: request class '" + requestFqn
+                    + "' is not part of the resolution map for import '" + importName + "'");
+        }
+        return reference;
+    }
+
     private List<String> operationTypeCandidates(ResolvedOp op) {
         List<String> candidates = new ArrayList<>();
         for (ParameterModel parameter : op.parameters()) {
@@ -1318,7 +1340,7 @@ public class OperationGenerator extends AbstractTypeGenerator {
             String requestClassName = Names.functionRequestClassName(fi.name(), suffixes.get(i));
             String requestFqn = classImportLine(basePackageOf(owned.owner()), requestClassName);
             methods.add(accessorMethodSource(
-                    typeRefs.getOrDefault(requestFqn, requestClassName),
+                    requestClassReference(containerRefs, requestFqn, requestClassName, fi.name()),
                     Names.toJavaFieldName(fi.name()) + suffixes.get(i),
                     owned.model().parameters(), owned.owner()));
         }
@@ -1342,7 +1364,7 @@ public class OperationGenerator extends AbstractTypeGenerator {
         prepareContainerTypeRefs(owned.model().parameters(), owned.owner(), reservedClassFqn, containerRefs);
         String requestClassName = Names.actionRequestClassName(ai.name());
         String requestFqn = classImportLine(basePackageOf(owned.owner()), requestClassName);
-        return accessorMethodSource(typeRefs.getOrDefault(requestFqn, requestClassName),
+        return accessorMethodSource(requestClassReference(containerRefs, requestFqn, requestClassName, ai.name()),
                 Names.toJavaFieldName(ai.name()), owned.model().parameters(), owned.owner());
     }
 
