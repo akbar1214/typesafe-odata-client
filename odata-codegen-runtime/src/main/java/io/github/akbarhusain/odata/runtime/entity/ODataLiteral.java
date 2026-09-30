@@ -681,27 +681,23 @@ public final class ODataLiteral {
 
     /**
      * Numeric ordinate equality. {@code nanInfinity} values ("NaN"/"-INF"/"INF") are legal
-     * ordinates but have no {@link BigDecimal} form, so they fall back to IEEE comparison
-     * ({@code Double.compare} treats NaN as equal to itself, matching position equality).
+     * ordinates but have no {@link BigDecimal} form; equal forms already returned above, so
+     * any remaining pairing involving one is unequal. In particular a finite literal that
+     * overflows double ("1e999", a legal {@code decimalValue}) must NOT be conflated with
+     * {@code INF}.
      */
     private static boolean sameOrdinate(String left, String right) {
         if (left.equals(right)) {
             return true;
         }
-        try {
-            return new java.math.BigDecimal(left).compareTo(new java.math.BigDecimal(right)) == 0;
-        } catch (NumberFormatException e) {
-            return Double.compare(parseOrdinate(left), parseOrdinate(right)) == 0;
+        if (isNanInfinity(left) || isNanInfinity(right)) {
+            return false;
         }
+        return new java.math.BigDecimal(left).compareTo(new java.math.BigDecimal(right)) == 0;
     }
 
-    private static double parseOrdinate(String value) {
-        return switch (value) {
-            case "INF" -> Double.POSITIVE_INFINITY;
-            case "-INF" -> Double.NEGATIVE_INFINITY;
-            case "NaN" -> Double.NaN;
-            default -> Double.parseDouble(value);
-        };
+    private static boolean isNanInfinity(String value) {
+        return value.equals("INF") || value.equals("-INF") || value.equals("NaN");
     }
 
     private static boolean validPositionList(String data, boolean allowEmpty) {

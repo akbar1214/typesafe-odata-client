@@ -205,6 +205,10 @@ class ODataLiteralAbnfConformanceTest {
                 ODataLiteral.format("SRID=4326;Polygon((INF 1,2 2,1 1,INF 1))", "Edm.GeographyPolygon"));
         assertEquals("geography'SRID=4326;Polygon((NaN 1,2 2,1 1,NaN 1))'",
                 ODataLiteral.format("SRID=4326;Polygon((NaN 1,2 2,1 1,NaN 1))", "Edm.GeographyPolygon"));
+        // A finite literal that overflows double ("1e999", legal decimalValue) is NOT INF:
+        // a ring opening with INF and closing with 1e999 is not closed and must be rejected.
+        assertThrows(IllegalArgumentException.class, () -> ODataLiteral.format(
+                "SRID=4326;Polygon((INF 1,2 2,1 1,1e999 1))", "Edm.GeographyPolygon"));
     }
 
     /**
