@@ -142,8 +142,12 @@ public class ContainerGenerator {
         imports.add("io.github.akbarhusain.odata.runtime.entity.Context");
 
         // Two schemas may declare same-named entities mapped to different output
-        // packages; contested simple names are referenced fully-qualified, never imported
+        // packages; contested simple names are referenced fully-qualified, never imported.
+        // The container's own class is a claimant of its simple name: a legal container
+        // name may equal a generated request/operation class, and importing it into the
+        // unit that declares it does not compile (lesson 201).
         List<String> refCandidates = new ArrayList<>();
+        refCandidates.add(reservedClassFqn);
         for (EntitySetModel es : container.entitySets()) {
             reqGen.requireKnownTypeForGeneration(es.entityType(), schema, "container '" + container.name() + "'",
                     "entity set '" + es.name() + "'");
@@ -167,6 +171,18 @@ public class ContainerGenerator {
             refCandidates.add(basePackageForType(resolvedType, schema)
                     + Names.packageNameSuffixEntityRequest() + "."
                     + Names.entityRequestClassName(entityClassName));
+        }
+        // Operation request classes and their parameter types are referenced from the
+        // container's accessors; they join the SAME resolution so a simple name contested
+        // across set/singleton/import references becomes fully-qualified instead of being
+        // imported twice.
+        for (FunctionImportModel fi : container.functionImports()) {
+            refCandidates.addAll(ops.functionImportClassFqns(fi, schema));
+            refCandidates.addAll(ops.functionImportParameterImports(fi, schema, reservedClassFqn));
+        }
+        for (ActionImportModel ai : container.actionImports()) {
+            refCandidates.add(ops.actionImportClassFqn(ai, schema));
+            refCandidates.addAll(ops.actionImportParameterImports(ai, schema, reservedClassFqn));
         }
         java.util.Map<String, String> refs = TypeRefs.resolve(refCandidates);
 
@@ -205,15 +221,21 @@ public class ContainerGenerator {
         List<String> importAccessorMethods = new ArrayList<>();
         for (FunctionImportModel fi : container.functionImports()) {
             // resolveValidationThrowsUnknownOrBound — resolution happens here so failures surface at generation
-            importAccessorMethods.addAll(ops.functionImportAccessorMethods(fi, schema, reservedClassFqn));
-            imports.addAll(ops.functionImportClassImportLines(fi, schema));
+            importAccessorMethods.addAll(ops.functionImportAccessorMethods(fi, schema, reservedClassFqn, refs));
+            for (String fqn : ops.functionImportClassFqns(fi, schema)) {
+                addImportIfUncontested(imports, refs, fqn);
+            }
             // accessors reference structured/enum parameter types from other packages
-            imports.addAll(ops.functionImportParameterImports(fi, schema, reservedClassFqn));
+            for (String fqn : ops.functionImportParameterImports(fi, schema, reservedClassFqn)) {
+                addImportIfUncontested(imports, refs, fqn);
+            }
         }
         for (ActionImportModel ai : container.actionImports()) {
-            importAccessorMethods.add(ops.actionImportAccessorMethod(ai, schema, reservedClassFqn));
-            imports.add(ops.actionImportClassImportLine(ai, schema));
-            imports.addAll(ops.actionImportParameterImports(ai, schema, reservedClassFqn));
+            importAccessorMethods.add(ops.actionImportAccessorMethod(ai, schema, reservedClassFqn, refs));
+            addImportIfUncontested(imports, refs, ops.actionImportClassFqn(ai, schema));
+            for (String fqn : ops.actionImportParameterImports(ai, schema, reservedClassFqn)) {
+                addImportIfUncontested(imports, refs, fqn);
+            }
         }
 
         for (String imp : imports) {
@@ -337,5 +359,20 @@ public class ContainerGenerator {
         }
         return schemaPackages.getOrDefault(namespace,
                 defaultBasePackage != null ? defaultBasePackage : Names.toPackageName(namespace));
+    }
+
+    /**
+     * Imports {@code fqn} only when the container-wide resolution references it by simple
+     * name. A contested simple name is emitted fully-qualified at every use site, so
+     * importing it too would either be a redundant import or a same-simple-name collision
+     * with the other claimant (lesson 201).
+     */
+    private static void addImportIfUncontested(Set<String> imports, java.util.Map<String, String> refs,
+                                                String fqn) {
+        String simple = fqn.substring(fqn.lastIndexOf('.') + 1);
+        String reference = refs.getOrDefault(fqn, simple);
+        if (!reference.contains(".")) {
+            imports.add(fqn);
+        }
     }
 }
