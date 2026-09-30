@@ -2,6 +2,7 @@ package io.github.akbarhusain.odata.core.parser;
 
 import io.github.akbarhusain.odata.core.generator.Generator;
 import io.github.akbarhusain.odata.core.model.CsdlModel;
+import io.github.akbarhusain.odata.core.generator.CompilationHarness;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -62,7 +63,7 @@ class GeneratorCompilationTest {
         StandardJavaFileManager fileManager = compiler.getStandardFileManager(null, null, null);
 
         // Build classpath from runtime + jackson + slf4j jars
-        List<File> classpath = findClasspathJars();
+        List<File> classpath = CompilationHarness.findClasspathJars();
         fileManager.setLocation(javax.tools.StandardLocation.CLASS_PATH, classpath);
 
         // Set source output directory
@@ -97,49 +98,4 @@ class GeneratorCompilationTest {
         assertTrue(Files.exists(classesDir), "Classes directory should exist");
     }
 
-    private List<File> findClasspathJars() {
-        String userHome = System.getProperty("user.home");
-        Path mavenRepo = Path.of(userHome, ".m2", "repository");
-
-        List<String> artifactIds = List.of(
-                "odata-codegen-runtime",
-                "jackson-databind",
-                "jackson-core",
-                "jackson-annotations",
-                "jackson-datatype-jdk8",
-                "jackson-datatype-jsr310",
-                "jackson-module-parameter-names",
-                "slf4j-api"
-        );
-
-        List<File> classpath = artifactIds.stream()
-                .map(id -> findJar(mavenRepo, id))
-                .filter(p -> p != null)
-                .map(Path::toFile)
-                .collect(java.util.ArrayList::new, java.util.ArrayList::add, java.util.ArrayList::addAll);
-
-        // Prefer freshly-built runtime classes from the sibling module when present
-        // (helps incremental builds where the installed .m2 jar is stale).
-        Path siblingClasses = Path.of("..", "odata-codegen-runtime", "target", "classes");
-        if (java.nio.file.Files.isReadable(siblingClasses)) {
-            classpath.add(0, siblingClasses.toFile());
-        }
-
-        return classpath;
-    }
-
-    private Path findJar(Path mavenRepo, String artifactId) {
-        try (Stream<Path> paths = Files.walk(mavenRepo)) {
-            return paths
-                    .filter(p -> p.getFileName().toString().contains(artifactId))
-                    .filter(p -> p.toString().endsWith(".jar"))
-                    .filter(p -> !p.toString().contains("-sources"))
-                    .filter(p -> !p.toString().contains("-javadoc"))
-                    .filter(p -> p.toString().contains("0.1.0-SNAPSHOT") || !artifactId.equals("odata-codegen-runtime"))
-                    .findFirst()
-                    .orElse(null);
-        } catch (Exception e) {
-            return null;
-        }
-    }
 }
