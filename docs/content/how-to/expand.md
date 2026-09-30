@@ -70,6 +70,14 @@ $expand=Trips($select=TripId,Budget;$filter=Budget gt 500.0;$orderby=StartsAt de
 
 Multiple calls are immutable operations: each call returns a new `NavQuery` carrying the previous options.
 
+!!! warning "Structural collections are not expandable"
+    A structural collection constant (`Collection(Edm.String)`, `Collection(Complex)`) is
+    not a navigation, so `$expand` on one is invalid — a service answers it with a 400.
+    Chained option calls still compile because these builders are inherited from
+    `CollectionProperty` and return a `NavQuery`, so `Person.TAGS.top(5)` renders the
+    invalid `$expand=Tags($top=5)`. Use `select(...)` or the collection's filter API
+    instead. (This is the known limitation documented on `Expandable`.)
+
 ### Select and expand a nested navigation
 
 ```java

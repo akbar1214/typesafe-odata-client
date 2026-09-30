@@ -56,6 +56,25 @@ class NavQueryExpandTest {
         assertEquals("Trips($top=5)", query.toODataExpand());
     }
 
+    /**
+     * KNOWN LIMITATION, witnessed rather than described: the {@code NavQuery}-returning
+     * option builders are inherited by {@link CollectionProperty}, so a STRUCTURAL
+     * collection can be chained into a value that IS an {@link Expandable}.
+     * {@code expand(TAGS.top(5))} therefore compiles and renders {@code Tags($top=5)} —
+     * invalid on the wire, because {@code $expand} applies to navigation properties only.
+     * Closing it means moving these builders onto {@code NavCollectionProperty}; until
+     * then this test pins the reachable shape so a refactor cannot change it silently
+     * (see {@link Expandable}'s Javadoc).
+     */
+    @Test
+    void structuralCollectionChainedIntoAnOptionBuilderRendersANonNavigableExpand() {
+        CollectionProperty<Object, String, CollectionProperty.FilterableElement<String>, Object> tags =
+                new CollectionProperty<>("Tags", null, String.class, CollectionProperty.FilterableElement::new);
+        NavQuery<Object, String, Object> chained = tags.top(5);
+        assertTrue(chained instanceof Expandable<?>, "the chained value is what expand() accepts");
+        assertEquals("Tags($top=5)", chained.toODataExpand());
+    }
+
     @Test
     void navQueryWithMultipleOptions() {
         NavQuery<Object, Object, Object> nav = NavQuery.of("Trips");
