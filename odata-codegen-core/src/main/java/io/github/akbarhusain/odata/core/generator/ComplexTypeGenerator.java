@@ -74,10 +74,12 @@ public class ComplexTypeGenerator extends AbstractTypeGenerator {
         allocateConstantNames(allProps, allNavs);
         validateTypeUsages("complex type '" + complexType.name() + "'", allProps, allNavs, schema);
         // CSDL §12.2 requires a NavigationProperty to target an entity or complex type.
-        // The entity path rejects enum/primitive targets loudly (RequestGenerator
-        // .isNonEntityNav), but complex types have no request layer — validate here too,
-        // or an enum target emits `Color.Filterable` and an Edm primitive emits `String_`
-        // and the run commits uncompilable output.
+        // The entity side rejects these targets loudly when an entity request is generated
+        // (RequestGenerator.isNonEntityNav); an entity unreachable from any container
+        // currently skips the nav constant silently instead. Complex types have no request
+        // layer at all, so validate here unconditionally — an enum target emitted
+        // `Color.Filterable` and an Edm primitive emitted `String_`, and the run committed
+        // uncompilable output.
         validateNavigationTargets(allNavs, schema);
         boolean openType = openTypeResolved(complexType);
         List<String> generatedMethods = new ArrayList<>(List.of(
