@@ -141,6 +141,60 @@ class SelectablePropertyGenerationTest {
         }
     }
 
+    /**
+     * The INHERITED branch of the select-only emitters (#55): a subtype's Selector has no
+     * constant to share for a property declared on its base, so it must construct the
+     * descriptor inline with the SUBTYPE as owner. Neither fixture in this class had a
+     * {@code BaseType}, so this branch was unexercised.
+     */
+    @Test
+    void inheritedSelectablePropertiesMaterializeInTheSubtypeSelector(@TempDir Path out) throws Exception {
+        String doc = EDMX_HEAD
+                + EDM + " Namespace=\"PTC.Workflow\">"
+                + "<ComplexType Name=\"ProcessData\">"
+                + "<Property Name=\"Reason\" Type=\"Edm.String\"/></ComplexType>"
+                + "<EntityType Name=\"WorkItem\">"
+                + "<Key><PropertyRef Name=\"Id\"/></Key>"
+                + "<Property Name=\"Id\" Type=\"Edm.Int32\" Nullable=\"false\"/>"
+                + "<Property Name=\"ProcessData\" Type=\"PTC.Workflow.ProcessData\"/>"
+                + "<Property Name=\"Photo\" Type=\"Edm.Binary\"/>"
+                + "<Property Name=\"Where\" Type=\"Edm.GeographyPoint\"/>"
+                + "</EntityType>"
+                + "<EntityType Name=\"Issue\" BaseType=\"PTC.Workflow.WorkItem\">"
+                + "<Property Name=\"Triage\" Type=\"PTC.Workflow.ProcessData\"/>"
+                + "</EntityType></Schema>"
+                + "</edmx:DataServices></edmx:Edmx>";
+        Path file = out.resolve("metadata.xml");
+        Files.writeString(file, doc, StandardCharsets.UTF_8);
+        CsdlModel model = new StaxCsdlParser().parse(Files.newInputStream(file));
+        new Generator(out, Map.of(), "com.ptc").generate(model);
+        String source = Files.readString(out.resolve("com/ptc/entity/Issue.java"));
+
+        assertTrue(source.contains(
+                        "public final SelectableProperty<Issue> PROCESS_DATA = "
+                                + "new SelectableProperty<>(\"ProcessData\", Issue.class);"),
+                "an inherited complex property must be selectable from the subtype");
+        assertTrue(source.contains(
+                        "public final SelectableProperty<Issue> PHOTO = "
+                                + "new SelectableProperty<>(\"Photo\", Issue.class);"),
+                "an inherited binary property must be selectable from the subtype");
+        assertTrue(source.contains(
+                        "public final SelectableProperty<Issue> WHERE = "
+                                + "new SelectableProperty<>(\"Where\", Issue.class);"),
+                "an inherited geography property must be selectable from the subtype");
+        assertTrue(source.contains(
+                        "public static final SelectableProperty<Issue> TRIAGE = "
+                                + "new SelectableProperty<>(\"Triage\", Issue.class);"),
+                "the subtype's own complex property gets its own constant");
+        assertTrue(source.contains("public final SelectableProperty<Issue> TRIAGE = Issue.TRIAGE;"),
+                "and the subtype Selector shares that constant");
+
+        String errors = CompilationHarness.compileAll(out);
+        if (errors != null && !errors.isBlank()) {
+            fail("generated inheritance client must compile, but javac reported:\n" + errors);
+        }
+    }
+
     @Test
     void anEntityTypeNamedSelectablePropertyIsRenamedAway(@TempDir Path out) throws Exception {
         // The wildcard import io.github...runtime.query.* means a generated type sharing a
