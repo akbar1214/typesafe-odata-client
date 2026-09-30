@@ -192,7 +192,7 @@ BatchResponse response = ctx.batch()
 | Key | Keyed entity-request overload |
 | Navigation property | Typed model constant plus request navigation method |
 | `$filter` | `FilterExpression<E>` |
-| `$select` / `$orderby` | `PropertyExpression` / `OrderExpression` |
+| `$select` / `$orderby` | `SelectableExpression` / `OrderExpression` |
 | `$expand` | `Expandable` values such as `NavCollectionProperty` and `NavQuery` |
 | Function/action import | Request class in `operation` |
 | Schema registry | `schema.SchemaInfo` |

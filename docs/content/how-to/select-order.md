@@ -36,12 +36,22 @@ Omit `select(...)` when the service should return the entity's normal representa
 
 ### Select Nested Properties
 
-`$select` accepts generated scalar and enum property expressions (`PropertyExpression`). Collection-valued structural properties and navigation properties have different builder types and cannot be passed to `select(...)`; use their collection/filter or expand APIs instead:
+`$select` accepts every property descriptor that implements `SelectableExpression`:
+
+- scalar and enum properties (`PropertyExpression`),
+- complex-typed, `Edm.Binary`, and geography/geometry properties (`SelectableProperty` — select-only, because they have no primitive result value to sort on),
+- collection-valued structural properties (`SelectableCollectionProperty`).
+
+Navigation properties are deliberately not selectable: `?$select=Trips` is grammar-legal but returns nothing without `$expand`, so passing one to `select(...)` is a compile error — use `expand(...)` instead.
 
 ```java
 client.people()
-    .select(Person.FIRST_NAME, Person.LAST_NAME)
+    .select(Person.FIRST_NAME, Person.ADDRESS_INFO, Person.EMAILS)
     .expand(Person.TRIPS)
+    .get();
+
+client.airports()
+    .select(Airport.LOCATION)     // single complex property
     .get();
 ```
 

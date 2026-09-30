@@ -86,7 +86,7 @@ public final class Person implements ODataEntityType {
 
 A scalar getter returns `Optional<T>` when its CSDL property is nullable and returns the boxed type otherwise. Collection getters always return an unmodifiable, empty-safe list. Singleton navigation getters return `Optional<T>`.
 
-Generated query constants are type-specific: supported scalar and enum properties implement `PropertyExpression`; collection-valued properties use `CollectionProperty`; and entity navigations use `NavCollectionProperty` or `NavQuery`. Binary, stream, spatial, and single complex-valued properties do not receive a `PropertyExpression` constant, and complex-target navigation constants are not emitted.
+Generated query constants are type-specific: scalar and enum properties implement `PropertyExpression`; complex-typed, binary, and spatial properties receive select-only `SelectableProperty` constants; collection-valued structural properties receive `SelectableCollectionProperty`; and entity navigations use `NavCollectionProperty` or `NavQuery`. `Edm.Stream` properties receive no query constant at all (a stream accompanies `$select`, it is not named by it, and has dedicated stream methods on the entity request), and complex-target navigation constants are not emitted.
 
 ### Builders and copy-on-write
 
@@ -118,10 +118,10 @@ Entity requests are final classes. They support typed `select` and `expand` opti
 ```java
 public final class PersonEntityRequest {
     public PersonEntityRequest select(
-        PropertyExpression<? super Person, ?>... properties);
+        SelectableExpression<? super Person>... properties);
     public PersonEntityRequest select(
         Function<Person.Selector,
-            ? extends PropertyExpression<? super Person, ?>>... selectors);
+            ? extends SelectableExpression<? super Person>>... selectors);
 
     public PersonEntityRequest expand(Expandable<? super Person>... expandables);
     public PersonEntityRequest expand(
@@ -159,10 +159,10 @@ public final class PersonCollectionRequest {
             ? extends FilterExpression<? super Person>> predicate);
 
     public PersonCollectionRequest select(
-        PropertyExpression<? super Person, ?>... properties);
+        SelectableExpression<? super Person>... properties);
     public PersonCollectionRequest select(
         Function<Person.Selector,
-            ? extends PropertyExpression<? super Person, ?>>... selectors);
+            ? extends SelectableExpression<? super Person>>... selectors);
 
     public PersonCollectionRequest expand(
         Expandable<? super Person>... expandables);
