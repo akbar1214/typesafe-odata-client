@@ -73,6 +73,14 @@ public class ComplexTypeGenerator extends AbstractTypeGenerator {
         resetConstantNames();
         allocateConstantNames(allProps, allNavs);
         validateTypeUsages("complex type '" + complexType.name() + "'", allProps, allNavs, schema);
+        // CSDL §12.2 requires a NavigationProperty to target an entity or complex type.
+        // The entity side rejects these targets loudly when an entity request is generated
+        // (RequestGenerator.isNonEntityNav); an entity unreachable from any container
+        // currently skips the nav constant silently instead. Complex types have no request
+        // layer at all, so validate here unconditionally — an enum target emitted
+        // `Color.Filterable` and an Edm primitive emitted `String_`, and the run committed
+        // uncompilable output.
+        validateNavigationTargets(allNavs, schema);
         boolean openType = openTypeResolved(complexType);
         List<String> generatedMethods = new ArrayList<>(List.of(
                 "odataTypeName", "odataTypeAnnotation", "getUnmappedFields", "getContextPath",
@@ -727,5 +735,25 @@ public class ComplexTypeGenerator extends AbstractTypeGenerator {
             }
         }
         return result;
+    }
+
+    /**
+     * Rejects NavigationProperties whose target is not an entity or complex type, with the
+     * same message the entity request path uses ({@code RequestGenerator.isNonEntityNav}).
+     * An enum resolves to its own kind; an Edm primitive resolves to UNKNOWN (primitives
+     * are not in the type-kind map). Both are invalid targets under CSDL §12.2 and both
+     * previously produced references to classes that are never generated.
+     */
+    private void validateNavigationTargets(List<NavigationPropertyModel> navs, SchemaModel schema) {
+        for (NavigationPropertyModel nav : navs) {
+            SchemaModel owner = schemaForNavigation(nav, schema);
+            String resolved = resolveTypeDefinition(Names.unwrapCollectionType(nav.type()), owner);
+            Names.TypeKind kind = resolveTypeKind(resolved, owner);
+            if (kind == Names.TypeKind.ENUM || kind == Names.TypeKind.UNKNOWN) {
+                throw new IllegalStateException("Navigation property '" + nav.name()
+                        + "' targets non-navigable type '" + nav.type()
+                        + "'; CSDL 12.2 requires an entity or complex type");
+            }
+        }
     }
 }
