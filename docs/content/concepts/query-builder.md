@@ -7,7 +7,7 @@ Generated property constants carry the owning entity type in their generic signa
 ```text
 Expression<T>
 ├── OrderExpression<E, T>
-│   └── PropertyExpression<E, T>
+│   └── PropertyExpression<E, T>                 (also SelectableExpression<E>)
 │       ├── StringProperty<E>
 │       ├── NumberProperty<E, N>
 │       ├── BooleanProperty<E>
@@ -16,15 +16,21 @@ Expression<T>
 │       └── EnumProperty<E, V>
 └── FilterExpression<E>
 
+SelectableExpression<E>                          (what $select accepts)
+├── PropertyExpression<E, T>
+├── SelectableProperty<E>                        (select-only: complex, binary, spatial)
+└── SelectableCollectionProperty<E, T, F, Sel>   (select-only structural collections)
+
 ApplyExpression
 
 Collection and navigation builders
 ├── CollectionProperty<E, T, F, Sel>
+├── SelectableCollectionProperty<E, T, F, Sel>   (extends CollectionProperty)
 ├── NavCollectionProperty<E, T, F, Sel>
 └── NavQuery<S, T, Sel>
 ```
 
-`CollectionProperty` has four type parameters: owner entity `E`, element type `T`, filterable type `F`, and selector type `Sel`. Generated collection navigations use `NavCollectionProperty`, a subtype that also implements `Expandable`; structural collection properties use `CollectionProperty`. Primitive collection elements use `CollectionProperty.FilterableElement<T>`.
+`CollectionProperty` has four type parameters: owner entity `E`, element type `T`, filterable type `F`, and selector type `Sel`. Generated collection navigations use `NavCollectionProperty`, a subtype that also implements `Expandable`; structural collection properties use `SelectableCollectionProperty`, a select-only subtype of `CollectionProperty`. Primitive collection elements use `CollectionProperty.FilterableElement<T>`.
 
 ## Property Operations
 

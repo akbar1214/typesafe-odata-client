@@ -104,7 +104,7 @@ Every property expression implements `OrderExpression` through `asc()` and `desc
 client.people().orderBy(Person.LAST_NAME.asc()).get();
 ```
 
-`$select` accepts generated scalar and enum property expressions only. Collection-valued structural properties and navigation properties are not `PropertyExpression` values, so they cannot be passed to `select(...)`. A transformation such as `Person.FIRST_NAME.toUpper()` is valid in filters and order expressions, but passing it to `select(...)` raises `IllegalArgumentException`.
+`$select` accepts any `SelectableExpression`: scalar and enum `PropertyExpression` descriptors, select-only `SelectableProperty` descriptors for complex-typed, binary, and spatial properties, and `SelectableCollectionProperty` for collection-valued structural properties. Navigation properties are a deliberate compile error (selecting one returns no data without `$expand`). A transformation such as `Person.FIRST_NAME.toUpper()` is valid in filters and order expressions, but passing it to `select(...)` raises `IllegalArgumentException`.
 
 ## Apply Expressions
 

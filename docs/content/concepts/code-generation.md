@@ -41,7 +41,7 @@ For each entity type, the generator emits:
 1. A Java class implementing `ODataEntityType`.
 2. Protected fields and a no-argument constructor for Jackson and generated builders; the constructor is public on concrete model types and protected on abstract model types.
 3. Public `@JsonProperty` setters for declared properties and navigations.
-4. Typed static constants for supported scalar/enum property expressions, collection-valued properties, and entity navigation properties. Binary, stream, and spatial properties do not receive property constants, and complex-valued entity navigation constants are not emitted.
+4. Typed static constants for scalar/enum property expressions; select-only constants for complex-typed, binary, and spatial properties (`SelectableProperty`) and collection-valued structural properties (`SelectableCollectionProperty`); and navigation constants (`NavCollectionProperty`/`NavQuery`). `Edm.Stream` properties receive no query constant, and complex-valued entity navigation constants are not emitted.
 5. `Filterable` and `Selector` inner classes used by collection lambdas and request selector lambdas.
 6. A `Builder` for concrete top-level types.
 7. Copy-on-write `with*()` methods when `generateWithMethods` is enabled and the type is concrete.
