@@ -2,6 +2,7 @@ package io.github.akbarhusain.odata.core.parser;
 
 import io.github.akbarhusain.odata.core.generator.Generator;
 import io.github.akbarhusain.odata.core.model.CsdlModel;
+import io.github.akbarhusain.odata.core.generator.CompilationHarness;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -35,7 +36,7 @@ class LargeEntityCompilationTest {
         assertNotNull(compiler);
         StringWriter out = new StringWriter();
         StandardJavaFileManager fm = compiler.getStandardFileManager(null, null, null);
-        List<File> cp = findClasspathJars();
+        List<File> cp = CompilationHarness.findClasspathJars();
         fm.setLocation(javax.tools.StandardLocation.CLASS_PATH, cp);
         List<File> javaFiles;
         try (Stream<Path> paths = Files.walk(tempDir)) {
@@ -51,13 +52,4 @@ class LargeEntityCompilationTest {
         assertTrue(ok, "Wide entity should compile. Errors:\n" + out);
     }
 
-    private List<File> findClasspathJars() {
-        String userHome = System.getProperty("user.home");
-        Path mavenRepo = Path.of(userHome, ".m2", "repository");
-        List<String> ids = List.of("odata-codegen-runtime","jackson-databind","jackson-core","jackson-annotations","jackson-datatype-jdk8","jackson-datatype-jsr310","jackson-module-parameter-names","slf4j-api");
-        List<File> cp = ids.stream().map(id -> { try (Stream<Path> p = Files.walk(mavenRepo)) { return p.filter(x -> x.getFileName().toString().contains(id) && x.toString().endsWith(".jar") && !x.toString().contains("-sources") && !x.toString().contains("-javadoc") && (x.toString().contains("0.1.0-SNAPSHOT") || !id.equals("odata-codegen-runtime"))).findFirst().orElse(null); } catch (Exception e) { return null; } }).filter(java.util.Objects::nonNull).map(Path::toFile).collect(java.util.ArrayList::new, java.util.ArrayList::add, java.util.ArrayList::addAll);
-        Path sc = Path.of("..", "odata-codegen-runtime", "target", "classes");
-        if (Files.isReadable(sc)) cp.add(0, sc.toFile());
-        return cp;
-    }
 }

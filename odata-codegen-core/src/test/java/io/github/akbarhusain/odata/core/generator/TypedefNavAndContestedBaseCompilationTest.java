@@ -182,7 +182,7 @@ class TypedefNavAndContestedBaseCompilationTest {
         assertNotNull(compiler);
         StringWriter compilerOutput = new StringWriter();
         StandardJavaFileManager fileManager = compiler.getStandardFileManager(null, null, null);
-        List<File> classpath = findClasspathJars();
+        List<File> classpath = CompilationHarness.findClasspathJars();
         fileManager.setLocation(javax.tools.StandardLocation.CLASS_PATH, classpath);
         Iterable<? extends javax.tools.JavaFileObject> units =
                 fileManager.getJavaFileObjects(javaFiles.toArray(new File[0]));
@@ -198,44 +198,4 @@ class TypedefNavAndContestedBaseCompilationTest {
         return success;
     }
 
-    private List<File> findClasspathJars() {
-        Path mavenRepo = Path.of(System.getProperty("user.home"), ".m2", "repository");
-        List<String> artifactIds = List.of(
-                "odata-codegen-runtime",
-                "jackson-databind",
-                "jackson-core",
-                "jackson-annotations",
-                "jackson-datatype-jdk8",
-                "jackson-datatype-jsr310",
-                "jackson-module-parameter-names",
-                "slf4j-api");
-        List<File> classpath = new ArrayList<>();
-        for (String id : artifactIds) {
-            Path jar = findJar(mavenRepo, id);
-            if (jar != null) {
-                classpath.add(jar.toFile());
-            }
-        }
-        Path siblingClasses = Path.of("..", "odata-codegen-runtime", "target", "classes");
-        if (Files.isReadable(siblingClasses)) {
-            classpath.add(0, siblingClasses.toFile());
-        }
-        return classpath;
-    }
-
-    private Path findJar(Path mavenRepo, String artifactId) {
-        try (Stream<Path> paths = Files.walk(mavenRepo)) {
-            return paths
-                    .filter(p -> p.getFileName().toString().contains(artifactId))
-                    .filter(p -> p.toString().endsWith(".jar"))
-                    .filter(p -> !p.toString().contains("-sources"))
-                    .filter(p -> !p.toString().contains("-javadoc"))
-                    .filter(p -> p.toString().contains("0.1.0-SNAPSHOT")
-                            || !artifactId.equals("odata-codegen-runtime"))
-                    .findFirst()
-                    .orElse(null);
-        } catch (Exception e) {
-            return null;
-        }
-    }
 }
