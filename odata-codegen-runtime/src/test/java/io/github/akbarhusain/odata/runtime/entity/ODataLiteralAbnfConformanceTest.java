@@ -146,6 +146,72 @@ class ODataLiteralAbnfConformanceTest {
     }
 
     /**
+     * {@code dateTimeOffsetValue = year "-" month "-" day "T" timeOfDayValue ( "Z" / SIGN hour ":" minute )}
+     * — the offset is hour:minute only. A Java {@code OffsetDateTime} may carry a
+     * seconds-precision offset; rendering it must normalize the INSTANT (to UTC) rather
+     * than truncating the offset, which would silently shift the value.
+     */
+    @Test
+    void dateTimeOffsetWithSecondsPrecisionOffsetIsNormalizedToUtc() {
+        OffsetDateTime east = OffsetDateTime.of(2020, 1, 2, 3, 4, 5, 0,
+                java.time.ZoneOffset.ofHoursMinutesSeconds(0, 53, 28));
+        assertEquals("2020-01-02T02:10:37Z", ODataLiteral.format(east, "Edm.DateTimeOffset"),
+                "truncating +00:53:28 to +00:53 would move the instant by 28 seconds");
+        OffsetDateTime west = OffsetDateTime.of(2020, 1, 2, 3, 4, 5, 0,
+                java.time.ZoneOffset.ofHoursMinutesSeconds(0, -53, -28));
+        assertEquals("2020-01-02T03:57:33Z", ODataLiteral.format(west, "Edm.DateTimeOffset"));
+    }
+
+    /**
+     * {@code durationValue = [ SIGN ] "P" …} with {@code SIGN = "+" / "%2B" / "-"} in BOTH
+     * the v4.0 and v4.01 ABNF — a leading {@code "+"} is legal and must stay accepted.
+     * (A review round quoted {@code [ "-" ]} and proposed rejecting it; that quote does
+     * not exist in either published ABNF, so this test pins the real production.)
+     */
+    @Test
+    void plusSignedDurationsAreLegal() {
+        assertEquals("duration'+P1D'", ODataLiteral.format("+P1D", "Edm.Duration"));
+        assertEquals("duration'-P1D'", ODataLiteral.format("-P1D", "Edm.Duration"));
+        assertEquals("duration'P1D'", ODataLiteral.format("P1D", "Edm.Duration"));
+    }
+
+    /**
+     * {@code decimalValue = [ SIGN ] 1*DIGIT [ "." 1*DIGIT ] … / nanInfinity} and
+     * {@code positionLiteral = doubleValue …}; WKT ordinates are {@code decimalValue}, so
+     * digits are required on both sides of the decimal point, and {@code nanInfinity}
+     * admits {@code NaN} / {@code -INF} / {@code INF} but never {@code +INF}.
+     */
+    @Test
+    void geoOrdinatesUseTheDecimalValueGrammar() {
+        for (String illegal : new String[]{"5. 3", ".5 3", "+INF 3", "+NaN 3"}) {
+            assertThrows(IllegalArgumentException.class,
+                    () -> ODataLiteral.format("SRID=4326;Point(" + illegal + ")", "Edm.GeographyPoint"),
+                    illegal);
+        }
+        for (String legal : new String[]{"5 3", "5.0 3", "-5.25 3", "1e2 3", "INF 3", "-INF 3", "NaN 3"}) {
+            assertEquals("geography'SRID=4326;Point(" + legal + ")'",
+                    ODataLiteral.format("SRID=4326;Point(" + legal + ")", "Edm.GeographyPoint"), legal);
+        }
+    }
+
+    /**
+     * Ring closure compares positions numerically, so an infinite ordinate (legal via
+     * {@code nanInfinity}) must not be fed to {@code BigDecimal} — that threw a raw
+     * NumberFormatException instead of validating the ring.
+     */
+    @Test
+    void closedRingsWithInfiniteOrdinatesCompareAsDoubles() {
+        assertEquals("geography'SRID=4326;Polygon((INF 1,2 2,1 1,INF 1))'",
+                ODataLiteral.format("SRID=4326;Polygon((INF 1,2 2,1 1,INF 1))", "Edm.GeographyPolygon"));
+        assertEquals("geography'SRID=4326;Polygon((NaN 1,2 2,1 1,NaN 1))'",
+                ODataLiteral.format("SRID=4326;Polygon((NaN 1,2 2,1 1,NaN 1))", "Edm.GeographyPolygon"));
+        // A finite literal that overflows double ("1e999", legal decimalValue) is NOT INF:
+        // a ring opening with INF and closing with 1e999 is not closed and must be rejected.
+        assertThrows(IllegalArgumentException.class, () -> ODataLiteral.format(
+                "SRID=4326;Polygon((INF 1,2 2,1 1,1e999 1))", "Edm.GeographyPolygon"));
+    }
+
+    /**
      * {@code sridLiteral = "SRID" EQ 1*5DIGIT SEMI} — required for every geography literal,
      * optional for geometry.
      */

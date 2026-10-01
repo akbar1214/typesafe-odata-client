@@ -7,6 +7,7 @@ import java.time.Duration;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.Base64;
@@ -42,8 +43,11 @@ public final class ODataLiteral {
     // leading minus, never a leading plus and never five or more digits.
     private static final Pattern YEAR_PATTERN = Pattern.compile("-?\\d{4}");
     private static final Pattern BINARY_PATTERN = Pattern.compile("[A-Za-z0-9_-]*={0,2}");
+    // decimalValue = [ SIGN ] 1*DIGIT [ "." 1*DIGIT ] [ "e" [ SIGN ] 1*DIGIT ] / nanInfinity —
+    // WKT ordinates are doubleValue = decimalValue, so digits are required on BOTH sides
+    // of the "." and nanInfinity admits only "NaN" / "-INF" / "INF" (no "+INF").
     private static final Pattern NUMBER_PATTERN = Pattern.compile(
-            "[+-]?(?:(?:\\d+(?:\\.\\d*)?)|(?:\\.\\d+))(?:[eE][+-]?\\d+)?|[+-]?INF|NaN");
+            "[+-]?\\d+(?:\\.\\d+)?(?:[eE][+-]?\\d+)?|-?INF|NaN");
 
     private ODataLiteral() {}
 
@@ -413,6 +417,14 @@ public final class ODataLiteral {
     }
 
     private static String formatDateTime(OffsetDateTime value) {
+        // The grammar's offset is hour:minute only — dateTimeOffsetValue = year "-" month "-"
+        // day "T" timeOfDayValue ( "Z" / SIGN hour ":" minute ). An OffsetDateTime may carry a
+        // seconds-precision offset (legal in Java, e.g. historical LMT zones); truncating it
+        // would silently shift the instant, so normalize such values to UTC ("Z"), which is
+        // expressible and preserves the instant.
+        if (value.getOffset().getTotalSeconds() % 60 != 0) {
+            value = value.withOffsetSameInstant(ZoneOffset.UTC);
+        }
         // year is exactly four digits in the grammar, so an expanded year is rejected here
         // rather than emitted as a %04d-widened (5+ digit) literal.
         if (value.getYear() < -9999 || value.getYear() > 9999) {
@@ -660,11 +672,32 @@ public final class ODataLiteral {
         String[] b = right.strip().split("\\s+");
         if (a.length != b.length) return false;
         for (int i = 0; i < a.length; i++) {
-            if (new java.math.BigDecimal(a[i]).compareTo(new java.math.BigDecimal(b[i])) != 0) {
+            if (!sameOrdinate(a[i], b[i])) {
                 return false;
             }
         }
         return true;
+    }
+
+    /**
+     * Numeric ordinate equality. {@code nanInfinity} values ("NaN"/"-INF"/"INF") are legal
+     * ordinates but have no {@link BigDecimal} form; equal forms already returned above, so
+     * any remaining pairing involving one is unequal. In particular a finite literal that
+     * overflows double ("1e999", a legal {@code decimalValue}) must NOT be conflated with
+     * {@code INF}.
+     */
+    private static boolean sameOrdinate(String left, String right) {
+        if (left.equals(right)) {
+            return true;
+        }
+        if (isNanInfinity(left) || isNanInfinity(right)) {
+            return false;
+        }
+        return new java.math.BigDecimal(left).compareTo(new java.math.BigDecimal(right)) == 0;
+    }
+
+    private static boolean isNanInfinity(String value) {
+        return value.equals("INF") || value.equals("-INF") || value.equals("NaN");
     }
 
     private static boolean validPositionList(String data, boolean allowEmpty) {
