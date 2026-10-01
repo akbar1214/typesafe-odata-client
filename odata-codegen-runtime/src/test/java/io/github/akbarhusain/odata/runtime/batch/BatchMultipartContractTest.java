@@ -373,6 +373,19 @@ class BatchMultipartContractTest {
     }
 
     @Test
+    void relativeTargetStartingWithHttpIsAcceptedAndResolvedAgainstTheServiceRoot() {
+        CapturingTransport transport = new CapturingTransport();
+        context(transport).batch().add(BatchOperation.get("httpCustomers('1')")).execute();
+        assertTrue(new String(transport.lastRequest.body(), StandardCharsets.ISO_8859_1)
+                        .contains("https://example.com/httpCustomers('1')"),
+                "a relative target that merely starts with 'http' must stay a relative target");
+        // The botched-absolute form (missing ":") is still rejected.
+        assertThrows(IllegalArgumentException.class,
+                () -> context(new StubTransport(emptySuccess())).batch()
+                        .add(BatchOperation.get("http//example.com/People")).execute());
+    }
+
+    @Test
     void mimeTypeAndBoundaryParametersAreCaseInsensitiveAndTokenAnchored() {
         String response = "--batch_mime\n"
                 + "Content-Type: MULTIPART/MIXED; x-boundary=wrong; BoUnDaRy = \"cs_mime\"\n\n"

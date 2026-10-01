@@ -251,10 +251,6 @@ public class EntityOperations {
         checkResponse(response);
     }
 
-    private static boolean isAbsoluteHttpUrl(String url) {
-        return url != null && url.length() >= 4 && url.regionMatches(true, 0, "http", 0, 4);
-    }
-
     public static void addRef(Context context, ContextPath navigationPath, String targetEntityUrl) {
         // Validate here rather than letting Map.of NPE deep inside the body build
         if (targetEntityUrl == null || targetEntityUrl.isBlank()) {
@@ -266,7 +262,7 @@ public class EntityOperations {
         // @odata.id must be an ABSOLUTE URI unless the payload carries @odata.context —
         // relative values are rejected by services (TripPin: 500 "relative URI value ...
         // odata.context annotation is missing"). Resolve like batch does (decision 12).
-        String absolute = isAbsoluteHttpUrl(targetEntityUrl)
+        String absolute = ContextPath.isAbsoluteHttpUrl(targetEntityUrl)
                 ? targetEntityUrl
                 : trimTrailingSlash(context.baseUrl()) + "/" + trimLeadingSlash(targetEntityUrl);
         byte[] body;
@@ -296,7 +292,7 @@ public class EntityOperations {
         }
         ContextPath refPath = navigationPath.addSegment("$ref");
         String id = targetKey;
-        if (!isAbsoluteHttpUrl(targetKey)
+        if (!ContextPath.isAbsoluteHttpUrl(targetKey)
                 && (targetKey.indexOf('/') >= 0 || targetKey.indexOf('(') >= 0)) {
             id = trimTrailingSlash(context.baseUrl()) + "/" + trimLeadingSlash(targetKey);
         }

@@ -150,6 +150,27 @@ class ContextPathTest {
     }
 
     @Test
+    void absoluteHttpUrlClassificationIsSchemeBasedNotPrefixBased() {
+        assertTrue(ContextPath.isAbsoluteHttpUrl("http://host/People"));
+        assertTrue(ContextPath.isAbsoluteHttpUrl("HTTPS://host/People"));
+        assertFalse(ContextPath.isAbsoluteHttpUrl("httpCustomers('1')"));
+        assertFalse(ContextPath.isAbsoluteHttpUrl("http:/host/People"));
+        assertFalse(ContextPath.isAbsoluteHttpUrl("http//host/People"));
+        assertFalse(ContextPath.isAbsoluteHttpUrl("/People('1')"));
+        assertFalse(ContextPath.isAbsoluteHttpUrl("People('1')"));
+        assertFalse(ContextPath.isAbsoluteHttpUrl(null));
+    }
+
+    @Test
+    void fromNextLinkRelativePathStartingWithHttpResolvesAgainstBasePath() {
+        // An entity set named "httpCustomers" produces a relative nextLink that a 4-character
+        // prefix test misclassified as absolute, yielding a non-requestable relative URL.
+        ContextPath path = new ContextPath(BASE).addSegment("People");
+        ContextPath nextPath = path.fromNextLink("httpCustomers?$skiptoken=x&$top=5");
+        assertEquals(BASE + "/httpCustomers?$skiptoken=x&$top=5", nextPath.toUrl());
+    }
+
+    @Test
     void fromNextLinkWithQueryThenAddQueryProducesSingleQuestionMark() {
         ContextPath path = new ContextPath(BASE).addSegment("People");
         ContextPath nextPath = path.fromNextLink(BASE + "/People?$skiptoken=abc");

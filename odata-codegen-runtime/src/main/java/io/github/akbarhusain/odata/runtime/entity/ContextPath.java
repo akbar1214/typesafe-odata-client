@@ -1,5 +1,6 @@
 package io.github.akbarhusain.odata.runtime.entity;
 
+import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -250,6 +251,30 @@ public record ContextPath(
     }
 
     /**
+     * True when the value is an absolute http(s) URL with a host.
+     *
+     * <p>The single definition of "absolute" for request targets. A four-character prefix
+     * test is not enough: a RELATIVE request target may legitimately begin with "http"
+     * (an entity set named {@code httpCustomers}), and treating it as absolute emits a
+     * non-requestable relative URL — or, for {@code $ref} bodies, a relative
+     * {@code @odata.id} the service rejects.
+     */
+    public static boolean isAbsoluteHttpUrl(String value) {
+        if (value == null || value.isBlank()) {
+            return false;
+        }
+        try {
+            URI uri = URI.create(value.trim());
+            String scheme = uri.getScheme();
+            return scheme != null
+                    && (scheme.equalsIgnoreCase("http") || scheme.equalsIgnoreCase("https"))
+                    && uri.getHost() != null;
+        } catch (IllegalArgumentException e) {
+            return false;
+        }
+    }
+
+    /**
      * Creates a ContextPath from an OData @odata.nextLink value.
      * Handles absolute URLs and URLs relative to the current base path, and parses
      * any query string into the trailing query segment so that chaining further
@@ -273,7 +298,7 @@ public record ContextPath(
             queryPart = trimmed.substring(queryIdx + 1);
         }
         String base;
-        if (pathPart.regionMatches(true, 0, "http", 0, 4)) {
+        if (isAbsoluteHttpUrl(pathPart)) {
             base = pathPart;
         } else {
             String root = basePath;
