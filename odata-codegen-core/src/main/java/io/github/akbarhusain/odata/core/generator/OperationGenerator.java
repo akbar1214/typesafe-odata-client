@@ -343,6 +343,12 @@ public class OperationGenerator extends AbstractTypeGenerator {
 
     private void prepareContainerTypeRefs(List<ParameterModel> parameters, SchemaModel owner,
                                            String reservedClassFqn) {
+        prepareContainerTypeRefs(parameters, owner, reservedClassFqn, null);
+    }
+
+    private void prepareContainerTypeRefs(List<ParameterModel> parameters, SchemaModel owner,
+                                           String reservedClassFqn,
+                                           java.util.Map<String, String> containerRefs) {
         List<String> candidates = new ArrayList<>();
         for (ParameterModel parameter : parameters) {
             String element = Names.isCollectionType(parameter.type())
@@ -351,7 +357,30 @@ public class OperationGenerator extends AbstractTypeGenerator {
             if (!Names.isPrimitiveType(resolved)) candidates.add(typeFqnOf(resolved, owner));
         }
         if (reservedClassFqn != null) candidates.add(reservedClassFqn);
+        if (containerRefs != null) candidates.addAll(containerRefs.keySet());
         typeRefs = TypeRefs.resolve(candidates);
+    }
+
+    /**
+     * Resolves the accessor's own request class against the container-wide reference map.
+     * The container always registers this FQN as a candidate ({@code functionImportClassFqns}
+     * / {@code actionImportClassFqn}), so a miss means the two resolutions diverged — a
+     * generator bug that must fail here rather than emit an unimported simple name one file
+     * over. Legacy callers without a container-wide map ({@code containerRefs == null}) keep
+     * the simple name, which is all they ever imported.
+     */
+    private static String requestClassReference(java.util.Map<String, String> containerRefs,
+                                                String requestFqn, String requestClassName,
+                                                String importName) {
+        if (containerRefs == null) {
+            return requestClassName;
+        }
+        String reference = containerRefs.get(requestFqn);
+        if (reference == null) {
+            throw new IllegalStateException("Internal error: request class '" + requestFqn
+                    + "' is not part of the resolution map for import '" + importName + "'");
+        }
+        return reference;
     }
 
     private List<String> operationTypeCandidates(ResolvedOp op) {
@@ -387,7 +416,13 @@ public class OperationGenerator extends AbstractTypeGenerator {
         Kind kind = resultKind(op);
         boolean isAction = !op.isFunction();
 
-        this.typeRefs = TypeRefs.resolve(operationTypeCandidates(op));
+        // The file's OWN class claims its simple name: a parameter or return type with the
+        // same simple name (e.g. an entity called GetStuffFunctionRequest) must be
+        // referenced fully-qualified and never imported, or the file imports its own class
+        // (lesson 201).
+        List<String> operationCandidates = operationTypeCandidates(op);
+        operationCandidates.add(outputPackage(op) + "." + className);
+        this.typeRefs = TypeRefs.resolve(operationCandidates);
         Set<String> imports = new TreeSet<>();
         imports.add("io.github.akbarhusain.odata.runtime.client.EntityOperations");
         imports.add("io.github.akbarhusain.odata.runtime.entity.Context");
@@ -809,7 +844,9 @@ public class OperationGenerator extends AbstractTypeGenerator {
         Kind kind = resultKind(op);
         boolean isAction = !bound.isFunction();
 
-        this.typeRefs = TypeRefs.resolve(operationTypeCandidates(op));
+        List<String> boundCandidates = operationTypeCandidates(op);
+        boundCandidates.add(boundFilePackage(bound) + "." + bound.className());
+        this.typeRefs = TypeRefs.resolve(boundCandidates);
         Set<String> imports = new TreeSet<>();
         imports.add("io.github.akbarhusain.odata.runtime.client.EntityOperations");
         imports.add("io.github.akbarhusain.odata.runtime.entity.Context");
@@ -1228,8 +1265,8 @@ public class OperationGenerator extends AbstractTypeGenerator {
         return basePkg + Names.packageNameSuffixOperation() + "." + cls;
     }
 
-    /** Import lines for the generated request classes of this import's overloads. */
-    public List<String> functionImportClassImportLines(FunctionImportModel fi, SchemaModel containerSchema) {
+    /** Fully-qualified names of the generated request classes for this import's overloads. */
+    public List<String> functionImportClassFqns(FunctionImportModel fi, SchemaModel containerSchema) {
         initEffectiveSchemas(containerSchema);
         List<Owned<FunctionModel>> overloads = resolveUnboundFunctionOverloads(fi.function(), fi.name());
         List<String> suffixes = allocateOverloadSuffixes(overloads);
@@ -1241,8 +1278,8 @@ public class OperationGenerator extends AbstractTypeGenerator {
         return lines;
     }
 
-    /** Import line for the generated request class of this action import. */
-    public String actionImportClassImportLine(ActionImportModel ai, SchemaModel containerSchema) {
+    /** Fully-qualified name of the generated request class for this action import. */
+    public String actionImportClassFqn(ActionImportModel ai, SchemaModel containerSchema) {
         initEffectiveSchemas(containerSchema);
         Owned<ActionModel> owned = resolveUnboundAction(ai.action(), ai.name());
         return classImportLine(basePackageOf(owned.owner()), Names.actionRequestClassName(ai.name()));
@@ -1278,6 +1315,20 @@ public class OperationGenerator extends AbstractTypeGenerator {
 
     public List<String> functionImportAccessorMethods(FunctionImportModel fi, SchemaModel containerSchema,
                                                        String reservedClassFqn) {
+        return functionImportAccessorMethods(fi, containerSchema, reservedClassFqn, null);
+    }
+
+    /**
+     * @param containerRefs the CONTAINER's resolved reference map (all candidates of the
+     *                      container file). Passing it makes the accessor's own request
+     *                      class and its parameter types participate in the container-wide
+     *                      contention resolution, so a simple name contested with a
+     *                      set/singleton/other-import reference is fully-qualified instead
+     *                      of double-imported.
+     */
+    public List<String> functionImportAccessorMethods(FunctionImportModel fi, SchemaModel containerSchema,
+                                                       String reservedClassFqn,
+                                                       java.util.Map<String, String> containerRefs) {
         initEffectiveSchemas(containerSchema);
         List<Owned<FunctionModel>> overloads = resolveUnboundFunctionOverloads(fi.function(), fi.name());
         List<String> suffixes = allocateOverloadSuffixes(overloads);
@@ -1285,9 +1336,11 @@ public class OperationGenerator extends AbstractTypeGenerator {
         for (int i = 0; i < overloads.size(); i++) {
             Owned<FunctionModel> owned = overloads.get(i);
             validateFunctionParameters(owned.model().parameters(), fi.name(), owned.owner());
-            prepareContainerTypeRefs(owned.model().parameters(), owned.owner(), reservedClassFqn);
+            prepareContainerTypeRefs(owned.model().parameters(), owned.owner(), reservedClassFqn, containerRefs);
+            String requestClassName = Names.functionRequestClassName(fi.name(), suffixes.get(i));
+            String requestFqn = classImportLine(basePackageOf(owned.owner()), requestClassName);
             methods.add(accessorMethodSource(
-                    Names.functionRequestClassName(fi.name(), suffixes.get(i)),
+                    requestClassReference(containerRefs, requestFqn, requestClassName, fi.name()),
                     Names.toJavaFieldName(fi.name()) + suffixes.get(i),
                     owned.model().parameters(), owned.owner()));
         }
@@ -1300,10 +1353,18 @@ public class OperationGenerator extends AbstractTypeGenerator {
 
     public String actionImportAccessorMethod(ActionImportModel ai, SchemaModel containerSchema,
                                              String reservedClassFqn) {
+        return actionImportAccessorMethod(ai, containerSchema, reservedClassFqn, null);
+    }
+
+    public String actionImportAccessorMethod(ActionImportModel ai, SchemaModel containerSchema,
+                                             String reservedClassFqn,
+                                             java.util.Map<String, String> containerRefs) {
         initEffectiveSchemas(containerSchema);
         Owned<ActionModel> owned = resolveUnboundAction(ai.action(), ai.name());
-        prepareContainerTypeRefs(owned.model().parameters(), owned.owner(), reservedClassFqn);
-        return accessorMethodSource(Names.actionRequestClassName(ai.name()),
+        prepareContainerTypeRefs(owned.model().parameters(), owned.owner(), reservedClassFqn, containerRefs);
+        String requestClassName = Names.actionRequestClassName(ai.name());
+        String requestFqn = classImportLine(basePackageOf(owned.owner()), requestClassName);
+        return accessorMethodSource(requestClassReference(containerRefs, requestFqn, requestClassName, ai.name()),
                 Names.toJavaFieldName(ai.name()), owned.model().parameters(), owned.owner());
     }
 
