@@ -22,7 +22,6 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
-import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -62,18 +61,10 @@ class AbstractHierarchyDeserializationTest {
         JavaCompiler compiler = ToolProvider.getSystemJavaCompiler();
         assertNotNull(compiler, "Java compiler not available - run with a JDK");
 
-        List<File> classpath = new ArrayList<>();
-        Path siblingClasses = Path.of("target", "..", "odata-codegen-runtime", "target", "classes").normalize();
-        if (Files.isReadable(siblingClasses)) {
-            classpath.add(siblingClasses.toFile());
-        }
-        Path m2 = Path.of(System.getProperty("user.home"), ".m2", "repository");
-        try (Stream<Path> jars = Files.walk(m2)) {
-            jars.filter(p -> p.toString().endsWith(".jar"))
-                    .filter(p -> !p.toString().contains("-sources") && !p.toString().contains("-javadoc"))
-                    .map(Path::toFile)
-                    .forEach(classpath::add);
-        }
+        // Deterministic dependency files from the build's own classpath (including the
+        // sibling reactor runtime) — never walk all of ~/.m2 by directory order, which can
+        // put a differently-versioned or shaded artifact on the compile classpath.
+        List<File> classpath = new ArrayList<>(CompilationHarness.findClasspathJars());
 
         StringWriter out = new StringWriter();
         StandardJavaFileManager fm = compiler.getStandardFileManager(null, null, null);
