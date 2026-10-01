@@ -139,6 +139,80 @@ class CollectionPropertySelectionTest {
                 "the Selector field must carry the same type");
     }
 
+    /**
+     * The INHERITED branch of the selectable-collection emitters (#56): a subtype's Selector
+     * has no constant to share for a collection declared on its base, so it must construct
+     * the descriptor inline with the SUBTYPE as owner. Neither fixture in this class had a
+     * {@code BaseType}, so this branch was unexercised.
+     */
+    @Test
+    void inheritedCollectionPropertiesMaterializeInTheSubtypeSelector(@TempDir Path out) throws Exception {
+        String doc = EDMX_HEAD
+                + EDM + " Namespace=\"Sel.T\">"
+                + "<ComplexType Name=\"Address\">"
+                + "<Property Name=\"Street\" Type=\"Edm.String\"/></ComplexType>"
+                + "<EntityType Name=\"Base\">"
+                + "<Key><PropertyRef Name=\"Id\"/></Key>"
+                + "<Property Name=\"Id\" Type=\"Edm.Int32\" Nullable=\"false\"/>"
+                + "<Property Name=\"Tags\" Type=\"Collection(Edm.String)\"/>"
+                + "<Property Name=\"Addresses\" Type=\"Collection(Sel.T.Address)\"/>"
+                + "</EntityType>"
+                + "<EntityType Name=\"Sub\" BaseType=\"Sel.T.Base\">"
+                + "<Property Name=\"OwnTags\" Type=\"Collection(Edm.String)\"/>"
+                + "</EntityType>"
+                + "<EntityContainer Name=\"Container\">"
+                + "<EntitySet Name=\"Subs\" EntityType=\"Sel.T.Sub\"/>"
+                + "</EntityContainer></Schema>"
+                + "</edmx:DataServices></edmx:Edmx>";
+        Path file = out.resolve("metadata.xml");
+        Files.writeString(file, doc, StandardCharsets.UTF_8);
+        CsdlModel model = new StaxCsdlParser().parse(Files.newInputStream(file));
+        new Generator(out, Map.of(), "com.sel").generate(model);
+        String source = Files.readString(out.resolve("com/sel/entity/Sub.java"));
+
+        assertTrue(source.contains(
+                        "public final SelectableCollectionProperty<Sub, String, "
+                                + "CollectionProperty.FilterableElement<String>, ?> TAGS = "
+                                + "new SelectableCollectionProperty<>(\"Tags\", Sub.class, String.class, "
+                                + "CollectionProperty.FilterableElement::new, null, \"Edm.String\");"),
+                "an inherited primitive collection must be selectable from the subtype");
+        assertTrue(source.contains(
+                        "public final SelectableCollectionProperty<Sub, Address, Address.Filterable, ?> "
+                                + "ADDRESSES = new SelectableCollectionProperty<>(\"Addresses\", Sub.class, "
+                                + "Address.class, Address.Filterable::new, null, null);"),
+                "an inherited complex collection must be selectable from the subtype");
+        assertTrue(source.contains(
+                        "public static final SelectableCollectionProperty<Sub, String, "
+                                + "CollectionProperty.FilterableElement<String>, ?> OWN_TAGS = "
+                                + "new SelectableCollectionProperty<>(\"OwnTags\", Sub.class, String.class, "
+                                + "CollectionProperty.FilterableElement::new, null, \"Edm.String\");"),
+                "the subtype's own collection gets its own constant");
+        assertTrue(source.contains(
+                        "public final SelectableCollectionProperty<Sub, String, "
+                                + "CollectionProperty.FilterableElement<String>, ?> OWN_TAGS = Sub.OWN_TAGS;"),
+                "and the subtype Selector shares that constant");
+
+        // Referee: an actual usage file, constant and selector-lambda forms.
+        Files.writeString(out.resolve("InheritedSelectUsage.java"), """
+                import com.sel.container.Container;
+                import com.sel.entity.Sub;
+                import io.github.akbarhusain.odata.runtime.entity.Context;
+
+                public class InheritedSelectUsage {
+                    public static void main(String[] args) {
+                        Context ctx = Context.builder().baseUrl("https://example.org").build();
+                        Container client = new Container(ctx);
+                        client.subs().select(Sub.TAGS, Sub.ADDRESSES, Sub.OWN_TAGS);
+                        client.subs().select(s -> s.TAGS, s -> s.ADDRESSES, s -> s.OWN_TAGS);
+                    }
+                }
+                """);
+        String errors = CompilationHarness.compileAll(out);
+        if (errors != null && !errors.isBlank()) {
+            fail("generated inheritance client must compile, but javac reported:\n" + errors);
+        }
+    }
+
     @Test
     void streamCollectionPropertyStaysUnselectable(@TempDir Path out) throws Exception {
         // Edm.Stream is excluded even as a collection: selectProperty has a distinct
