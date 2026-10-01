@@ -15,7 +15,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -71,10 +70,7 @@ class PolymorphicPropertyAccessCachingTest {
         }
     }
 
-    private static final AtomicInteger CONSTRUCTIONS = new AtomicInteger();
-
     static class Counting extends Base {
-        static { CONSTRUCTIONS.incrementAndGet(); }
     }
 
     static class CountingSub extends Counting {
@@ -150,25 +146,20 @@ class PolymorphicPropertyAccessCachingTest {
                 ctx, new ContextPath("https://svc/Things"), Base.class, new CountingSchema());
         assertEquals(n, page.currentPage().size());
 
-        // The value is a pure function of the Class, so re-reading the same document must
-        // not re-derive it. A count proportional to n would mean the cache is not reached
-        // (or is keyed wrongly); the exact number is JVM startup noise, hence the
-        // generous bound rather than a precise one.
-        long classesLoaded = java.lang.management.ManagementFactory.getClassLoadingMXBean()
-                .getLoadedClassCount();
-        assertTrue(classesLoaded > 0);
+        // The index is a pure function of the Class: re-reading the same document must not
+        // re-derive it. The build counter is the direct witness — the previous proxy
+        // (loaded-class delta under a generous bound) stayed at 0 even with the pre-cache
+        // per-node reflective walk re-installed, so it could not fail. When the cache is
+        // bypassed this grows roughly twice per element (declared type + resolved subtype).
+        long buildsBefore = EntityOperations.propertyAccessBuildCount();
         for (int i = 0; i < 5; i++) {
             EntityOperations.executeAndGetCollection(
                     ctx, new ContextPath("https://svc/Things"), Base.class, new CountingSchema());
         }
-        long after = java.lang.management.ManagementFactory.getClassLoadingMXBean()
-                .getLoadedClassCount();
-        // Repeated reads of the same document must not keep loading new classes; the
-        // per-node reflective walk allocates accessor objects and array copies instead,
-        // so the observable proxy is that the second pass adds no entity classes.
-        assertTrue(after - classesLoaded < 200,
-                "re-reading the same document loaded " + (after - classesLoaded)
-                        + " classes, which suggests the reflective walk is still per-node");
+        long buildsAfter = EntityOperations.propertyAccessBuildCount();
+        assertEquals(0, buildsAfter - buildsBefore,
+                "re-reading the same document rebuilt the property index "
+                        + (buildsAfter - buildsBefore) + " more times; the cache is not reached");
     }
 
     @Test

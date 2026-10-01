@@ -619,11 +619,25 @@ public class EntityOperations {
                 }
             };
 
+    /**
+     * Test hook: how many times the reflective index has been derived in this JVM. The
+     * increment lives in {@link #buildPropertyAccess} (not in {@code computeValue}) so the
+     * count also grows if the cache is bypassed and the walk runs per node — which is what
+     * makes the caching test able to fail.
+     */
+    private static final java.util.concurrent.atomic.AtomicLong PROPERTY_ACCESS_BUILDS =
+            new java.util.concurrent.atomic.AtomicLong();
+
+    static long propertyAccessBuildCount() {
+        return PROPERTY_ACCESS_BUILDS.get();
+    }
+
     private static Map<String, PropertyAccess> propertyAccess(Class<?> type) {
         return PROPERTY_ACCESS.get(type);
     }
 
     private static Map<String, PropertyAccess> buildPropertyAccess(Class<?> type) {
+        PROPERTY_ACCESS_BUILDS.incrementAndGet();
         Map<String, PropertyAccess> result = new LinkedHashMap<>();
         for (Class<?> current = type; current != null && current != Object.class;
                 current = current.getSuperclass()) {
