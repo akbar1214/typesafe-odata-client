@@ -1,5 +1,6 @@
 package io.github.akbarhusain.odata.runtime.query;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
@@ -41,17 +42,20 @@ public sealed interface Expandable<E> permits NavQuery, NavCollectionProperty {
      * {@code "PlanItems/NS.Flight"} and therefore does not collide with a plain
      * {@code "PlanItems"} entry.
      *
-     * <p>Boundary: the key is the <em>rendered</em> path with ONE trailing group stripped,
-     * so a {@link #raw(String)} root that already contains a parenthesized group followed
-     * by another one — {@code "A(B)($top=1)"} — keys as {@code "A(B)"} and would not
-     * collide with a plain {@code "A(B)"}. Such a root is not valid OData to begin with
-     * (chained builders merge into one group), so this is garbage in via the escape hatch
-     * rather than a reachable duplicate.
+     * <p>The key is stripped, so a padded {@link #raw(String)} root cannot pose as a
+     * distinct navigation.
+     *
+     * <p>Boundary: a raw root that contains a parenthesized group followed by another one
+     * — {@code "A(B)($top=1)"} — keys as {@code "A(B)"} and would not collide with a plain
+     * {@code "A(B)"}. Such a root is not valid OData to begin with (chained builders merge
+     * into one group), so this is garbage in via the escape hatch rather than a reachable
+     * duplicate.
      */
     static String navKey(String rendered) {
         Objects.requireNonNull(rendered, "rendered expand item must not be null");
-        int open = NavQuery.trailingOptionGroupOpen(rendered);
-        return open < 0 ? rendered : rendered.substring(0, open);
+        String path = rendered.strip();
+        int open = NavQuery.trailingOptionGroupOpen(path);
+        return open < 0 ? path : path.substring(0, open);
     }
 
     /**
@@ -64,28 +68,113 @@ public sealed interface Expandable<E> permits NavQuery, NavCollectionProperty {
      * inconsistently. An <em>exact</em> duplicate is a no-op rather than a conflict, so it
      * stays allowed and is collapsed by the callers.
      *
+     * <p>Both sides are ITEMIZED first: {@code expandOption = expandItem *(COMMA
+     * expandItem)}, so one collected string may hold several items — a
+     * {@link #raw(String)} root such as {@code "Trips($top=1),Flights"} smuggles a second
+     * entry for {@code Trips} past a plain string comparison. Commas inside an option
+     * group or a string literal are not separators, so a raw root that duplicates one of
+     * its OWN items is caught too. Itemization is TOP-LEVEL only: commas inside an option
+     * group belong to that item's own nested {@code $expand}, which is checked only when
+     * that nested value was built through the typed builders.
+     *
      * <p>Emitted into generated request classes, hence public.
      */
     static void requireDistinctExpand(List<String> existing, String rendered) {
-        if (existing == null || existing.isEmpty()) {
+        // Fast path: nothing collected and a single item cannot conflict. Keeps the common
+        // case allocation-free — a request builds NavQuery on every chained option call.
+        if ((existing == null || existing.isEmpty()) && !holdsSeveralItems(rendered)) {
             return;
         }
-        String key = navKey(rendered);
-        for (String prior : existing) {
-            if (prior == null || rendered.equals(prior)) {
-                continue;
+        List<String> items = new ArrayList<>();
+        if (existing != null) {
+            for (String prior : existing) {
+                items.addAll(expandItems(prior));
             }
-            if (key.equals(navKey(prior))) {
-                throw duplicateExpand(key, prior, rendered);
+        }
+        items.addAll(expandItems(rendered));
+        rejectDuplicateItems(items);
+    }
+
+    /** Whole-list form of {@link #requireDistinctExpand(List, String)}. */
+    static void requireDistinctExpands(List<String> entries) {
+        if (entries == null || entries.isEmpty()
+                || (entries.size() == 1 && !holdsSeveralItems(entries.get(0)))) {
+            return;
+        }
+        List<String> items = new ArrayList<>();
+        for (String entry : entries) {
+            items.addAll(expandItems(entry));
+        }
+        rejectDuplicateItems(items);
+    }
+
+    private static void rejectDuplicateItems(List<String> items) {
+        for (int i = 0; i < items.size(); i++) {
+            for (int j = 0; j < i; j++) {
+                String prior = items.get(j);
+                String added = items.get(i);
+                if (prior.equals(added)) {
+                    continue;
+                }
+                String key = navKey(added);
+                if (key.equals(navKey(prior))) {
+                    throw duplicateExpand(key, prior, added);
+                }
             }
         }
     }
 
-    /** Whole-list form of {@link #requireDistinctExpand(List, String)}. */
-    static void requireDistinctExpands(List<String> items) {
-        for (int i = 0; i < items.size(); i++) {
-            requireDistinctExpand(items.subList(0, i), items.get(i));
+    private static boolean holdsSeveralItems(String rendered) {
+        return rendered != null && rendered.indexOf(',') >= 0;
+    }
+
+    /**
+     * The individual {@code expandItem}s in one rendered value, split on TOP-LEVEL commas
+     * only. The doubled-quote literal rule mirrors {@link NavQuery#trailingOptionGroupOpen}
+     * — an OData string escapes a quote by doubling it, so a comma or parenthesis inside a
+     * literal belongs to the literal.
+     */
+    private static List<String> expandItems(String rendered) {
+        if (rendered == null) {
+            return List.of();
         }
+        int depth = 0;
+        int start = 0;
+        boolean inLiteral = false;
+        List<String> split = null;
+        for (int i = 0; i < rendered.length(); i++) {
+            char c = rendered.charAt(i);
+            if (inLiteral) {
+                if (c == '\'') {
+                    if (i + 1 < rendered.length() && rendered.charAt(i + 1) == '\'') {
+                        i++;
+                    } else {
+                        inLiteral = false;
+                    }
+                }
+                continue;
+            }
+            if (c == '\'') {
+                inLiteral = true;
+            } else if (c == '(') {
+                depth++;
+            } else if (c == ')') {
+                if (depth > 0) {
+                    depth--;
+                }
+            } else if (c == ',' && depth == 0) {
+                if (split == null) {
+                    split = new ArrayList<>();
+                }
+                split.add(rendered.substring(start, i));
+                start = i + 1;
+            }
+        }
+        if (split == null) {
+            return List.of(rendered);
+        }
+        split.add(rendered.substring(start));
+        return split;
     }
 
     private static IllegalArgumentException duplicateExpand(String key, String prior, String added) {

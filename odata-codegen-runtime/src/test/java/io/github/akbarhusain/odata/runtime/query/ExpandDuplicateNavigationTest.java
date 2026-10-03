@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -114,6 +115,62 @@ class ExpandDuplicateNavigationTest {
         assertTrue(m.contains("Trips"), m);
         assertTrue(m.contains("Trips($select=Name)"), m);
         assertTrue(m.contains("Trips($select=Budget)"), m);
+    }
+
+    /**
+     * A raw root may hold SEVERAL items — {@code expandOption = expandItem *(COMMA
+     * expandItem)} — so its contents are split before keying. Otherwise
+     * {@code raw("Trips($top=1),Flights")} smuggles a second entry for Trips past the
+     * check and renders an unanswerable value.
+     */
+    @Test
+    void rawRootWithTopLevelCommasIsItemizedBeforeValidation() {
+        NavQuery<Object, Object, Object> smuggle =
+                person().expand(NavQuery.raw("Trips($top=1),Flights"));
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
+                () -> smuggle.expand(nav("Trips").select(prop("Name"))));
+        assertTrue(e.getMessage().contains("Trips"), e.getMessage());
+    }
+
+    /** Same smuggle arriving in ONE call as the first entry for the navigation. */
+    @Test
+    void aRawRootSmugglingSeveralItemsIsCaughtInASingleCall() {
+        assertThrows(IllegalArgumentException.class,
+                () -> person().expand(nav("Trips"), NavQuery.raw("Trips($top=1),Flights")));
+    }
+
+    @Test
+    void aRawRootThatDuplicatesOneOfItsOwnItemsIsRejected() {
+        assertThrows(IllegalArgumentException.class,
+                () -> person().expand(NavQuery.raw("Trips,Trips($top=1)")));
+    }
+
+    /** Commas inside an option group (or a literal) are not item separators. */
+    @Test
+    void commasInsideOptionGroupsAndLiteralsAreNotSplit() {
+        assertEquals("Trips", Expandable.navKey("Trips($filter=Name eq 'a,b')"));
+        assertEquals("Trips", Expandable.navKey("Trips($expand=Friends($top=1),Photos)"));
+        // no over-splitting: the nested Friends entry must not collide with a top-level one
+        NavQuery<Object, Object, Object> nested = person()
+                .expand(NavQuery.raw("Trips($expand=Friends($top=1),Photos)"))
+                .expand(nav("Flights"));
+        assertEquals("Person($expand=Trips($expand=Friends($top=1),Photos),Flights)",
+                nested.toODataExpand());
+    }
+
+    /** A padded root is never a distinct legal navigation. */
+    @Test
+    void paddedRawRootsKeyTheSameAsUnpaddedOnes() {
+        assertEquals(Expandable.navKey("Trips"), Expandable.navKey("Trips "));
+        NavQuery<Object, Object, Object> withTrips = person().expand(nav("Trips"));
+        assertThrows(IllegalArgumentException.class,
+                () -> withTrips.expand(NavQuery.raw("Trips($top=1) ")));
+    }
+
+    @Test
+    void thePublicHelpersTolerateNullListsSymmetrically() {
+        assertDoesNotThrow(() -> Expandable.requireDistinctExpand(null, "Trips"));
+        assertDoesNotThrow(() -> Expandable.requireDistinctExpands(null));
     }
 
     @Test
