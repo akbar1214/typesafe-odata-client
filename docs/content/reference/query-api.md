@@ -64,6 +64,12 @@ Date/time extraction methods include `year`, `month`, `day`, `hour`, `minute`, `
 
 `contains(value)` and `length()` use OData collection forms rather than the string functions with those names. Null collection elements and missing selector factories fail fast.
 
+## Expand Identity
+
+`$expand` is a list of items, and a navigation may appear in it only once per level. Every `expand(...)` method therefore validates each rendered item against the ones already collected for that level, keyed on the navigation path with its option group stripped (`Trips($select=Name)` keys as `Trips`). A second entry for the same navigation fails with `IllegalArgumentException`; an identical repeat is silently collapsed, and a cast constant (`PlanItems/NS.Flight`) is a distinct item from its base navigation.
+
+This is enforced at runtime rather than at compile time. Java has no way to constrain two type arguments to differ, and the identity is not carried by the type: the same navigation appears as `NavCollectionProperty` bare and as `NavQuery` once options are chained, while two *different* navigations can share a type (`Northwind`'s `Employee.EMPLOYEE1` and `Employee.EMPLOYEES1` both parameterize on `Employee`). The correct spelling is one chain per navigation, which accumulates every option.
+
 ## Logical Expressions
 
 ```java

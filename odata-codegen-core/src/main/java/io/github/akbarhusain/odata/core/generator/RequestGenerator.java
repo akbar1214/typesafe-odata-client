@@ -212,6 +212,10 @@ public class RequestGenerator extends AbstractTypeGenerator {
         sb.append("        for (int i = 0; i < expandables.length; i++) {\n");
         sb.append("            var e = java.util.Objects.requireNonNull(expandables[i], \"expand expandables[\" + i + \"] must not be null\");\n");
         sb.append("            String rendered = e.toODataExpand();\n");
+        // One entry per navigation per level: checked BEFORE the append, so two
+        // colliding arguments in a single call are caught too. Exact duplicates stay a
+        // silent no-op via the contains() guard.
+        sb.append("            Expandable.requireDistinctExpand(next.expands, rendered);\n");
         sb.append("            if (!next.expands.contains(rendered)) next.expands.add(rendered);\n");
         sb.append("        }\n");
         sb.append("        return next;\n");
@@ -487,6 +491,10 @@ public class RequestGenerator extends AbstractTypeGenerator {
         sb.append("        for (int i = 0; i < expandables.length; i++) {\n");
         sb.append("            var e = java.util.Objects.requireNonNull(expandables[i], \"expand expandables[\" + i + \"] must not be null\");\n");
         sb.append("            String rendered = e.toODataExpand();\n");
+        // One entry per navigation per level: checked BEFORE the append, so two
+        // colliding arguments in a single call are caught too. Exact duplicates stay a
+        // silent no-op via the contains() guard.
+        sb.append("            Expandable.requireDistinctExpand(next.expands, rendered);\n");
         sb.append("            if (!next.expands.contains(rendered)) next.expands.add(rendered);\n");
         sb.append("        }\n");
         sb.append("        return next;\n");
