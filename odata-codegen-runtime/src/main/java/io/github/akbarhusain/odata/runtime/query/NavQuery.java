@@ -58,6 +58,10 @@ public record NavQuery<S, T, Sel>(
         filters = copy(filters, "filters");
         orderings = copy(orderings, "orderings");
         expands = copy(expands, "expands");
+        // One entry per navigation per level: the invariant belongs to the record, so a
+        // hand-built NavQuery carrying two entries for one navigation is caught here too,
+        // not only one reached through the expand() builders.
+        Expandable.requireDistinctExpands(expands);
     }
 
     private static <T> List<T> copy(List<T> values, String name) {
@@ -383,7 +387,7 @@ public record NavQuery<S, T, Sel>(
      * backward from the end means nested groups (lambdas, casts) inside the
      * trailing group do not confuse the match.
      */
-    private static int trailingOptionGroupOpen(String path) {
+    static int trailingOptionGroupOpen(String path) {
         if (path == null || !path.endsWith(")")) {
             return -1;
         }

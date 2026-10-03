@@ -20,6 +20,32 @@ CollectionPage<Person> people = client.people()
     .get();
 ```
 
+Two *different* navigations. For the selector-lambda form, chain the calls — the lambda
+overload takes one navigation, so `expand(p -> p.TRIPS, p -> p.PHOTO)` does not compile:
+
+```java
+CollectionPage<Person> people = client.people()
+    .expand(p -> p.TRIPS)
+    .expand(p -> p.PHOTO)
+    .get();
+```
+
+!!! warning "One entry per navigation per level"
+    `$expand` is a list of items, and each navigation may appear only once. Expanding the
+    same navigation twice with different options would render
+    `$expand=Trips($select=Name),Trips($select=Budget)`, which services answer
+    inconsistently, so the builders reject it with an `IllegalArgumentException` naming the
+    navigation. Put every option for a navigation on **one** chain instead — options
+    accumulate, so this is one item:
+
+    ```java
+    .expand(Person.TRIPS.select(Trip.NAME).expand(Trip.PLAN_ITEMS).top(5))
+    // $expand=Trips($select=Name;$top=5;$expand=PlanItems)
+    ```
+
+    Repeating an *identical* entry stays a silent no-op, and a cast constant is a distinct
+    item from its base navigation (`PlanItems` and `PlanItems/NS.Flight` may both appear).
+
 ## Selector Lambdas
 
 Every request-level read-shaping option has a constant form and a selector-lambda form. A selector is a generated view of the entity's properties, so a property from another entity is a compile error.
@@ -88,6 +114,14 @@ CollectionPage<Person> people = client.people()
 ```
 
 A bare `NavCollectionProperty` such as `Trip.PLAN_ITEMS` is an `Expandable`; a `NavQuery` returned by `.select(...)` is also an `Expandable`.
+
+Two child navigations of the same parent go in one call (or chained lambda calls), exactly
+as at the top level — the one-entry rule applies at every level:
+
+```java
+.expand(Person.TRIPS.expand(Trip.PLAN_ITEMS, Trip.PHOTOS))
+// $expand=Trips($expand=PlanItems,Photos)
+```
 
 ### Raw expand expressions
 
